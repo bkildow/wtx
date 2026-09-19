@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -222,5 +223,50 @@ func TestSetupLogPath(t *testing.T) {
 	want := filepath.Join(dir, SetupLogFile)
 	if got != want {
 		t.Errorf("SetupLogPath = %q, want %q", got, want)
+	}
+}
+
+func TestLegacySetupStateContinuesUpdating(t *testing.T) {
+	dir := t.TempDir()
+	legacy := filepath.Join(dir, legacySetupStateFile)
+	for _, status := range []SetupStatus{SetupRunning, SetupComplete} {
+		data := []byte(`{"status":"` + string(status) + `","pid":` + strconv.Itoa(os.Getpid()) + `,"log_file":".wt-setup.log"}`)
+		if err := os.WriteFile(legacy, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := ReconcileSetupState(dir)
+		if err != nil || got == nil || got.Status != status || got.LogFile != ".wt-setup.log" {
+			t.Fatalf("state = %+v, err = %v", got, err)
+		}
+		if _, err := os.Stat(SetupStatePath(dir)); !os.IsNotExist(err) {
+			t.Fatalf("legacy read created new state: %v", err)
+		}
+	}
+	if err := WriteSetupState(dir, &SetupState{Status: SetupSkipped}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReadSetupState(dir)
+	if err != nil || got.Status != SetupSkipped {
+		t.Fatalf("new state did not win: %+v, %v", got, err)
+	}
+	if err := os.WriteFile(SetupStatePath(dir), []byte("invalid"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ReadSetupState(dir); err == nil {
+		t.Fatal("corrupt new state must not fall back")
+	}
+}
+
+func TestReconcileStaleLegacyState(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, legacySetupStateFile), []byte(`{"status":"running","pid":-1}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ReconcileSetupState(dir)
+	if err != nil || got == nil || got.Status != SetupFailed {
+		t.Fatalf("state = %+v, %v", got, err)
+	}
+	if _, err := os.Stat(SetupStatePath(dir)); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -124,3 +124,43 @@ func TestEnsureGitExclude_DryRun(t *testing.T) {
 		t.Error("dry run should not create info directory")
 	}
 }
+
+func TestEnsureGitExcludeMigratesLegacy(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "info"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "info", "exclude")
+	original := "# user rules\n*.swp\n# wt-cli managed files\n.wt-setup.json\n.wt-setup.log\n# another rule\nprivate/"
+	if err := os.WriteFile(path, []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := EnsureGitExclude(dir, true); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != original {
+		t.Fatalf("dry run changed excludes: %q, %v", data, err)
+	}
+	for range 2 {
+		if err := EnsureGitExclude(dir, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	data, err = os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	for _, pattern := range excludePatterns {
+		if strings.Count(content, pattern+"\n") != 1 {
+			t.Errorf("missing or duplicate %q: %s", pattern, content)
+		}
+	}
+	if strings.Contains(content, "# wt-cli managed files") || strings.Count(content, "# wtx managed files") != 1 {
+		t.Errorf("bad marker migration: %s", content)
+	}
+	if !strings.Contains(content, "# user rules\n*.swp\n") || !strings.Contains(content, "# another rule\nprivate/\n") {
+		t.Errorf("lost user rules: %s", content)
+	}
+}

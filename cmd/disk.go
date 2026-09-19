@@ -2,22 +2,18 @@ package cmd
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/disk"
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-// diskWarnEnvVar silences the low-disk warning for a single invocation.
-const diskWarnEnvVar = "WT_NO_DISK_WARN"
-
 // warnLowDisk checks free space on the project partition and, when it is low,
 // warns and points at 'wt prune'. It never returns an error: a failed statfs
 // must not block the command that called it. Safe under --dry-run, since a
 // statfs has no side effects.
 func warnLowDisk(projectRoot string, cfg *config.Config) {
-	if os.Getenv(diskWarnEnvVar) != "" {
+	if lookupEnv("NO_DISK_WARN") != "" {
 		return
 	}
 	if cfg.DiskThreshold() == nil {

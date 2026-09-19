@@ -101,23 +101,34 @@ func TestLowDiskMessages(t *testing.T) {
 // TestWarnLowDiskEnvOverride verifies the escape hatch silences the warning
 // even when the configured threshold would trigger.
 func TestWarnLowDiskEnvOverride(t *testing.T) {
-	var buf bytes.Buffer
-	origOutput := ui.Output
-	ui.Output = &buf
-	t.Cleanup(func() { ui.Output = origOutput })
-
-	// A 99% threshold triggers on any real filesystem.
-	cfg := config.Config{DiskWarnPercent: 99, DiskWarnGB: -1}
-
-	warnLowDisk(t.TempDir(), &cfg)
-	if buf.Len() == 0 {
-		t.Fatal("expected a warning without the env override")
-	}
-
-	buf.Reset()
-	t.Setenv(diskWarnEnvVar, "1")
-	warnLowDisk(t.TempDir(), &cfg)
-	if buf.Len() != 0 {
-		t.Errorf("expected no output with %s set, got %q", diskWarnEnvVar, buf.String())
+	for _, tt := range []struct {
+		name            string
+		legacy, current *string
+		wantWarning     bool
+	}{
+		{name: "neither set", wantWarning: true},
+		{name: "legacy suppresses", legacy: envValue("1")},
+		{name: "current suppresses", current: envValue("1")},
+		{name: "empty current enables", legacy: envValue("1"), current: envValue(""), wantWarning: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			unsetEnv(t, "WT_NO_DISK_WARN")
+			unsetEnv(t, "WTX_NO_DISK_WARN")
+			if tt.legacy != nil {
+				t.Setenv("WT_NO_DISK_WARN", *tt.legacy)
+			}
+			if tt.current != nil {
+				t.Setenv("WTX_NO_DISK_WARN", *tt.current)
+			}
+			var buf bytes.Buffer
+			origOutput := ui.Output
+			ui.Output = &buf
+			t.Cleanup(func() { ui.Output = origOutput })
+			cfg := config.Config{DiskWarnPercent: 99, DiskWarnGB: -1}
+			warnLowDisk(t.TempDir(), &cfg)
+			if got := buf.Len() > 0; got != tt.wantWarning {
+				t.Fatalf("warning present = %v, want %v (output: %q)", got, tt.wantWarning, buf.String())
+			}
+		})
 	}
 }

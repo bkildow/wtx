@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -10,7 +11,7 @@ import (
 const bashFunction = `wt() {
   if [ "$1" = "cd" ] || [ "$1" = "add" ] || [ "$1" = "root" ] || [ "$1" = "remove" ]; then
     local dir
-    dir="$(command wt "$@")"
+    dir="$(command wt "$@")" || return
     if [ -n "$dir" ]; then
       cd "$dir" || return
     fi
@@ -24,7 +25,7 @@ const zshFunction = `unalias wt 2>/dev/null
 eval 'wt() {
   if [ "$1" = "cd" ] || [ "$1" = "add" ] || [ "$1" = "root" ] || [ "$1" = "remove" ]; then
     local dir
-    dir="$(command wt "$@")"
+    dir="$(command wt "$@")" || return
     if [ -n "$dir" ]; then
       cd "$dir" || return
     fi
@@ -37,6 +38,7 @@ eval 'wt() {
 const fishFunction = `function wt
   if test "$argv[1]" = "cd" -o "$argv[1]" = "add" -o "$argv[1]" = "root" -o "$argv[1]" = "remove"
     set -l dir (command wt $argv)
+    or return $status
     if test -n "$dir"
       cd "$dir"
     end
@@ -50,7 +52,7 @@ func newShellInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:       "shell-init [bash|zsh|fish]",
 		Short:     "Print shell startup configuration (wrapper function + completions)",
-		Long:      "Outputs shell code that sets up the wt cd wrapper function and tab completions. Add to your shell config with eval.",
+		Long:      "Outputs shell code that sets up the wtx and deprecated wt directory-changing wrapper functions and tab completions. Add to your shell config with eval.",
 		ValidArgs: []string{"bash", "zsh", "fish"},
 		Args:      cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -59,21 +61,30 @@ func newShellInitCmd() *cobra.Command {
 			// Print wrapper function
 			switch shell {
 			case "bash":
-				fmt.Print(bashFunction)
+				fmt.Print(strings.ReplaceAll(bashFunction, "wt", "wtx"), bashFunction)
 			case "zsh":
-				fmt.Print(zshFunction)
+				fmt.Print(strings.ReplaceAll(zshFunction, "wt", "wtx"), zshFunction)
 			case "fish":
-				fmt.Print(fishFunction)
+				fmt.Print(strings.ReplaceAll(fishFunction, "wt", "wtx"), fishFunction)
 			}
 
 			// Print completions
 			switch shell {
 			case "bash":
-				return cmd.Root().GenBashCompletionV2(os.Stdout, true)
+				if err := cmd.Root().GenBashCompletionV2(os.Stdout, true); err != nil {
+					return err
+				}
+				fmt.Println("complete -o default -F __start_wtx wt")
 			case "zsh":
-				return cmd.Root().GenZshCompletion(os.Stdout)
+				if err := cmd.Root().GenZshCompletion(os.Stdout); err != nil {
+					return err
+				}
+				fmt.Println("compdef _wtx wt")
 			case "fish":
-				return cmd.Root().GenFishCompletion(os.Stdout, true)
+				if err := cmd.Root().GenFishCompletion(os.Stdout, true); err != nil {
+					return err
+				}
+				fmt.Println("complete -c wt -w wtx")
 			}
 
 			return nil

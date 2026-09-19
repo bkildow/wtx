@@ -73,32 +73,37 @@ type ScriptRun struct {
 	Path string       // absolute path to the executable
 	Args []string     // pass-through arguments
 	Dir  string       // working directory for the script
-	Vars TemplateVars // exported as WT_* environment variables
+	Vars TemplateVars // exported as WTX_* and WT_* environment variables
 
 	SharedPath       string // absolute shared directory
 	MainBranch       string // configured main branch
 	MainWorktreePath string // absolute path of the main branch's worktree, or "" if not checked out
 }
 
-// ScriptEnv returns the WT_* environment variables exported to a script.
+// ScriptEnv returns the WTX_* and legacy WT_* variables exported to a script.
 func ScriptEnv(run ScriptRun) []string {
-	return []string{
-		"WT_SCRIPT_NAME=" + run.Name,
-		"WT_PROJECT_ROOT=" + run.Vars.ProjectRoot,
-		"WT_SHARED_PATH=" + run.SharedPath,
-		"WT_MAIN_BRANCH=" + run.MainBranch,
-		"WT_MAIN_WORKTREE_PATH=" + run.MainWorktreePath,
-		"WT_WORKTREE_PATH=" + run.Vars.WorktreePath,
-		"WT_WORKTREE_ID=" + run.Vars.WorktreeID,
-		"WT_BRANCH_NAME=" + run.Vars.BranchName,
+	values := []string{
+		"SCRIPT_NAME=" + run.Name,
+		"PROJECT_ROOT=" + run.Vars.ProjectRoot,
+		"SHARED_PATH=" + run.SharedPath,
+		"MAIN_BRANCH=" + run.MainBranch,
+		"MAIN_WORKTREE_PATH=" + run.MainWorktreePath,
+		"WORKTREE_PATH=" + run.Vars.WorktreePath,
+		"WORKTREE_ID=" + run.Vars.WorktreeID,
+		"BRANCH_NAME=" + run.Vars.BranchName,
 	}
+	env := make([]string, 0, 2*len(values))
+	for _, value := range values {
+		env = append(env, "WTX_"+value, "WT_"+value)
+	}
+	return env
 }
 
 // RunScript executes the script with stdin/stdout/stderr attached. The
 // script's stdout goes to the process stdout (not ui.Output) so that
 // `wt run export > file` and `$(wt run ...)` capture script output while wt's
 // own messages stay on stderr. The process inherits the parent environment
-// plus the WT_* variables. A non-zero exit is returned as an error carrying
+// plus the WTX_* and WT_* variables. A non-zero exit is returned as an error carrying
 // the exit code.
 func RunScript(ctx context.Context, run ScriptRun, dryRun bool) error {
 	return runScript(ctx, run, dryRun, os.Stdout, os.Stderr)

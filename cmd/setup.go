@@ -57,15 +57,28 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	state, _ := project.ReconcileSetupState(selected.Path)
+	// Resolve read-only first: a dry run must not migrate stale legacy state.
+	state, err := project.ResolveSetupStatus(selected.Path)
+	if err != nil {
+		return err
+	}
 	if state != nil && state.Status == project.SetupRunning {
-		return fmt.Errorf("setup already running for %s (PID %d) — check 'wt status'",
+		return fmt.Errorf("setup already running for %s (PID %d) — check 'wtx status'",
 			selected.Branch, state.PID)
 	}
 
 	background, err := resolveBackgroundMode(cmd, cfg)
 	if err != nil {
 		return err
+	}
+
+	if err := project.EnsureGitExclude(project.GitDirPath(projectRoot, cfg), dry); err != nil {
+		return err
+	}
+	if !dry {
+		if _, err := project.ReconcileSetupState(selected.Path); err != nil {
+			return err
+		}
 	}
 
 	msg := "Running setup for: " + selected.Branch
