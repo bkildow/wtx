@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/disk"
+	"github.com/bkildow/wtx/internal/disk"
 )
 
 func TestLoadValidConfig(t *testing.T) {

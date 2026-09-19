@@ -1,11 +1,11 @@
-// Package main is the entry point for the wt CLI.
+// Package main is the entry point for the wtx CLI.
 package main
 
 import (
 	"os"
 
-	"github.com/bkildow/wt-cli/cmd"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/cmd"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func main() {

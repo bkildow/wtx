@@ -11,8 +11,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bkildow/wt-cli/internal/config"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // ErrNoScripts is returned when .worktree.yml has no scripts configured.

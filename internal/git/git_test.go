@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func TestBatchEnv(t *testing.T) {

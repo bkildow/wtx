@@ -8,10 +8,10 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bkildow/wt-cli/internal/config"
-	"github.com/bkildow/wt-cli/internal/git"
-	"github.com/bkildow/wt-cli/internal/project"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 const dotAlias = "."

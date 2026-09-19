@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/git"
+	"github.com/bkildow/wtx/internal/git"
 )
 
 func TestFilterManagedWorktrees(t *testing.T) {

@@ -12,9 +12,9 @@ builds:
     binary: wt
     ldflags:
       - -s -w
-      - -X github.com/bkildow/wt-cli/cmd.version={{.Version}}
-      - -X github.com/bkildow/wt-cli/cmd.commit={{.ShortCommit}}
-      - -X github.com/bkildow/wt-cli/cmd.date={{.Date}}
+      - -X github.com/bkildow/wtx/cmd.version={{.Version}}
+      - -X github.com/bkildow/wtx/cmd.commit={{.ShortCommit}}
+      - -X github.com/bkildow/wtx/cmd.date={{.Date}}
     goos:
       - linux
       - darwin

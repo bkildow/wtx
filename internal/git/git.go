@@ -13,7 +13,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 type WorktreeInfo struct {

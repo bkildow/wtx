@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/config"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func writeScript(t *testing.T, path, body string, mode os.FileMode) {

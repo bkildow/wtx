@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bkildow/wt-cli/internal/project"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // startSleeper launches a long-lived child and reaps it as soon as it exits.

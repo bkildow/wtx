@@ -7,8 +7,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bkildow/wt-cli/internal/config"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func FindRoot(startDir string) (string, error) {
