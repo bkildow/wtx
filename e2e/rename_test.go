@@ -54,8 +54,21 @@ func TestRenameShellCompatibility(t *testing.T) {
 	worktree := filepath.Join(project, "worktrees", "main")
 	gitRun("--git-dir", bare, "worktree", "add", worktree, "main")
 
+	// CI may have writable completion directories in fpath. Include one to
+	// ensure non-interactive initialization never tries to prompt about it.
+	completionDir := filepath.Join(bin, "insecure-completions")
+	if err := os.Mkdir(completionDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(completionDir, "_probe"), []byte("#compdef probe\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(completionDir, 0o777); err != nil { // #nosec G302 -- intentionally insecure test fixture inside t.TempDir.
+		t.Fatal(err)
+	}
+
 	env := append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"),
-		"WTX_NO_DEPRECATION_WARN=", "NO_COLOR=1", "PROJECT="+project, "WORKTREE="+worktree)
+		"WTX_NO_DEPRECATION_WARN=", "NO_COLOR=1", "PROJECT="+project, "WORKTREE="+worktree, "TEST_COMPLETION_DIR="+completionDir)
 	run := func(t *testing.T, dir, program string, args ...string) (string, string, error) {
 		t.Helper()
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -113,7 +126,7 @@ exit 0
 				args := []string{"--noprofile", "--norc", "-c"}
 				if shell == "zsh" {
 					args = []string{"-f", "-c"}
-					script = "autoload -Uz compinit; compinit -D\n" + script
+					script = "fpath=(\"$TEST_COMPLETION_DIR\" $fpath); autoload -Uz compinit; compinit -i -D || exit\n" + script
 				}
 				if shell == "fish" {
 					args = []string{"--no-config", "-c"}
