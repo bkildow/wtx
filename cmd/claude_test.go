@@ -121,3 +121,14 @@ func TestResolveProjectRoot_emptyPayload(t *testing.T) {
 		t.Fatal("expected error for empty payload")
 	}
 }
+
+func TestClaudeInitDefaultBinary(t *testing.T) {
+	cmd := newClaudeInitCmd()
+	got, err := cmd.Flags().GetString("binary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "wtx" {
+		t.Fatalf("binary = %q, want wtx", got)
+	}
+}

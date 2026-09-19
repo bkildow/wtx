@@ -9,14 +9,16 @@ import (
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-// excludePatterns are the file patterns managed by wt-cli that should be
+// excludePatterns are the file patterns managed by wtx that should be
 // added to the repository's info/exclude file.
 var excludePatterns = []string{
 	SetupStateFile,
 	SetupLogFile,
+	legacySetupStateFile,
+	legacySetupLogFile,
 }
 
-// EnsureGitExclude ensures that wt-managed file patterns are listed in
+// EnsureGitExclude ensures that wtx-managed file patterns are listed in
 // the repository's info/exclude file so they don't appear as untracked.
 func EnsureGitExclude(gitDir string, dryRun bool) error {
 	infoDir := filepath.Join(gitDir, "info")
@@ -30,8 +32,13 @@ func EnsureGitExclude(gitDir string, dryRun bool) error {
 
 	lines := strings.Split(string(existing), "\n")
 	present := make(map[string]bool)
-	for _, line := range lines {
-		present[strings.TrimSpace(line)] = true
+	migrated := false
+	for i, line := range lines {
+		if strings.TrimSpace(line) == "# wt-cli managed files" {
+			lines[i] = "# wtx managed files"
+			migrated = true
+		}
+		present[strings.TrimSpace(lines[i])] = true
 	}
 
 	var missing []string
@@ -41,12 +48,12 @@ func EnsureGitExclude(gitDir string, dryRun bool) error {
 		}
 	}
 
-	if len(missing) == 0 {
+	if len(missing) == 0 && !migrated {
 		return nil
 	}
 
 	if dryRun {
-		ui.DryRunNotice("append to " + excludePath + ": " + strings.Join(missing, ", "))
+		ui.DryRunNotice("update managed exclusions in " + excludePath)
 		return nil
 	}
 
@@ -54,28 +61,22 @@ func EnsureGitExclude(gitDir string, dryRun bool) error {
 		return err
 	}
 
-	// Build the block to append.
+	// Preserve all existing patterns and comments while migrating the marker.
 	var buf strings.Builder
+	buf.WriteString(strings.Join(lines, "\n"))
 
 	// Ensure we start on a new line if the file has content without a trailing newline.
 	if len(existing) > 0 && existing[len(existing)-1] != '\n' {
 		buf.WriteByte('\n')
 	}
 
-	if !strings.Contains(string(existing), "# wt-cli managed files") {
-		buf.WriteString("# wt-cli managed files\n")
+	if !present["# wtx managed files"] {
+		buf.WriteString("# wtx managed files\n")
 	}
 	for _, p := range missing {
 		buf.WriteString(p)
 		buf.WriteByte('\n')
 	}
 
-	f, err := os.OpenFile(excludePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-
-	_, err = f.WriteString(buf.String())
-	return err
+	return os.WriteFile(excludePath, []byte(buf.String()), 0o600)
 }

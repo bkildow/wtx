@@ -9,12 +9,12 @@ cp $WORK/with-hooks.yml .worktree.yml
 
 exec wt add --skip-setup main
 exists worktrees/main
-grep '"status": "skipped"' worktrees/main/.wt-setup.json
+grep '"status": "skipped"' worktrees/main/.wtx-setup.json
 ! exists worktrees/main/setup-marker
 
 exec wt setup main
 exists worktrees/main/setup-marker
-grep '"status": "complete"' worktrees/main/.wt-setup.json
+grep '"status": "complete"' worktrees/main/.wtx-setup.json
 
 # Dot alias resolves to the worktree containing $PWD.
 rm worktrees/main/setup-marker

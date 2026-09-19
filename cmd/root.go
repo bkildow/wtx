@@ -26,7 +26,7 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if theme := os.Getenv("WT_THEME"); theme != "" {
+		if theme := lookupEnv("THEME"); theme != "" {
 			ui.ApplyTheme(theme)
 		}
 		return nil

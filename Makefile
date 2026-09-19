@@ -14,9 +14,10 @@ LDFLAGS := -s -w \
 
 build:
 	go build -ldflags '$(LDFLAGS)' -o $(BINARY) ./cmd/wtx
+	go build -ldflags '$(LDFLAGS)' -o wt ./cmd/wt
 
 install:
-	go install -ldflags '$(LDFLAGS)' ./cmd/wtx
+	go install -ldflags '$(LDFLAGS)' ./cmd/wtx ./cmd/wt
 
 test:
 	go test ./...
@@ -34,6 +35,6 @@ fmt:
 	gofumpt -l -w .
 
 clean:
-	rm -f $(BINARY)
+	rm -f $(BINARY) wt
 
 dev: fmt vet test build

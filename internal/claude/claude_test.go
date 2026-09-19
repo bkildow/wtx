@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -181,8 +182,8 @@ func TestRemoveHooks_preservesOtherHooks(t *testing.T) {
 	// Write settings with wt hooks + a custom hook.
 	settings := map[string]any{
 		"hooks": map[string]any{
-			HookWorktreeCreate: []any{map[string]any{"matcher": ""}},
-			HookWorktreeRemove: []any{map[string]any{"matcher": ""}},
+			HookWorktreeCreate: buildHooksConfig("wt")[HookWorktreeCreate],
+			HookWorktreeRemove: buildHooksConfig("wt")[HookWorktreeRemove],
 			"PreToolUse":       []any{map[string]any{"matcher": "Bash"}},
 		},
 	}
@@ -217,4 +218,97 @@ func readSettingsFile(t *testing.T, projectRoot string) map[string]any {
 		t.Fatalf("parse settings: %v", err)
 	}
 	return settings
+}
+
+func TestConfigureHooks_migratesAndPreservesCustomHooks(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared", "symlink")
+	custom := map[string]any{"type": "command", "command": "echo wt claude hook-worktree-create", "timeout": float64(5)}
+	managed := map[string]any{"type": "command", "command": "/opt/bin/wt claude hook-worktree-create", "timeout": float64(30), "async": true}
+	settings := map[string]any{"permissions": map[string]any{"allow": []any{"Bash"}}, "hooks": map[string]any{
+		HookWorktreeCreate: []any{map[string]any{"matcher": "custom", "hooks": []any{managed, custom}}},
+		HookWorktreeRemove: buildHooksConfig("wt")[HookWorktreeRemove],
+		"PreToolUse":       []any{map[string]any{"matcher": "Bash", "hooks": []any{custom}}},
+	}}
+	if err := writeSettings(filepath.Join(dir, settingsFile), settings); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := ConfigureHooks(dir, "wtx"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	managed["command"] = "wtx claude hook-worktree-create"
+	settings["hooks"].(map[string]any)[HookWorktreeRemove] = buildHooksConfig("wtx")[HookWorktreeRemove]
+	if got := readSettingsFile(t, dir); !reflect.DeepEqual(got, settings) {
+		t.Fatalf("migration changed custom settings: got %#v, want %#v", got, settings)
+	}
+	if err := RemoveHooks(dir); err != nil {
+		t.Fatal(err)
+	}
+	got := readSettingsFile(t, dir)["hooks"].(map[string]any)
+	groups := got[HookWorktreeCreate].([]any)
+	entries := groups[0].(map[string]any)["hooks"].([]any)
+	if len(entries) != 1 || !reflect.DeepEqual(entries[0], custom) {
+		t.Fatalf("custom hook removed: %#v", groups)
+	}
+	if _, ok := got["PreToolUse"]; !ok {
+		t.Fatal("custom event removed")
+	}
+	if IsHooksConfigured(dir) {
+		t.Fatal("custom hooks counted as managed")
+	}
+}
+
+func TestConfigureHooks_preservesMalformedSettings(t *testing.T) {
+	for _, data := range []string{`{"hooks":[]}`, `{"hooks":{"WorktreeCreate":{}}}`, `{broken`} {
+		t.Run(data, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, settingsFile)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(data), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := ConfigureHooks(dir, "wtx"); err == nil {
+				t.Fatal("expected invalid settings error")
+			}
+			got, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != data {
+				t.Fatal("invalid settings overwritten")
+			}
+		})
+	}
+}
+
+func TestManagedHookRecognition(t *testing.T) {
+	for _, command := range []string{"wt claude hook-worktree-create", "wtx claude hook-worktree-create", "/opt/bin/wt claude hook-worktree-create"} {
+		if !isManagedHook(map[string]any{"type": "command", "command": command}, HookWorktreeCreate, "") {
+			t.Errorf("missed managed command %q", command)
+		}
+	}
+	for _, command := range []string{"echo wt claude hook-worktree-create", "wt claude hook-worktree-create && echo done", "other claude hook-worktree-create", "$(echo wt) claude hook-worktree-create", "wt claude hook-worktree-remove"} {
+		if isManagedHook(map[string]any{"type": "command", "command": command}, HookWorktreeCreate, "") {
+			t.Errorf("claimed custom command %q", command)
+		}
+	}
+}
+
+func TestConfigureHooks_customBinaryMigration(t *testing.T) {
+	dir := t.TempDir()
+	if err := ConfigureHooks(dir, "wt"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if err := ConfigureHooks(dir, "/opt/bin/custom"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	expected := map[string]any{"hooks": buildHooksConfig("/opt/bin/custom")}
+	if got := readSettingsFile(t, dir); !reflect.DeepEqual(got, expected) {
+		t.Fatalf("got %#v, want %#v", got, expected)
+	}
 }

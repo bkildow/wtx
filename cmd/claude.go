@@ -59,7 +59,7 @@ func newClaudeInitCmd() *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE:  runClaudeInit,
 	}
-	cmd.Flags().String("binary", "wt", "Path or name of the wt binary to use in hook commands")
+	cmd.Flags().String("binary", "wtx", "Path or name of the wtx binary to use in hook commands")
 	return cmd
 }
 
