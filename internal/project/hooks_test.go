@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/config"
+	"github.com/bkildow/wtx/internal/config"
 )
 
 func TestRunSetupHooks(t *testing.T) {

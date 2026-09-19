@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bkildow/wt-cli/internal/disk"
+	"github.com/bkildow/wtx/internal/disk"
 	"gopkg.in/yaml.v3"
 )
 

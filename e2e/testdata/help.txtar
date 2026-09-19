@@ -7,4 +7,4 @@ stdout 'list'
 
 # wt --version should succeed
 exec wt --version
-stdout 'wt version'
+stdout 'wtx version'

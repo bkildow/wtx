@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/config"
+	"github.com/bkildow/wtx/internal/config"
 )
 
 func TestStarterScripts(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/bkildow/wt-cli
+module github.com/bkildow/wtx
 
 go 1.26.0
 

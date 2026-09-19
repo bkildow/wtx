@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bkildow/wt-cli/internal/config"
-	"github.com/bkildow/wt-cli/internal/disk"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/disk"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // diskWarnEnvVar silences the low-disk warning for a single invocation.

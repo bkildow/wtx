@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/bkildow/wt-cli/internal/forge"
-	"github.com/bkildow/wt-cli/internal/git"
+	"github.com/bkildow/wtx/internal/forge"
+	"github.com/bkildow/wtx/internal/git"
 )
 
 // TestPRMerged pins the guards that stop a merged PR from condemning a

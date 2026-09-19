@@ -6,7 +6,7 @@ import (
 	"os"
 
 	lipgloss "charm.land/lipgloss/v2"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/ui"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
 )
@@ -20,7 +20,7 @@ var (
 var dryRun bool
 
 var rootCmd = &cobra.Command{
-	Use:           "wt",
+	Use:           "wtx",
 	Short:         "A smarter git worktree workflow",
 	Version:       version,
 	SilenceUsage:  true,

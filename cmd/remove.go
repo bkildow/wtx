@@ -5,9 +5,9 @@ import (
 	"os"
 	"time"
 
-	"github.com/bkildow/wt-cli/internal/git"
-	"github.com/bkildow/wt-cli/internal/project"
-	"github.com/bkildow/wt-cli/internal/ui"
+	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
 )
 

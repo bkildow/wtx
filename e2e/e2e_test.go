@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bkildow/wt-cli/cmd"
-	"github.com/bkildow/wt-cli/internal/config"
+	"github.com/bkildow/wtx/cmd"
+	"github.com/bkildow/wtx/internal/config"
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
