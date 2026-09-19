@@ -1,5 +1,11 @@
 version: 2
 
+# Pinned explicitly. GoReleaser otherwise infers this from the git remote,
+# which is now "wtx" — that would silently rename the release archives and
+# break the published Casks/wt.rb, whose URLs are wt-cli_<version>_<os>_<arch>.
+# Flip this to "wtx" only together with the cmd/wtx binary rename and the new cask.
+project_name: wt-cli
+
 builds:
   - id: wt
     main: ./cmd/wt
@@ -29,7 +35,7 @@ homebrew_casks:
       name: homebrew-tap
       branch: main
       token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
-    homepage: "https://github.com/bkildow/wt-cli"
+    homepage: "https://github.com/bkildow/wtx"
     description: "CLI for managing git worktree-based development workflows"
     license: "MIT"
     commit_author:

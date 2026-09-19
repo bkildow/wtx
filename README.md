@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="wt-cli.webp" alt="wt CLI - git worktree workflow manager" width="600">
+  <img src="wtx.webp" alt="wtx - git worktree workflow manager" width="600">
 
   <br>
 
@@ -7,13 +7,28 @@
   Clone once as a bare repo, then spin up isolated worktrees per branch with shared config files, symlinks, and template variables.</p>
 
   <p>
-    <a href="https://github.com/bkildow/wt-cli/releases/latest"><img src="https://img.shields.io/github/v/release/bkildow/wt-cli" alt="Latest Release"></a>
-    <a href="https://github.com/bkildow/wt-cli/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bkildow/wt-cli" alt="License"></a>
-    <a href="https://github.com/bkildow/wt-cli"><img src="https://img.shields.io/github/go-mod/go-version/bkildow/wt-cli" alt="Go Version"></a>
+    <a href="https://github.com/bkildow/wtx/releases/latest"><img src="https://img.shields.io/github/v/release/bkildow/wtx" alt="Latest Release"></a>
+    <a href="https://github.com/bkildow/wtx/blob/main/LICENSE"><img src="https://img.shields.io/github/license/bkildow/wtx" alt="License"></a>
+    <a href="https://github.com/bkildow/wtx"><img src="https://img.shields.io/github/go-mod/go-version/bkildow/wtx" alt="Go Version"></a>
   </p>
 </div>
 
 ---
+
+> ### Renaming to `wtx`
+>
+> This project is being renamed from `wt` to `wtx`, and the repository has already
+> moved to [`bkildow/wtx`](https://github.com/bkildow/wtx). The rename is staged so
+> nothing breaks under you:
+>
+> - **Today** — the command is still `wt`. Nothing to change.
+> - **v0.11.0** — `wtx` becomes the real binary. A deprecated `wt` shim is installed
+>   alongside it and keeps working, including the `wt cd` shell wrapper and the
+>   `WT_*` variables exported to `wt run` scripts.
+> - **v1.0.0** — the `wt` name is removed.
+>
+> The docs below still use `wt` and will switch to `wtx` when that binary ships.
+> `.worktree.yml` is unaffected — no project config migration is needed.
 
 ## Features
 
@@ -60,8 +75,8 @@ go install github.com/bkildow/wt-cli/cmd/wt@latest
 Or build from source:
 
 ```bash
-git clone https://github.com/bkildow/wt-cli.git
-cd wt-cli
+git clone https://github.com/bkildow/wtx.git
+cd wtx
 go build -o wt ./cmd/wt
 # move wt to somewhere in your $PATH
 ```
