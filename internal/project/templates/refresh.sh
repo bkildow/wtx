@@ -9,10 +9,10 @@
 #   worktree starts from it instead of rebuilding from scratch.
 #
 # HOW IT IS RUN
-#   wt run refresh [args...]
+#   wtx run refresh [args...]
 #
-#   wt runs this file from whichever worktree you are standing in and exports
-#   the WT_* variables listed below. You can also run it directly.
+#   wtx runs this file from whichever worktree you are standing in and exports
+#   the WTX_* variables listed below. You can also run it directly.
 #
 # STATUS
 #   This is a generated starter. It currently does nothing except print a
@@ -21,7 +21,7 @@
 #
 # NOTE TO AI AGENTS
 #   If you are asked to implement this script:
-#     1. Inspect the main worktree ($WT_MAIN_WORKTREE_PATH) for how the local
+#     1. Inspect the main worktree ($WTX_MAIN_WORKTREE_PATH) for how the local
 #        environment is defined: compose.yaml / docker-compose.yml, .ddev/,
 #        Makefile, package.json, Procfile, devcontainer.json, etc.
 #     2. Keep the step structure below. Fill each step with the project's
@@ -30,20 +30,23 @@
 #     4. Anything that needs external credentials (hosting provider, S3, VPN)
 #        should be described in a comment and confirmed with the user rather
 #        than guessed.
-#     5. Verify by running `wt run refresh`, then `wt add <branch>` and check
+#     5. Verify by running `wtx run refresh`, then `wtx add <branch>` and check
 #        the new worktree picks up the published artifacts.
 #
-# ENVIRONMENT (set by wt)
-#   WT_PROJECT_ROOT        Project root (where .worktree.yml lives)
-#   WT_SHARED_PATH         Shared directory; copy/ is copied into new
+# ENVIRONMENT (set by wtx)
+#   WTX_PROJECT_ROOT        Project root (where .worktree.yml lives)
+#   WTX_SHARED_PATH         Shared directory; copy/ is copied into new
 #                          worktrees, symlink/ is symlinked
-#   WT_MAIN_BRANCH         Main branch name from .worktree.yml
-#   WT_MAIN_WORKTREE_PATH  Path of the main branch's worktree, or empty if it
+#   WTX_MAIN_BRANCH         Main branch name from .worktree.yml
+#   WTX_MAIN_WORKTREE_PATH  Path of the main branch's worktree, or empty if it
 #                          is not checked out
-#   WT_WORKTREE_PATH       Worktree this was invoked from (empty at the root)
-#   WT_BRANCH_NAME         Branch of that worktree
-#   WT_WORKTREE_ID         Branch name sanitized for filesystem use
-#   WT_SCRIPT_NAME         "refresh"
+#   WTX_WORKTREE_PATH       Worktree this was invoked from (empty at the root)
+#   WTX_BRANCH_NAME         Branch of that worktree
+#   WTX_WORKTREE_ID         Branch name sanitized for filesystem use
+#   WTX_SCRIPT_NAME         "refresh"
+#
+# Legacy WT_* aliases are also exported during the transition. The resolution
+# examples below prefer WTX_* and fall back to WT_* when unset or empty.
 #
 # The examples use docker compose because it is common; substitute the
 # project's own tooling (ddev, lando, make, npm scripts, ...).
@@ -51,7 +54,7 @@
 set -euo pipefail
 
 usage() {
-  echo "Usage: wt run refresh"
+  echo "Usage: wtx run refresh"
   echo "Rebuilds the shared local environment from the main worktree."
 }
 
@@ -67,8 +70,10 @@ done
 #    Refreshes normally run against the main worktree, not the one you happen
 #    to be in, so the captured state is always "main + latest data".
 # ---------------------------------------------------------------------------
-# main="${WT_MAIN_WORKTREE_PATH:?main worktree is not checked out; run: wt add ${WT_MAIN_BRANCH:-main}}"
-# shared="${WT_SHARED_PATH:?WT_SHARED_PATH is not set; run this via: wt run refresh}"
+# main="${WTX_MAIN_WORKTREE_PATH:-${WT_MAIN_WORKTREE_PATH:-}}"
+# shared="${WTX_SHARED_PATH:-${WT_SHARED_PATH:-}}"
+# : "${main:?main worktree is not checked out; run: wtx add ${WTX_MAIN_BRANCH:-${WT_MAIN_BRANCH:-main}}}"
+# : "${shared:?WTX_SHARED_PATH (or WT_SHARED_PATH) is not set; run this via: wtx run refresh}"
 # cd "$main"
 # echo "==> Refreshing from: $main"
 
