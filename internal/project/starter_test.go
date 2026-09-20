@@ -48,7 +48,7 @@ func TestWriteStarterScripts(t *testing.T) {
 	}
 
 	content, _ := os.ReadFile(dest)
-	for _, want := range []string{"#!/usr/bin/env bash", "WT_MAIN_WORKTREE_PATH", "WT_SHARED_PATH", "NOTE TO AI AGENTS", "docker compose"} {
+	for _, want := range []string{"#!/usr/bin/env bash", "WTX_PROJECT_ROOT", "WTX_SHARED_PATH", "WTX_MAIN_BRANCH", "WTX_MAIN_WORKTREE_PATH", "WTX_WORKTREE_PATH", "WTX_BRANCH_NAME", "WTX_WORKTREE_ID", "WTX_SCRIPT_NAME", "NOTE TO AI AGENTS", "docker compose"} {
 		if !strings.Contains(string(content), want) {
 			t.Errorf("starter missing %q", want)
 		}
@@ -74,8 +74,10 @@ func TestWriteStarterScripts(t *testing.T) {
 	}
 
 	// --help works, unknown args fail.
-	if err := exec.Command(dest, "--help").Run(); err != nil {
+	if out, err := exec.Command(dest, "--help").CombinedOutput(); err != nil {
 		t.Errorf("--help failed: %v", err)
+	} else if !strings.Contains(string(out), "Usage: wtx run refresh") {
+		t.Errorf("--help output = %q", out)
 	}
 	if err := exec.Command(dest, "--bogus").Run(); err == nil {
 		t.Error("unknown argument should fail")
@@ -110,5 +112,56 @@ func TestWriteStarterScriptsDryRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "bin", "refresh")); err == nil {
 		t.Error("dry-run wrote the starter script")
+	}
+}
+
+// Exercise the commented resolution example users enable when implementing refresh.
+func TestRefreshTemplateEnvironmentCompatibility(t *testing.T) {
+	if _, err := exec.LookPath("bash"); err != nil {
+		t.Skip("bash not available")
+	}
+	content, err := starterFS.ReadFile("templates/refresh.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var script strings.Builder
+	script.WriteString("set -euo pipefail\n")
+	for _, line := range strings.Split(string(content), "\n") {
+		if strings.HasPrefix(line, "# main=") || strings.HasPrefix(line, "# shared=") || strings.HasPrefix(line, "# : ") {
+			script.WriteString(strings.TrimPrefix(line, "# ") + "\n")
+		}
+	}
+	script.WriteString(`printf '%s\n%s\n' "$main" "$shared"`)
+	tests := []struct {
+		name string
+		env  []string
+		want string
+		fail bool
+	}{
+		{"new prefix", []string{"WTX_MAIN_WORKTREE_PATH=/new main", "WTX_SHARED_PATH=/new shared"}, "/new main\n/new shared\n", false},
+		{"legacy prefix", []string{"WT_MAIN_WORKTREE_PATH=/old main", "WT_SHARED_PATH=/old shared"}, "/old main\n/old shared\n", false},
+		{"new prefix wins", []string{"WTX_MAIN_WORKTREE_PATH=/new", "WTX_SHARED_PATH=/new/shared", "WT_MAIN_WORKTREE_PATH=/old", "WT_SHARED_PATH=/old/shared"}, "/new\n/new/shared\n", false},
+		{"empty new prefix falls back", []string{"WTX_MAIN_WORKTREE_PATH=", "WTX_SHARED_PATH=", "WT_MAIN_WORKTREE_PATH=/old", "WT_SHARED_PATH=/old/shared"}, "/old\n/old/shared\n", false},
+		{"missing main", nil, "run: wtx add main", true},
+		{"new branch hint wins", []string{"WTX_MAIN_BRANCH=trunk", "WT_MAIN_BRANCH=master"}, "run: wtx add trunk", true},
+		{"legacy branch hint", []string{"WT_MAIN_BRANCH=master"}, "run: wtx add master", true},
+		{"missing shared", []string{"WTX_MAIN_WORKTREE_PATH=/main"}, "run this via: wtx run refresh", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := exec.Command("bash", "-c", script.String())
+			cmd.Env = tt.env
+			out, err := cmd.CombinedOutput()
+			if (err != nil) != tt.fail {
+				t.Fatalf("exit error = %v, want failure %v; output: %s", err, tt.fail, out)
+			}
+			if tt.fail {
+				if !strings.Contains(string(out), tt.want) {
+					t.Errorf("output = %q, want hint %q", out, tt.want)
+				}
+			} else if string(out) != tt.want {
+				t.Errorf("output = %q, want %q", out, tt.want)
+			}
+		})
 	}
 }
