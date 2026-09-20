@@ -17,9 +17,7 @@
 
 > ### Migrating from `wt` to `wtx` (v0.11.0)
 >
-> This README describes the upcoming v0.11.0 release and the current source tree.
-> Until v0.11.0 is published, Homebrew and `@latest` still install the previous
-> release; use the source build below to try `wtx` now.
+> v0.11.0 is available through Homebrew and `go install` using the commands below.
 >
 > In v0.11.0, `wtx` is the primary command and a deprecated `wt` shim ships
 > alongside it. Existing `wt` commands keep working and print a migration warning.
@@ -57,8 +55,6 @@
 
 ### Homebrew
 
-After v0.11.0 is published:
-
 ```bash
 brew install bkildow/tap/wtx
 ```
@@ -71,8 +67,6 @@ brew install wtx
 ```
 
 ### Go
-
-After v0.11.0 is published:
 
 ```bash
 go install github.com/bkildow/wtx/cmd/wtx@latest
