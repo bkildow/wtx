@@ -1,12 +1,23 @@
 version: 2
 
-# Pinned explicitly. GoReleaser otherwise infers this from the git remote,
-# which is now "wtx" — that would silently rename the release archives and
-# break the published Casks/wt.rb, whose URLs are wt-cli_<version>_<os>_<arch>.
-# Flip this to "wtx" only together with the cmd/wtx binary rename and the new cask.
-project_name: wt-cli
+# Both command names ship together throughout the compatibility transition.
+project_name: wtx
 
 builds:
+  - id: wtx
+    main: ./cmd/wtx
+    binary: wtx
+    ldflags:
+      - -s -w
+      - -X github.com/bkildow/wtx/cmd.version={{.Version}}
+      - -X github.com/bkildow/wtx/cmd.commit={{.ShortCommit}}
+      - -X github.com/bkildow/wtx/cmd.date={{.Date}}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
   - id: wt
     main: ./cmd/wt
     binary: wt
@@ -24,12 +35,18 @@ builds:
 
 archives:
   - id: default
+    ids:
+      - wtx
+      - wt
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
 
 homebrew_casks:
-  - name: wt
+  - name: wtx
+    binaries:
+      - wtx
+      - wt
     repository:
       owner: bkildow
       name: homebrew-tap
@@ -47,6 +64,7 @@ homebrew_casks:
       post:
         install: |
           if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wtx"]
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wt"]
           end
 
