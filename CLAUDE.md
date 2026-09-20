@@ -5,21 +5,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-make                # Build binary (equivalent to: go build -o wt ./cmd/wt)
+make                # Build wtx and the deprecated wt shim
 make test           # Run all tests
 make test-short     # Skip integration tests
 make vet            # Lint (golangci-lint)
 make fmt            # Format code (gofumpt)
 make dev            # fmt + vet + test + build
-make clean          # Remove built binary
-make install        # Install to $GOBIN as "wt"
+make clean          # Remove both built binaries
+make install        # Install wtx and the deprecated wt shim to $GOBIN
 ```
 
 Raw `go` commands for reference:
 
 ```bash
-go build -o wt ./cmd/wt                   # Build binary
-go install ./cmd/wt                       # Install to $GOBIN as "wt"
+go build -o wtx ./cmd/wtx                   # Build binary
+go install ./cmd/wtx ./cmd/wt              # Install wtx and the deprecated wt shim
 go test ./...                             # Run all tests
 go test ./internal/git/                   # Run tests for a single package
 go test ./internal/git/ -run TestDryRun   # Run a specific test
@@ -29,7 +29,7 @@ go vet ./...                              # Lint
 
 ## Architecture
 
-`wt` is a CLI tool for managing git worktree-based development workflows. It wraps a bare git repository and creates worktrees under a `worktrees/` directory with shared files/symlinks.
+`wtx` is a CLI tool for managing git worktree-based development workflows. It wraps a bare git repository and creates worktrees under a `worktrees/` directory with shared files/symlinks.
 
 ### Key design decisions
 
@@ -44,7 +44,7 @@ go vet ./...                              # Lint
 - **`internal/git/`** — All git operations. `Runner` wraps `--git-dir` for bare repo context. `CloneBare` is the only method that bypasses `--git-dir` (it creates the bare repo). Parse functions (`parseRemoteBranches`, `parseWorktreeList`) are pure and unit-testable.
 - **`internal/config/`** — `.worktree.yml` reading/writing. `DefaultConfig()` provides sensible defaults. `config.Exists()` and `config.Load()` are used by `project.FindRoot()` to walk up the directory tree.
 - **`internal/project/`** — Project-level operations: root detection (walks up looking for `.worktree.yml`), scaffold creation, repo name extraction from URLs.
-- **`internal/ui/`** — Terminal output (`output.go` with styled helpers) and interactive prompts (`prompts.go` with huh). All output goes to `ui.Output` (defaults to stderr) so stdout stays clean for machine-readable output like `wt cd`.
+- **`internal/ui/`** — Terminal output (`output.go` with styled helpers) and interactive prompts (`prompts.go` with huh). All output goes to `ui.Output` (defaults to stderr) so stdout stays clean for machine-readable output like `wtx cd`.
 
 ### Adding a new command
 
@@ -55,7 +55,7 @@ go vet ./...                              # Lint
 
 ### Implementation roadmap (from ideas.md)
 
-Phase 1 (done): scaffold, `wt clone`. Phase 2 (next): `wt add`, `wt list`, `wt remove`, `wt cd`. Phase 3: `wt apply`. Phase 4+: hooks, templates, completions, IDE integration.
+Phase 1 (done): scaffold, `wtx clone`. Phase 2 (next): `wtx add`, `wtx list`, `wtx remove`, `wtx cd`. Phase 3: `wtx apply`. Phase 4+: hooks, templates, completions, IDE integration.
 
 <!-- br-agent-instructions-v1 -->
 

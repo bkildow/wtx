@@ -1,5 +1,5 @@
-# wt - worktree project configuration
-# https://github.com/bkildow/wt-cli
+# wtx - worktree project configuration
+# https://github.com/bkildow/wtx
 
 # Config schema version (do not change)
 version: 1
@@ -13,12 +13,12 @@ worktree_dir: worktrees
 # Directory for shared files (copy/ and symlink/ subdirectories)
 shared_dir: shared
 
-# Editor for 'wt open' (e.g. cursor, code, zed)
+# Editor for 'wtx open' (e.g. cursor, code, zed)
 # Falls back to $EDITOR, then auto-detects
 # editor: cursor
 
-# Color theme for wt output (available: default, catppuccin)
-# Can also be set globally via WT_THEME env var
+# Color theme for wtx output (available: default, catppuccin)
+# Can also be set globally via WTX_THEME env var (WT_THEME fallback when unset)
 # theme: catppuccin
 
 # Commands to run after creating a new worktree
@@ -42,7 +42,7 @@ shared_dir: shared
 #   - docker compose down
 #   - make clean
 
-# Named scripts run via 'wt run <name>' from any worktree
+# Named scripts run via 'wtx run <name>' from any worktree
 # Paths are executables resolved relative to the project root
 # scripts:
 #   refresh: bin/refresh-snapshot
