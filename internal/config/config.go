@@ -40,7 +40,7 @@ type Config struct {
 	Editor           string   `yaml:"editor,omitempty"`
 
 	// Scripts maps a name to an executable path (relative to the project
-	// root, or absolute) run via `wt run <name>`.
+	// root, or absolute) run via `wtx run <name>`.
 	Scripts map[string]string `yaml:"scripts,omitempty"`
 
 	// DiskWarn gates the low-disk-space warning. It is a pointer because the
@@ -132,8 +132,8 @@ func Exists(projectRoot string) bool {
 func renderAnnotatedConfig(cfg *Config) string {
 	var b strings.Builder
 
-	b.WriteString("# wt - worktree project configuration\n")
-	b.WriteString("# https://github.com/bkildow/wt-cli\n\n")
+	b.WriteString("# wtx - worktree project configuration\n")
+	b.WriteString("# https://github.com/bkildow/wtx\n\n")
 
 	b.WriteString("# Config schema version (do not change)\n")
 	if cfg != nil {
@@ -170,7 +170,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 		b.WriteString("# main_branch: main\n")
 	}
 
-	b.WriteString("\n# Editor for 'wt open' (e.g. cursor, code, zed)\n")
+	b.WriteString("\n# Editor for 'wtx open' (e.g. cursor, code, zed)\n")
 	b.WriteString("# Falls back to $EDITOR, then auto-detects\n")
 	if cfg != nil && cfg.Editor != "" {
 		fmt.Fprintf(&b, "editor: %s\n", cfg.Editor)
@@ -186,8 +186,8 @@ func renderAnnotatedConfig(cfg *Config) string {
 		b.WriteString("# background_setup: false\n")
 	}
 
-	b.WriteString("\n# Warn when free disk space runs low and suggest 'wt prune' (default: on)\n")
-	b.WriteString("# Checked on 'wt add' and 'wt status'. Set WT_NO_DISK_WARN=1 to silence per-command.\n")
+	b.WriteString("\n# Warn when free disk space runs low and suggest 'wtx prune' (default: on)\n")
+	b.WriteString("# Checked on 'wtx add' and 'wtx status'. Set WTX_NO_DISK_WARN=1 to silence per-command.\n")
 	if cfg != nil && cfg.DiskWarn != nil && !*cfg.DiskWarn {
 		b.WriteString("disk_warn: false\n")
 	} else {
@@ -257,7 +257,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 		b.WriteString("#   - make clean\n")
 	}
 
-	b.WriteString("\n# Named scripts run via 'wt run <name>' from any worktree\n")
+	b.WriteString("\n# Named scripts run via 'wtx run <name>' from any worktree\n")
 	b.WriteString("# Paths are executables resolved relative to the project root\n")
 	if cfg != nil && len(cfg.Scripts) > 0 {
 		b.WriteString("scripts:\n")

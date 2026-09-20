@@ -9,7 +9,7 @@ import (
 )
 
 // warnLowDisk checks free space on the project partition and, when it is low,
-// warns and points at 'wt prune'. It never returns an error: a failed statfs
+// warns and points at 'wtx prune'. It never returns an error: a failed statfs
 // must not block the command that called it. Safe under --dry-run, since a
 // statfs has no side effects.
 func warnLowDisk(projectRoot string, cfg *config.Config) {
@@ -49,10 +49,10 @@ func lowDiskMessages(usage disk.Usage, cfg *config.Config) []string {
 	msgs := []string{fmt.Sprintf("Low disk space: %s free of %s (%.0f%% free)",
 		ui.FormatBytes(usage.FreeBytes), ui.FormatBytes(usage.TotalBytes), usage.PercentFree())}
 
-	msgs = append(msgs, "Run 'wt prune' to remove worktrees for merged branches.")
+	msgs = append(msgs, "Run 'wtx prune' to remove worktrees for merged branches.")
 
 	if len(cfg.Teardown) == 0 && len(cfg.ParallelTeardown) == 0 {
-		msgs = append(msgs, "No teardown hooks are configured, so 'wt prune' frees worktree "+
+		msgs = append(msgs, "No teardown hooks are configured, so 'wtx prune' frees worktree "+
 			"directories but not docker volumes or other external resources.")
 	}
 

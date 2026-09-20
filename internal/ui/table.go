@@ -5,7 +5,7 @@ import (
 	"charm.land/lipgloss/v2/table"
 )
 
-// NewTable returns a lipgloss table pre-configured with the wt visual style.
+// NewTable returns a lipgloss table pre-configured with the wtx visual style.
 // Callers should chain .Headers(...) and .Row(...) / .Rows(...) on the result.
 func NewTable() *table.Table {
 	headerStyle := StyleHeading.Padding(0, 1)

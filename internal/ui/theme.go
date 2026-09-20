@@ -11,7 +11,7 @@ import (
 	"charm.land/huh/v2"
 )
 
-// theme holds the semantic colors used throughout wt output.
+// theme holds the semantic colors used throughout wtx output.
 // Accent and Heading are optional; when empty they fall back to Info.
 type theme struct {
 	Success string
@@ -101,7 +101,7 @@ var themes = map[string]theme{
 
 const defaultTheme = "snazzy"
 
-// activeTheme tracks the currently applied theme name for WtTheme.
+// activeTheme tracks the currently applied theme name for WtxTheme.
 var activeTheme = defaultTheme
 
 func init() {
@@ -114,7 +114,7 @@ func init() {
 func ApplyTheme(name string) {
 	t, ok := themes[name]
 	if !ok {
-		fmt.Fprintf(Output, "wt: unknown theme %q (available: %s)\n",
+		fmt.Fprintf(Output, "wtx: unknown theme %q (available: %s)\n",
 			name, strings.Join(ThemeNames(), ", "))
 		name = defaultTheme
 		t = themes[name]
@@ -150,15 +150,15 @@ func ThemeNames() []string {
 	return names
 }
 
-// wtThemeCache implements huh.Theme with per-isDark caching so the ~70 style
+// wtxThemeCache implements huh.Theme with per-isDark caching so the ~70 style
 // operations in buildStyles are not repeated on every render frame.
-type wtThemeCache struct {
+type wtxThemeCache struct {
 	name  string      // theme name at creation time
 	light *huh.Styles // cached for isDark=false
 	dark  *huh.Styles // cached for isDark=true
 }
 
-func (c *wtThemeCache) Theme(isDark bool) *huh.Styles {
+func (c *wtxThemeCache) Theme(isDark bool) *huh.Styles {
 	if isDark {
 		if c.dark == nil {
 			c.dark = buildStyles(c.name, true)
@@ -171,9 +171,9 @@ func (c *wtThemeCache) Theme(isDark bool) *huh.Styles {
 	return c.light
 }
 
-// WtTheme returns a huh theme customised to match the active wt palette.
-func WtTheme() huh.Theme {
-	return &wtThemeCache{name: activeTheme}
+// WtxTheme returns a huh theme customised to match the active wtx palette.
+func WtxTheme() huh.Theme {
+	return &wtxThemeCache{name: activeTheme}
 }
 
 func buildStyles(themeName string, isDark bool) *huh.Styles {

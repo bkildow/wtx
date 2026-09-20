@@ -109,7 +109,7 @@ func TestResolveProjectRoot_noProject(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent paths")
 	}
-	if !strings.Contains(err.Error(), "could not find wt project root") {
+	if !strings.Contains(err.Error(), "could not find wtx project root") {
 		t.Errorf("error = %q", err.Error())
 	}
 }

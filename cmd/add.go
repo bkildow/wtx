@@ -221,7 +221,7 @@ func runSetupBackground(projectRoot, worktreePath string, cfg *config.Config, dr
 
 	exe, err := os.Executable()
 	if err != nil {
-		return fmt.Errorf("cannot find wt binary: %w", err)
+		return fmt.Errorf("cannot find wtx binary: %w", err)
 	}
 
 	child := exec.Command(
@@ -260,7 +260,7 @@ func runSetupBackground(projectRoot, worktreePath string, cfg *config.Config, dr
 	}
 
 	ui.Success(msg)
-	ui.Step("Setup is running in the background. Run 'wt status' to check progress.")
+	ui.Step("Setup is running in the background. Run 'wtx status' to check progress.")
 	fmt.Println(worktreePath)
 	return nil
 }
