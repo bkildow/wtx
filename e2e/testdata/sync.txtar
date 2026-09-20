@@ -7,7 +7,7 @@ setup-project
 cd $WORK/project
 
 # Create worktrees for the existing local branches and configure upstream
-# tracking explicitly. Using git directly (not `wt add`) keeps the test focused
+# tracking explicitly. Using git directly (not `wtx add`) keeps the test focused
 # on sync behavior with guaranteed upstream setup.
 exec git --git-dir=.bare worktree add --relative-paths worktrees/master master
 exec git --git-dir=.bare worktree add --relative-paths worktrees/develop develop
@@ -15,7 +15,7 @@ exec git -C worktrees/master branch --set-upstream-to=origin/master
 exec git -C worktrees/develop branch --set-upstream-to=origin/develop
 
 # Both upstreams resolve cleanly — sync reports up to date with no warnings.
-exec wt sync
+exec wtx sync
 stderr 'master: up to date'
 stderr 'develop: up to date'
 ! stderr 'could not check upstream'
@@ -23,16 +23,16 @@ stderr 'Sync complete: 0 updated, 0 skipped, 0 failed'
 
 # Regression test: configured-but-gone upstream. When branch.<name>.merge points
 # at a non-existent remote ref, git's @{upstream} resolution fails with
-# "fatal: no such branch: 'HEAD..'". wt sync should treat this as up-to-date
+# "fatal: no such branch: 'HEAD..'". wtx sync should treat this as up-to-date
 # and not surface a warning.
 exec git --git-dir=.bare config branch.develop.merge refs/heads/does-not-exist
-exec wt sync
+exec wtx sync
 stderr 'develop: up to date'
 ! stderr 'could not check upstream'
 ! stderr 'no such branch'
 
 # Restore develop's upstream, push a new commit to remote develop, and verify
-# wt sync detects the lag and pulls.
+# wtx sync detects the lag and pulls.
 exec git --git-dir=.bare config branch.develop.merge refs/heads/develop
 
 cd $WORK/remote
@@ -42,7 +42,7 @@ exec git add newfile.txt
 exec git commit -m 'add newfile'
 
 cd $WORK/project
-exec wt sync
+exec wtx sync
 stderr 'develop: pulling 1 commit'
 stderr 'Sync complete: 1 updated'
 exists worktrees/develop/newfile.txt

@@ -5,8 +5,8 @@ exec git init myrepo
 cd myrepo
 exec git commit --allow-empty -m 'initial'
 
-# wt init should create scaffold
-exec wt init
+# wtx init should create scaffold
+exec wtx init
 stderr 'Initialized wt project'
 
 # Verify scaffold was created
@@ -23,5 +23,5 @@ grep 'shared_dir: .worktrees/shared' .worktree.yml
 grep 'refresh: .worktrees/bin/refresh' .worktree.yml
 
 # The starter refresh script is a runnable no-op.
-exec wt run refresh
+exec wtx run refresh
 stderr 'not implemented'

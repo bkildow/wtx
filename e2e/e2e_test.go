@@ -13,7 +13,7 @@ import (
 
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
-		"wt": func() {
+		"wtx": func() {
 			if err := cmd.Execute(); err != nil {
 				os.Exit(1)
 			}
@@ -48,7 +48,7 @@ func setupEnv(env *testscript.Env) error {
 	env.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	env.Setenv("GIT_PAGER", "cat")
 	// A low-disk CI runner would otherwise inject a warning into command output.
-	env.Setenv("WT_NO_DISK_WARN", "1")
+	env.Setenv("WTX_NO_DISK_WARN", "1")
 	return nil
 }
 
@@ -106,7 +106,7 @@ func cmdSetupRepo(ts *testscript.TestScript, neg bool, args []string) {
 	}
 }
 
-// cmdSetupProject creates a fully-formed wt project at $WORK/project
+// cmdSetupProject creates a fully-formed wtx project at $WORK/project
 // by cloning bare from $WORK/remote, configuring the fetch refspec,
 // and writing .worktree.yml + scaffold directories.
 func cmdSetupProject(ts *testscript.TestScript, neg bool, args []string) { //nolint:unparam // signature required by testscript.Cmds

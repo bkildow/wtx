@@ -5,6 +5,6 @@ setup-project
 
 cd $WORK/project
 
-exec wt add --skip-setup main
-exec wt cd main
+exec wtx add --skip-setup main
+exec wtx cd main
 stdout 'worktrees/main'

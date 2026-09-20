@@ -1,10 +1,10 @@
-# wt --help should succeed and show usage
-exec wt --help
+# wtx --help should succeed and show usage
+exec wtx --help
 stdout 'A smarter git worktree workflow'
 stdout 'clone'
 stdout 'add'
 stdout 'list'
 
-# wt --version should succeed
-exec wt --version
+# wtx --version should succeed
+exec wtx --version
 stdout 'wtx version'
