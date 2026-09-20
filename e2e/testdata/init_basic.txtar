@@ -7,7 +7,7 @@ exec git commit --allow-empty -m 'initial'
 
 # wtx init should create scaffold
 exec wtx init
-stderr 'Initialized wt project'
+stderr 'Initialized wtx project'
 
 # Verify scaffold was created
 exists .worktree.yml

@@ -15,7 +15,7 @@ func newCdCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:               "cd [name]",
 		Short:             "Print worktree path for shell navigation",
-		Long:              "Prints the absolute path of a worktree. Use with: cd \"$(wt cd)\"\n\nUse \"wt cd .\" to print the path of the current worktree.\nUse \"wt cd ..\" to navigate to the project root (same as \"wt root\").",
+		Long:              "Prints the absolute path of a worktree. Use with: cd \"$(wtx cd)\"\n\nUse \"wtx cd .\" to print the path of the current worktree.\nUse \"wtx cd ..\" to navigate to the project root (same as \"wtx root\").",
 		Args:              cobra.MaximumNArgs(1),
 		ValidArgsFunction: completeWorktreeNames,
 		RunE:              runCd,
@@ -25,8 +25,8 @@ func newCdCmd() *cobra.Command {
 func runCd(cmd *cobra.Command, args []string) error {
 	// Detect if stdout is a terminal (wrapper pipes stdout, so TTY means no wrapper)
 	if isatty.IsTerminal(os.Stdout.Fd()) || isatty.IsCygwinTerminal(os.Stdout.Fd()) {
-		ui.Info("Tip: wt cd prints a path but can't change your directory directly.")
-		ui.Info("  Run: eval \"$(wt shell-init zsh)\"  (or bash|fish) to set up the wrapper.")
+		ui.Info("Tip: wtx cd prints a path but can't change your directory directly.")
+		ui.Info("  Run: eval \"$(wtx shell-init zsh)\"  (or bash|fish) to set up the wrapper.")
 	}
 
 	projectRoot, cfg, err := loadProject()
@@ -34,7 +34,7 @@ func runCd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// "wt cd .." is a shortcut for "wt root"
+	// "wtx cd .." is a shortcut for "wtx root"
 	if len(args) > 0 && args[0] == ".." {
 		fmt.Println(projectRoot)
 		return nil

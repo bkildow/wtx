@@ -15,7 +15,7 @@ import (
 func newInitCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
-		Short: "Initialize wt in an existing git repository",
+		Short: "Initialize wtx in an existing git repository",
 		Long:  "Wraps an existing git repository for worktree management.\nCreates .worktree.yml and a .worktrees/ directory for shared files and worktrees.",
 		Args:  cobra.NoArgs,
 		RunE:  runInit,
@@ -34,15 +34,15 @@ func runInit(cmd *cobra.Command, args []string) error {
 	gitPath := filepath.Join(projectRoot, ".git")
 	info, err := os.Stat(gitPath)
 	if err != nil {
-		return fmt.Errorf("no .git directory found — use 'wt clone' for bare repo setup")
+		return fmt.Errorf("no .git directory found — use 'wtx clone' for bare repo setup")
 	}
 	if !info.IsDir() {
 		return fmt.Errorf(".git is a file, not a directory — this may already be a worktree of another repo")
 	}
 
-	// Refuse if already a wt project
+	// Refuse if already a wtx project
 	if config.Exists(projectRoot) {
-		return fmt.Errorf("already a wt project (%s exists)", config.ConfigFileName)
+		return fmt.Errorf("already a wtx project (%s exists)", config.ConfigFileName)
 	}
 
 	cfg := config.DefaultConfig()
@@ -65,7 +65,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	cfg.Scripts = project.StarterScripts(projectRoot, &cfg)
 
-	// Configure local git excludes for wt-managed files
+	// Configure local git excludes for wtx-managed files
 	ui.Step("Configuring local git excludes")
 	if err := project.EnsureGitExclude(gitDir, dry); err != nil {
 		return err
@@ -81,10 +81,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	ui.Success("Initialized wt project in: " + projectRoot)
+	ui.Success("Initialized wtx project in: " + projectRoot)
 	ui.Info("  Your existing checkout is the main worktree.")
-	ui.Info("  Use 'wt add <branch>' to create additional worktrees.")
-	ui.Info("  A starter 'wt run refresh' script was written to .worktrees/bin/refresh.")
+	ui.Info("  Use 'wtx add <branch>' to create additional worktrees.")
+	ui.Info("  A starter 'wtx run refresh' script was written to .worktrees/bin/refresh.")
 	ui.Info("")
 	ui.Info("  Consider adding to .gitignore:")
 	ui.Info("    .worktrees/")

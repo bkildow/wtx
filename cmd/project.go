@@ -26,8 +26,8 @@ func findProjectRoot() (string, error) {
 
 	root, err := project.FindRoot(cwd)
 	if errors.Is(err, config.ErrConfigNotFound) {
-		ui.Error("Not a wt project (no .worktree.yml found)")
-		ui.Info("  Run 'wt clone <repo-url>' to create one, or 'wt init' inside an existing repo.")
+		ui.Error("Not a wtx project (no .worktree.yml found)")
+		ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
 	}
 	return root, err
 }
@@ -48,10 +48,10 @@ func loadProject() (string, *config.Config, error) {
 	return root, cfg, nil
 }
 
-// filterManagedWorktrees returns only worktrees that wt manages — those
+// filterManagedWorktrees returns only worktrees that wtx manages — those
 // created under the worktrees directory. This excludes bare entries (from
-// wt clone setups) and the main working tree at the project root (from
-// wt init setups).
+// wtx clone setups) and the main working tree at the project root (from
+// wtx init setups).
 func filterManagedWorktrees(worktrees []git.WorktreeInfo, projectRoot string) []git.WorktreeInfo {
 	absRoot := resolvePathBest(projectRoot)
 	var filtered []git.WorktreeInfo
@@ -130,7 +130,7 @@ func selectWorktree(args []string, filtered []git.WorktreeInfo) (git.WorktreeInf
 	case len(args) > 0 && args[0] == dotAlias:
 		wt, ok := resolveCurrentWorktree(filtered)
 		if !ok {
-			return git.WorktreeInfo{}, fmt.Errorf("not inside a managed worktree (use 'wt list' to see available worktrees)")
+			return git.WorktreeInfo{}, fmt.Errorf("not inside a managed worktree (use 'wtx list' to see available worktrees)")
 		}
 		return wt, nil
 	case len(args) > 0:

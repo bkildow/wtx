@@ -18,7 +18,7 @@ func newRepairCmd() *cobra.Command {
 		Short: "Repair worktree git config for compatibility with git 2.52+",
 		Long: "Enables extensions.worktreeConfig on the common dir and writes core.bare=false " +
 			"into each linked worktree's config.worktree. Idempotent — safe to re-run.\n\n" +
-			"Use this on existing projects after upgrading wt or git: git 2.52+ refuses " +
+			"Use this on existing projects after upgrading wtx or git: git 2.52+ refuses " +
 			"auto-discovery from a worktree attached to a bare common dir unless each " +
 			"worktree explicitly overrides core.bare.",
 		Args: cobra.NoArgs,

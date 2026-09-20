@@ -1,4 +1,4 @@
-// Package cmd implements the CLI commands for the wt worktree manager.
+// Package cmd implements the CLI commands for the wtx worktree manager.
 package cmd
 
 import (
@@ -37,7 +37,7 @@ func init() {
 	rootCmd.Version = fmt.Sprintf("%s (commit %s, built %s)", version, commit, date)
 
 	// Detect color capabilities against stderr so colors work even when
-	// stdout is piped (e.g. wt cd under the shell wrapper function).
+	// stdout is piped (e.g. wtx cd under the shell wrapper function).
 	// Override the default Writer (targets stdout) so lipgloss.Println /
 	// lipgloss.Sprint detect against stderr.
 	lipgloss.Writer = colorprofile.NewWriter(os.Stderr, os.Environ())

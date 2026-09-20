@@ -41,7 +41,7 @@ func newClaudeCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "claude",
 		Short: "Claude Code integration",
-		Long:  "Commands for integrating wt with Claude Code hooks.",
+		Long:  "Commands for integrating wtx with Claude Code hooks.",
 	}
 
 	cmd.AddCommand(newClaudeInitCmd())
@@ -55,7 +55,7 @@ func newClaudeInitCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Configure Claude Code hooks for this project",
-		Long:  "Writes WorktreeCreate and WorktreeRemove hooks to .claude/settings.local.json so that Claude Code agents create worktrees through wt.",
+		Long:  "Writes WorktreeCreate and WorktreeRemove hooks to .claude/settings.local.json so that Claude Code agents create worktrees through wtx.",
 		Args:  cobra.NoArgs,
 		RunE:  runClaudeInit,
 	}
@@ -93,7 +93,7 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 
 	wtBinary, _ := cmd.Flags().GetString("binary")
 
-	// Write hooks to shared/symlink so all worktrees get a symlink via wt apply.
+	// Write hooks to shared/symlink so all worktrees get a symlink via wtx apply.
 	sharedTarget := filepath.Join(projectRoot, cfg.SharedDir, "symlink")
 
 	if claude.IsHooksConfigured(sharedTarget) {
@@ -341,5 +341,5 @@ func resolveProjectRoot(payload hookPayload) (string, error) {
 		}
 	}
 
-	return "", fmt.Errorf("could not find wt project root from payload (cwd=%q)", payload.Cwd)
+	return "", fmt.Errorf("could not find wtx project root from payload (cwd=%q)", payload.Cwd)
 }
