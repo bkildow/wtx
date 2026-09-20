@@ -15,20 +15,22 @@
 
 ---
 
-> ### Renaming to `wtx`
+> ### Migrating from `wt` to `wtx` (v0.11.0)
 >
-> This project is being renamed from `wt` to `wtx`, and the repository has already
-> moved to [`bkildow/wtx`](https://github.com/bkildow/wtx). The rename is staged so
-> nothing breaks under you:
+> This README describes the upcoming v0.11.0 release and the current source tree.
+> Until v0.11.0 is published, Homebrew and `@latest` still install the previous
+> release; use the source build below to try `wtx` now.
 >
-> - **Today** — the command is still `wt`. Nothing to change.
-> - **v0.11.0** — `wtx` becomes the real binary. A deprecated `wt` shim is installed
->   alongside it and keeps working, including the `wt cd` shell wrapper and the
->   `WT_*` variables exported to `wt run` scripts.
-> - **v1.0.0** — the `wt` name is removed.
+> In v0.11.0, `wtx` is the primary command and a deprecated `wt` shim ships
+> alongside it. Existing `wt` commands keep working and print a migration warning.
+> Update your [shell startup line](#shell-integration) to use `wtx shell-init`.
+> Scripts receive both `WTX_*` and legacy `WT_*` variables; settings read `WTX_*`
+> first and fall back to `WT_*` when the new variable is unset.
 >
-> The docs below still use `wt` and will switch to `wtx` when that binary ships.
-> `.worktree.yml` is unaffected — no project config migration is needed.
+> In v0.12.0, the shim warning becomes stronger and legacy `WT_*` settings stop
+> being read (exports remain). In v1.0.0, the `wt` shim, cask, and `WT_*` exports
+> are removed. `.worktree.yml` and `${PROJECT_ROOT}`, `${WORKTREE_ID}`,
+> `${WORKTREE_PATH}`, and `${BRANCH_NAME}` template variables stay unchanged.
 
 ## Features
 
@@ -45,7 +47,7 @@
 
 ## Requirements
 
-- **macOS or Linux.** Windows is not supported — `wt` leans on POSIX process
+- **macOS or Linux.** Windows is not supported — `wtx` leans on POSIX process
   handling and runs setup hooks through a POSIX shell.
 - **Go 1.25+** (for building from source)
 - **Git 2.20+** (for `extensions.worktreeConfig` and `git config --worktree`)
@@ -55,21 +57,25 @@
 
 ### Homebrew
 
+After v0.11.0 is published:
+
 ```bash
-brew install bkildow/tap/wt
+brew install bkildow/tap/wtx
 ```
 
 Or add the tap once, then install:
 
 ```bash
 brew tap bkildow/tap
-brew install wt
+brew install wtx
 ```
 
 ### Go
 
+After v0.11.0 is published:
+
 ```bash
-go install github.com/bkildow/wt-cli/cmd/wt@latest
+go install github.com/bkildow/wtx/cmd/wtx@latest
 ```
 
 Or build from source:
@@ -77,113 +83,125 @@ Or build from source:
 ```bash
 git clone https://github.com/bkildow/wtx.git
 cd wtx
-go build -o wt ./cmd/wt
-# move wt to somewhere in your $PATH
+go build -o wtx ./cmd/wtx
+# move wtx to somewhere in your $PATH
 ```
 
 ## Quick Start
 
 ```bash
 # Clone a repo into a bare worktree project
-wt clone git@github.com:org/repo.git
+wtx clone git@github.com:org/repo.git
 cd repo
 
 # Create a worktree for a feature branch
-wt add feature/auth
+wtx add feature/auth
 
 # Navigate to it (see Shell Integration below for cd support)
-cd "$(wt cd feature/auth)"
+cd "$(wtx cd feature/auth)"
 
 # See all worktrees
-wt list
+wtx list
 
 # When done, clean up merged branches
-wt prune
+wtx prune
 ```
 
 ## Commands
 
 | Command | Description |
 |---------|-------------|
-| `wt clone <url> [name]` | Clone a repo as a bare worktree project |
-| `wt add [branch]` | Create a new worktree for a branch |
-| `wt list` | List all worktrees |
-| `wt remove [name]` | Remove a worktree and its branch |
-| `wt setup [name]` | Run setup hooks on an existing worktree |
-| `wt run [name] [args...]` | Run a named project script from any worktree |
-| `wt cd [name]` | Print worktree path for shell navigation |
-| `wt root` | Print project root path for shell navigation |
-| `wt apply [name]` | Apply shared files to a worktree |
-| `wt open [name]` | Open a worktree in an IDE |
-| `wt status` | Show status of all worktrees |
-| `wt sync` | Fetch and pull all worktrees |
-| `wt prune` | Remove worktrees with fully merged branches |
-| `wt config init` | Generate annotated `.worktree.yml` with documentation |
-| `wt claude init` | Configure Claude Code hooks for automatic worktree management |
-| `wt agents` | Print AI agent workflow instructions |
-| `wt shell-init <shell>` | Print shell startup config (wrapper + completions) |
-| `wt completion <shell>` | Generate shell completion script |
+| `wtx clone <url> [name]` | Clone a repo as a bare worktree project |
+| `wtx add [branch]` | Create a new worktree for a branch |
+| `wtx list` | List all worktrees |
+| `wtx remove [name]` | Remove a worktree and its branch |
+| `wtx setup [name]` | Run setup hooks on an existing worktree |
+| `wtx run [name] [args...]` | Run a named project script from any worktree |
+| `wtx cd [name]` | Print worktree path for shell navigation |
+| `wtx root` | Print project root path for shell navigation |
+| `wtx apply [name]` | Apply shared files to a worktree |
+| `wtx open [name]` | Open a worktree in an IDE |
+| `wtx status` | Show status of all worktrees |
+| `wtx sync` | Fetch and pull all worktrees |
+| `wtx prune` | Remove worktrees with fully merged branches |
+| `wtx config init` | Generate annotated `.worktree.yml` with documentation |
+| `wtx claude init` | Configure Claude Code hooks for automatic worktree management |
+| `wtx agents` | Print AI agent workflow instructions |
+| `wtx shell-init <shell>` | Print shell startup config (wrapper + completions) |
+| `wtx completion <shell>` | Generate shell completion script |
 
-### wt clone
+<a id="wt-clone"></a>
+
+### wtx clone
 
 ```bash
-wt clone <url> [name]        # Clone repo as bare worktree project
-wt clone <url> --dry-run     # Preview without executing
+wtx clone <url> [name]        # Clone repo as bare worktree project
+wtx clone <url> --dry-run     # Preview without executing
 ```
 
 Clones as a bare repo and writes `.worktree.yml`. Optionally prompts to create an initial worktree.
 
-### wt config init
+<a id="wt-config-init"></a>
+
+### wtx config init
 
 ```bash
-wt config init               # Generate annotated .worktree.yml (backs up existing)
-wt config init --update      # Merge existing values into annotated template
+wtx config init               # Generate annotated .worktree.yml (backs up existing)
+wtx config init --update      # Merge existing values into annotated template
 ```
 
 Generates a `.worktree.yml` with documentation comments for every field. If a config already exists, it is backed up to `.worktree.yml.bak` first. Use `--update` to preserve your existing values while adding documentation comments.
 
-### wt add
+<a id="wt-add"></a>
+
+### wtx add
 
 ```bash
-wt add feature/auth          # Create worktree for branch
-wt add                       # Interactive branch picker
-wt add feature/auth --skip-setup  # Create worktree without running setup hooks
+wtx add feature/auth          # Create worktree for branch
+wtx add                       # Interactive branch picker
+wtx add feature/auth --skip-setup  # Create worktree without running setup hooks
 ```
 
-Detects whether the branch exists remotely or creates a new local branch. Applies shared files and runs setup hooks. If setup hooks fail, the worktree is still created and you are CDed into it. Use `wt setup [name]` later to bootstrap a worktree created with `--skip-setup`.
+Detects whether the branch exists remotely or creates a new local branch. Applies shared files and runs setup hooks. If setup hooks fail, the worktree is still created and you are CDed into it. Use `wtx setup [name]` later to bootstrap a worktree created with `--skip-setup`.
 
-### wt remove
+<a id="wt-remove"></a>
+
+### wtx remove
 
 ```bash
-wt remove feature/auth       # Remove worktree and branch
-wt remove --force            # Skip uncommitted changes check
-wt remove feature/auth --skip-teardown  # Remove without running teardown hooks
+wtx remove feature/auth       # Remove worktree and branch
+wtx remove --force            # Skip uncommitted changes check
+wtx remove feature/auth --skip-teardown  # Remove without running teardown hooks
 ```
 
 Runs teardown hooks before removing the worktree directory.
 
-### wt setup
+<a id="wt-setup"></a>
+
+### wtx setup
 
 ```bash
-wt setup feature/auth        # Run setup hooks on an existing worktree
-wt setup .                   # Target the worktree containing $PWD
-wt setup                     # Interactive picker
-wt setup --background        # Run hooks in the background
+wtx setup feature/auth        # Run setup hooks on an existing worktree
+wtx setup .                   # Target the worktree containing $PWD
+wtx setup                     # Interactive picker
+wtx setup --background        # Run hooks in the background
 ```
 
 Re-runs the `setup:` and `parallel_setup:` hooks from `.worktree.yml` against an
 existing worktree. The primary use case is bootstrapping a worktree that was
-created with `wt add --skip-setup`, but it can also be used to re-run hooks
+created with `wtx add --skip-setup`, but it can also be used to re-run hooks
 after editing `.worktree.yml`. Refuses to run when a setup is already in
-progress for the target worktree (check with `wt status`).
+progress for the target worktree (check with `wtx status`).
 
-### wt run
+<a id="wt-run"></a>
+
+### wtx run
 
 ```bash
-wt run refresh               # Run the script named "refresh"
-wt run refresh --no-cache    # Everything after the name is passed to the script
-wt run                       # Interactive picker
-wt run --dry-run refresh     # Show what would run (wt flags go before the name)
+wtx run refresh               # Run the script named "refresh"
+wtx run refresh --no-cache    # Everything after the name is passed to the script
+wtx run                       # Interactive picker
+wtx run --dry-run refresh     # Show what would run (wtx flags go before the name)
 ```
 
 Runs a script from the `scripts:` map in `.worktree.yml`. Paths are resolved
@@ -197,138 +215,161 @@ variables are exported:
 
 | Variable | Value |
 |----------|-------|
-| `WT_SCRIPT_NAME` | Name of the script being run |
-| `WT_PROJECT_ROOT` | Absolute project root |
-| `WT_SHARED_PATH` | Absolute shared directory (`copy/` and `symlink/` live here) |
-| `WT_MAIN_BRANCH` | `main_branch` from `.worktree.yml` |
-| `WT_MAIN_WORKTREE_PATH` | Worktree checked out on the main branch (empty if none) |
-| `WT_WORKTREE_PATH` | Absolute path of the current worktree (empty outside a worktree) |
-| `WT_WORKTREE_ID` | Branch lowercased, `/` → `-` (empty outside a worktree) |
-| `WT_BRANCH_NAME` | Branch of the current worktree (empty outside a worktree) |
+| `WTX_SCRIPT_NAME` | Name of the script being run |
+| `WTX_PROJECT_ROOT` | Absolute project root |
+| `WTX_SHARED_PATH` | Absolute shared directory (`copy/` and `symlink/` live here) |
+| `WTX_MAIN_BRANCH` | `main_branch` from `.worktree.yml` |
+| `WTX_MAIN_WORKTREE_PATH` | Worktree checked out on the main branch (empty if none) |
+| `WTX_WORKTREE_PATH` | Absolute path of the current worktree (empty outside a worktree) |
+| `WTX_WORKTREE_ID` | Branch lowercased, `/` → `-` (empty outside a worktree) |
+| `WTX_BRANCH_NAME` | Branch of the current worktree (empty outside a worktree) |
+
+Each variable is also exported under its legacy `WT_*` name with the same value
+through the transition. Prefer `WTX_*` in new scripts.
 
 A non-zero exit from the script is reported as an error.
 
-**Starter refresh script.** `wt clone` and `wt init` create `bin/refresh`
-(`.worktrees/bin/refresh` for `wt init`) and register it as `scripts.refresh`.
+**Starter refresh script.** `wtx clone` and `wtx init` create `bin/refresh`
+(`.worktrees/bin/refresh` for `wtx init`) and register it as `scripts.refresh`.
 It is a no-op that prints a message, but its comments lay out the typical
 shape of an environment refresh: work in the main worktree via
-`WT_MAIN_WORKTREE_PATH`, start services, pull, refresh data, capture a
-snapshot, and publish it under `WT_SHARED_PATH/copy` so new worktrees inherit
+`WTX_MAIN_WORKTREE_PATH`, start services, pull, refresh data, capture a
+snapshot, and publish it under `WTX_SHARED_PATH/copy` so new worktrees inherit
 it. Fill in the steps for your stack, or point an AI agent at the file and ask
 it to.
 
-### wt cd
+<a id="wt-cd"></a>
+
+### wtx cd
 
 ```bash
-cd "$(wt cd feature/auth)"   # Navigate to worktree
-wt cd                        # Interactive picker
+cd "$(wtx cd feature/auth)"   # Navigate to worktree
+wtx cd                        # Interactive picker
 ```
 
-Prints the absolute path to stdout. When run without a shell wrapper, `wt cd` prints a hint about setting one up. See [Shell Integration](#shell-integration) for details.
+Prints the absolute path to stdout. When run without a shell wrapper, `wtx cd` prints a hint about setting one up. See [Shell Integration](#shell-integration) for details.
 
-### wt root
+<a id="wt-root"></a>
+
+### wtx root
 
 ```bash
-wt root                      # Navigate to project root (with shell wrapper)
-cd "$(wt root)"              # Navigate without shell wrapper
+wtx root                      # Navigate to project root (with shell wrapper)
+cd "$(wtx root)"              # Navigate without shell wrapper
 ```
 
-Prints the absolute path to the project root (the directory containing `.worktree.yml`). With the shell wrapper, `wt root` changes your directory directly.
+Prints the absolute path to the project root (the directory containing `.worktree.yml`). With the shell wrapper, `wtx root` changes your directory directly.
 
-### wt apply
+<a id="wt-apply"></a>
+
+### wtx apply
 
 ```bash
-wt apply feature/auth        # Apply shared files to one worktree
-wt apply --all               # Apply to all worktrees
+wtx apply feature/auth        # Apply shared files to one worktree
+wtx apply --all               # Apply to all worktrees
 ```
 
 Copies files from `shared/copy/` (with template substitution) and creates symlinks from `shared/symlink/`. Shows each file copied and symlink created, with a summary count.
 
-### wt open
+<a id="wt-open"></a>
+
+### wtx open
 
 ```bash
-wt open feature/auth         # Open in editor
-wt open                      # Interactive picker
+wtx open feature/auth         # Open in editor
+wtx open                      # Interactive picker
 ```
 
 Editor resolution order: `editor` field in `.worktree.yml` > `$EDITOR` env var > auto-detect (Cursor, VS Code, Zed).
 
-### wt status
+<a id="wt-status"></a>
+
+### wtx status
 
 ```bash
-wt status
+wtx status
 ```
 
 Shows branch, path, commit hash, dirty/clean status, and last commit age for all worktrees.
 
 Also warns when the project's filesystem is running low on space — see [Low Disk Space Warnings](#low-disk-space-warnings).
 
-### wt sync
+<a id="wt-sync"></a>
+
+### wtx sync
 
 ```bash
-wt sync                      # Fetch + pull all clean worktrees
-wt sync --rebase             # Use rebase instead of merge
+wtx sync                      # Fetch + pull all clean worktrees
+wtx sync --rebase             # Use rebase instead of merge
 ```
 
 Skips dirty worktrees. Shows summary of updated/skipped/failed counts.
 
-### wt prune
+<a id="wt-prune"></a>
+
+### wtx prune
 
 ```bash
-wt prune                     # Remove worktrees with merged branches
-wt prune --force             # Also remove merged worktrees with uncommitted changes
-wt prune --yes               # Skip confirmation
+wtx prune                     # Remove worktrees with merged branches
+wtx prune --force             # Also remove merged worktrees with uncommitted changes
+wtx prune --yes               # Skip confirmation
 ```
 
 Compares branches against the default branch (main/master). Detects regular, squash, and rebase merges, plus merged pull requests when `gh` is available. Merged worktrees with uncommitted changes are listed as `dirty` and kept unless you pass `--force`.
 
-### wt agents
+<a id="wt-agents"></a>
+
+### wtx agents
 
 ```bash
-wt agents                    # Print AI workflow guide to stdout
-wt agents > AGENTS.md        # Save as a file in your project
+wtx agents                    # Print AI workflow guide to stdout
+wtx agents > AGENTS.md        # Save as a file in your project
 ```
 
-Outputs structured workflow instructions for AI coding assistants to understand how to use `wt` in non-interactive mode.
+Outputs structured workflow instructions for AI coding assistants to understand how to use `wtx` in non-interactive mode.
 
-### wt claude init
+<a id="wt-claude-init"></a>
+
+### wtx claude init
 
 ```bash
-wt claude init               # Configure Claude Code hooks
-wt claude init --binary /path/to/wt  # Use a specific wt binary path
+wtx claude init               # Configure Claude Code hooks
+wtx claude init --binary /path/to/wtx  # Use a specific wtx binary path
 ```
 
 Sets up [Claude Code hooks](https://docs.anthropic.com/en/docs/claude-code/hooks) so that Claude Code agents can create and remove worktrees automatically. Writes hook configuration to `shared/symlink/.claude/settings.local.json` and applies it to all existing worktrees via symlink.
 
 This enables two hooks:
-- **WorktreeCreate** — when Claude Code spawns a subagent with `--worktree`, `wt` creates the worktree, applies shared files, and runs setup hooks
-- **WorktreeRemove** — when the subagent finishes, `wt` runs teardown hooks and cleans up the worktree and branch
+- **WorktreeCreate** — when Claude Code spawns a subagent with `--worktree`, `wtx` creates the worktree, applies shared files, and runs setup hooks
+- **WorktreeRemove** — when the subagent finishes, `wtx` runs teardown hooks and cleans up the worktree and branch
 
-Run `wt claude init` once per project. The hooks propagate to all worktrees automatically.
+Run `wtx claude init` once per project. The hooks propagate to all worktrees automatically.
 
-### wt completion
+<a id="wt-completion"></a>
+
+### wtx completion
 
 ```bash
-wt completion bash > /etc/bash_completion.d/wt
-wt completion zsh > "${fpath[1]}/_wt"
-wt completion fish > ~/.config/fish/completions/wt.fish
+wtx completion bash > /etc/bash_completion.d/wtx
+wtx completion zsh > "${fpath[1]}/_wtx"
+wtx completion fish > ~/.config/fish/completions/wtx.fish
 ```
 
 ## How It Works
 
-`wt` organizes a project like this:
+`wtx` organizes a project like this:
 
 ```
 project/
 ├── .bare/                   # Bare git repository (no working tree)
 ├── .worktree.yml            # Project configuration
 ├── bin/
-│   └── refresh              # Starter script for `wt run refresh`
+│   └── refresh              # Starter script for `wtx run refresh`
 ├── shared/
 │   ├── copy/                # Files copied into each worktree
 │   │   └── .env.example     # Supports ${TEMPLATE_VARS}
 │   └── symlink/             # Shared resources symlinked from worktrees
-│       ├── .claude/         # Claude Code hooks (via wt claude init)
+│       ├── .claude/         # Claude Code hooks (via wtx claude init)
 │       ├── node_modules/
 │       └── vendor/
 └── worktrees/
@@ -341,7 +382,7 @@ project/
 
 **Copy vs Symlink:** Files in `shared/copy/` are duplicated into each worktree (useful for `.env` files that vary per branch). Files in `shared/symlink/` are symlinked (useful for large directories like `node_modules` you only want to install once).
 
-**Reflink copies:** On filesystems that support copy-on-write cloning — APFS on macOS, btrfs on Linux, and XFS formatted with `reflink=1` — `wt` clones files in `shared/copy/` instead of reading and rewriting every byte. Clones share on-disk blocks with the source until one side is modified, so a 1 GB `vendor/` directory creates a new worktree in milliseconds and occupies no extra disk space. On other filesystems (ext4, NFS, tmpfs, cross-volume copies), `wt` falls back to a normal byte-for-byte copy automatically — no configuration required. Docker bind mounts work fine with reflinked files.
+**Reflink copies:** On filesystems that support copy-on-write cloning — APFS on macOS, btrfs on Linux, and XFS formatted with `reflink=1` — `wtx` clones files in `shared/copy/` instead of reading and rewriting every byte. Clones share on-disk blocks with the source until one side is modified, so a 1 GB `vendor/` directory creates a new worktree in milliseconds and occupies no extra disk space. On other filesystems (ext4, NFS, tmpfs, cross-volume copies), `wtx` falls back to a normal byte-for-byte copy automatically — no configuration required. Docker bind mounts work fine with reflinked files.
 
 ## Configuration
 
@@ -377,7 +418,7 @@ scripts:
 | `parallel_setup` | Commands to run concurrently after serial setup hooks | `[]` |
 | `teardown` | Commands to run sequentially before removing a worktree | `[]` |
 | `parallel_teardown` | Commands to run concurrently after serial teardown hooks | `[]` |
-| `scripts` | Named executables (relative to project root) for `wt run <name>` | `{}` |
+| `scripts` | Named executables (relative to project root) for `wtx run <name>` | `{}` |
 | `disk_warn` | Warn when free disk space is low (`false` disables) | `true` |
 | `disk_warn_percent` | Warn below this percentage of free space (`-1` disables this bound) | `10` |
 | `disk_warn_gb` | Warn below this many GB of free space (`-1` disables this bound) | `10` |
@@ -386,7 +427,7 @@ scripts:
 
 Hooks run in the worktree directory via `sh -c`. Serial hooks (`setup`/`teardown`) run sequentially; a failing hook is logged but does not prevent subsequent hooks from running.
 
-- **Setup hooks** run after worktree creation and shared file application. If any hook fails, `wt add` reports the error (the worktree is still created).
+- **Setup hooks** run after worktree creation and shared file application. If any hook fails, `wtx add` reports the error (the worktree is still created).
 - **Teardown hooks** run before worktree removal. Hook failures are logged as warnings and do not prevent removal.
 - Both respect `--dry-run` (prints what would run without executing).
 
@@ -401,17 +442,18 @@ All parallel commands start simultaneously and run to completion — a failing c
 
 ### Low Disk Space Warnings
 
-Running many worktrees at once (each with its own containers, `node_modules`, DB volumes, and build caches) adds up quickly. `wt add` and `wt status` check free space on the project's filesystem and warn when it runs low:
+Running many worktrees at once (each with its own containers, `node_modules`, DB volumes, and build caches) adds up quickly. `wtx add` and `wtx status` check free space on the project's filesystem and warn when it runs low:
 
 ```
 ⚠ Low disk space: 6.2 GB free of 460 GB (1% free)
-→ Run 'wt prune' to remove worktrees for merged branches.
-→ No teardown hooks are configured, so 'wt prune' frees worktree directories but not docker volumes or other external resources.
+→ Run 'wtx prune' to remove worktrees for merged branches.
+→ No teardown hooks are configured, so 'wtx prune' frees worktree directories but not docker volumes or other external resources.
 ```
 
-The check warns when free space is below **either** bound (`disk_warn_percent` or `disk_warn_gb`); set a bound to `-1` to disable it individually. The last line only appears when no `teardown`/`parallel_teardown` hooks are configured, since without them `wt prune` cannot reclaim resources living outside the worktree directory.
+The check warns when free space is below **either** bound (`disk_warn_percent` or `disk_warn_gb`); set a bound to `-1` to disable it individually. The last line only appears when no `teardown`/`parallel_teardown` hooks are configured, since without them `wtx prune` cannot reclaim resources living outside the worktree directory.
 
-Disable the warning permanently with `disk_warn: false` in `.worktree.yml`, or per-invocation with `WT_NO_DISK_WARN=1`.
+Disable the warning permanently with `disk_warn: false` in `.worktree.yml`, or per-invocation with `WTX_NO_DISK_WARN=1`. The legacy `WT_NO_DISK_WARN`
+setting is used only when `WTX_NO_DISK_WARN` is unset.
 
 ### Template Variables
 
@@ -428,31 +470,38 @@ Example: `shared/copy/.env.template` → `worktrees/feature-auth/.env`
 
 ## Shell Integration
 
-Add one line to your shell config to enable directory navigation (`wt cd`) and tab completions:
+Add one line to your shell config to enable directory navigation (`wtx cd`) and tab completions:
 
 **Bash** (`~/.bashrc`):
 
 ```bash
-eval "$(wt shell-init bash)"
+eval "$(wtx shell-init bash)"
 ```
 
 **Zsh** (`~/.zshrc`):
 
 ```bash
-eval "$(wt shell-init zsh)"
+eval "$(wtx shell-init zsh)"
 ```
 
 **Fish** (`~/.config/fish/config.fish`):
 
 ```fish
-wt shell-init fish | source
+wtx shell-init fish | source
 ```
 
-This sets up a `wt` wrapper function so that `wt cd` and `wt root` change your directory, and registers tab completions for all commands and worktree names.
+This sets up `wtx` and deprecated `wt` wrapper functions so that `cd`, `root`,
+`add`, and `remove` can change your directory, and registers tab completions
+for both command names.
+
+**Migrating an existing shell:** replace your old `wt shell-init` startup line
+with the matching `wtx shell-init` line above, then start a new shell. Remove
+any manually defined `wt` wrapper or alias so it does not override the generated
+compatibility wrapper. Existing `wt cd` calls keep working during the transition.
 
 ### Manual Setup
 
-If you prefer to configure the wrapper and completions separately, see `wt shell-init <shell>` for the wrapper function source and `wt completion <shell>` for standalone completion scripts.
+If you prefer to configure the wrapper and completions separately, see `wtx shell-init <shell>` for the wrapper function source and `wtx completion <shell>` for standalone completion scripts.
 
 ## License
 
