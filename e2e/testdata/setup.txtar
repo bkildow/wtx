@@ -7,35 +7,35 @@ cd $WORK/project
 
 cp $WORK/with-hooks.yml .worktree.yml
 
-exec wt add --skip-setup main
+exec wtx add --skip-setup main
 exists worktrees/main
 grep '"status": "skipped"' worktrees/main/.wtx-setup.json
 ! exists worktrees/main/setup-marker
 
-exec wt setup main
+exec wtx setup main
 exists worktrees/main/setup-marker
 grep '"status": "complete"' worktrees/main/.wtx-setup.json
 
 # Dot alias resolves to the worktree containing $PWD.
 rm worktrees/main/setup-marker
 cd $WORK/project/worktrees/main
-exec wt setup .
+exec wtx setup .
 exists $WORK/project/worktrees/main/setup-marker
 cd $WORK/project
 
-# e2e wt shim drops error messages, so we only check exit code.
-! exec wt setup nonexistent
+# e2e wtx shim drops error messages, so we only check exit code.
+! exec wtx setup nonexistent
 
 rm worktrees/main/setup-marker
-exec wt setup --dry-run main
+exec wtx setup --dry-run main
 ! exists worktrees/main/setup-marker
 
-exec wt add --skip-setup develop
+exec wtx add --skip-setup develop
 cp $WORK/no-hooks.yml .worktree.yml
-exec wt setup develop
+exec wtx setup develop
 stderr 'No setup hooks configured'
 
-exec wt setup --help
+exec wtx setup --help
 stdout 'Run setup hooks'
 
 -- with-hooks.yml --

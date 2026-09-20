@@ -201,9 +201,9 @@ func TestDryRunMode(t *testing.T) {
 }
 
 // TestDryRunExecutesQueries guards the regression where --dry-run stubbed out
-// read-only queries too. Commands like `wt prune` decide what to touch by
+// read-only queries too. Commands like `wtx prune` decide what to touch by
 // walking WorktreeList and asking IsBranchMerged; when those returned empty
-// and true, `wt prune --dry-run` reported "No merged worktrees to prune" in
+// and true, `wtx prune --dry-run` reported "No merged worktrees to prune" in
 // every repository, no matter how many were actually merged.
 func TestDryRunExecutesQueries(t *testing.T) {
 	ui.Output = os.Stderr

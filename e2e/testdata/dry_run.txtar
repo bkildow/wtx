@@ -6,6 +6,6 @@ setup-project
 cd $WORK/project
 
 # --dry-run should not create the worktree
-exec wt add --dry-run --skip-setup main
+exec wtx add --dry-run --skip-setup main
 stderr 'dry-run'
 ! exists worktrees/main

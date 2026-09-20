@@ -11,7 +11,7 @@ import (
 func TestConfigureHooks_newFile(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatalf("ConfigureHooks: %v", err)
 	}
 
@@ -34,10 +34,10 @@ func TestConfigureHooks_newFile(t *testing.T) {
 			t.Errorf("%s hook type = %v, want command", event, hook["type"])
 		}
 		cmd := hook["command"].(string)
-		if event == HookWorktreeCreate && cmd != "wt claude hook-worktree-create" {
+		if event == HookWorktreeCreate && cmd != "wtx claude hook-worktree-create" {
 			t.Errorf("WorktreeCreate command = %q", cmd)
 		}
-		if event == HookWorktreeRemove && cmd != "wt claude hook-worktree-remove" {
+		if event == HookWorktreeRemove && cmd != "wtx claude hook-worktree-remove" {
 			t.Errorf("WorktreeRemove command = %q", cmd)
 		}
 	}
@@ -60,7 +60,7 @@ func TestConfigureHooks_preservesExistingSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatalf("ConfigureHooks: %v", err)
 	}
 
@@ -83,10 +83,10 @@ func TestConfigureHooks_preservesExistingSettings(t *testing.T) {
 func TestConfigureHooks_idempotent(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatal(err)
 	}
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -101,7 +101,7 @@ func TestConfigureHooks_idempotent(t *testing.T) {
 func TestConfigureHooks_customBinary(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := ConfigureHooks(dir, "/opt/bin/wt"); err != nil {
+	if err := ConfigureHooks(dir, "/opt/bin/wtx"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -111,7 +111,7 @@ func TestConfigureHooks_customBinary(t *testing.T) {
 	entry := create[0].(map[string]any)
 	hookArr := entry["hooks"].([]any)
 	hook := hookArr[0].(map[string]any)
-	if hook["command"] != "/opt/bin/wt claude hook-worktree-create" {
+	if hook["command"] != "/opt/bin/wtx claude hook-worktree-create" {
 		t.Errorf("command = %q", hook["command"])
 	}
 }
@@ -125,7 +125,7 @@ func TestConfigureHooks_createsDirectory(t *testing.T) {
 		t.Fatal(".claude/ should not exist yet")
 	}
 
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -141,7 +141,7 @@ func TestIsHooksConfigured(t *testing.T) {
 		t.Error("should be false before configuring")
 	}
 
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -153,7 +153,7 @@ func TestIsHooksConfigured(t *testing.T) {
 func TestRemoveHooks(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -179,11 +179,11 @@ func TestRemoveHooks_preservesOtherHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Write settings with wt hooks + a custom hook.
+	// Write settings with wtx hooks + a custom hook.
 	settings := map[string]any{
 		"hooks": map[string]any{
-			HookWorktreeCreate: buildHooksConfig("wt")[HookWorktreeCreate],
-			HookWorktreeRemove: buildHooksConfig("wt")[HookWorktreeRemove],
+			HookWorktreeCreate: buildHooksConfig("wtx")[HookWorktreeCreate],
+			HookWorktreeRemove: buildHooksConfig("wtx")[HookWorktreeRemove],
 			"PreToolUse":       []any{map[string]any{"matcher": "Bash"}},
 		},
 	}

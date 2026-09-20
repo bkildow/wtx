@@ -11,11 +11,11 @@ cp $WORK/probe.sh bin/probe
 chmod 755 bin/probe
 cp $WORK/probe.sh bin/noexec
 
-exec wt add --skip-setup main
+exec wtx add --skip-setup main
 exists worktrees/main
 
 # From the project root: runs in cwd, worktree vars are empty.
-exec wt run probe one two
+exec wtx run probe one two
 exists probe-out.txt
 grep 'name=probe' probe-out.txt
 grep 'root='$WORK'/project' probe-out.txt
@@ -25,7 +25,7 @@ rm probe-out.txt
 
 # From inside a worktree: cwd and env come from that worktree.
 cd $WORK/project/worktrees/main
-exec wt run probe --flag
+exec wtx run probe --flag
 exists $WORK/project/worktrees/main/probe-out.txt
 grep 'branch=main' $WORK/project/worktrees/main/probe-out.txt
 grep 'wtpath='$WORK'/project/worktrees/main' $WORK/project/worktrees/main/probe-out.txt
@@ -38,24 +38,24 @@ rm $WORK/project/worktrees/main/probe-out.txt
 cd $WORK/project
 
 # Dry run resolves but does not execute.
-exec wt run --dry-run probe
+exec wtx run --dry-run probe
 ! exists probe-out.txt
 
 # Unknown, missing, and non-executable scripts fail (shim drops messages; check exit code).
-! exec wt run nope
-! exec wt run missing
-! exec wt run noexec
+! exec wtx run nope
+! exec wtx run missing
+! exec wtx run noexec
 
 # Exit code propagates.
 cp $WORK/fail.sh bin/fail
 chmod 755 bin/fail
-! exec wt run fail
+! exec wtx run fail
 
 cp $WORK/no-scripts.yml .worktree.yml
-exec wt run probe
+exec wtx run probe
 stderr 'No scripts configured'
 
-exec wt run --help
+exec wtx run --help
 stdout 'Runs a script configured under the "scripts" key'
 
 -- with-scripts.yml --
@@ -76,14 +76,24 @@ worktree_dir: worktrees
 shared_dir: shared
 -- probe.sh --
 #!/bin/sh
+# Both prefixes must be exported and agree, including empty worktree values.
+set -eu
+[ "${WTX_SCRIPT_NAME?}" = "${WT_SCRIPT_NAME?}" ]
+[ "${WTX_PROJECT_ROOT?}" = "${WT_PROJECT_ROOT?}" ]
+[ "${WTX_WORKTREE_PATH?}" = "${WT_WORKTREE_PATH?}" ]
+[ "${WTX_WORKTREE_ID?}" = "${WT_WORKTREE_ID?}" ]
+[ "${WTX_BRANCH_NAME?}" = "${WT_BRANCH_NAME?}" ]
+[ "${WTX_SHARED_PATH?}" = "${WT_SHARED_PATH?}" ]
+[ "${WTX_MAIN_BRANCH?}" = "${WT_MAIN_BRANCH?}" ]
+[ "${WTX_MAIN_WORKTREE_PATH?}" = "${WT_MAIN_WORKTREE_PATH?}" ]
 {
-  echo "name=$WT_SCRIPT_NAME"
-  echo "root=$WT_PROJECT_ROOT"
-  echo "wtpath=$WT_WORKTREE_PATH"
-  echo "branch=$WT_BRANCH_NAME"
-  echo "shared=$WT_SHARED_PATH"
-  echo "mainbranch=$WT_MAIN_BRANCH"
-  echo "mainpath=$WT_MAIN_WORKTREE_PATH"
+  echo "name=$WTX_SCRIPT_NAME"
+  echo "root=$WTX_PROJECT_ROOT"
+  echo "wtpath=$WTX_WORKTREE_PATH"
+  echo "branch=$WTX_BRANCH_NAME"
+  echo "shared=$WTX_SHARED_PATH"
+  echo "mainbranch=$WTX_MAIN_BRANCH"
+  echo "mainpath=$WTX_MAIN_WORKTREE_PATH"
   echo "args=$*"
 } > probe-out.txt
 -- fail.sh --

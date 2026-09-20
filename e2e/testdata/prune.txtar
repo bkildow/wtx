@@ -15,7 +15,7 @@ exec git --git-dir=.bare worktree add --relative-paths worktrees/feature feature
 cp $WORK/scratch.txt worktrees/develop/scratch.txt
 
 # Without --force the dirty worktree is listed but kept; the clean one goes.
-exec wt prune --yes
+exec wtx prune --yes
 stderr 'develop.*merged.*dirty'
 stderr 'feature.*merged.*clean'
 stderr 'uncommitted changes and will be kept'
@@ -26,17 +26,17 @@ exists worktrees/develop/scratch.txt
 ! exists worktrees/feature
 
 # Nothing removable left without --force: no prompt, no removal.
-exec wt prune --yes
+exec wtx prune --yes
 stderr 'Nothing to prune'
 exists worktrees/develop/scratch.txt
 
 # Dry run never removes anything, forced or not.
-exec wt --dry-run prune --force
+exec wtx --dry-run prune --force
 stderr 'develop.*merged.*dirty'
 exists worktrees/develop/scratch.txt
 
 # --force removes the dirty merged worktree.
-exec wt prune --force --yes
+exec wtx prune --force --yes
 stderr 'Removing worktree: develop'
 stderr 'Pruned 1 worktree\(s\)'
 ! stderr 'kept'

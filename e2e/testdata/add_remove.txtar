@@ -7,37 +7,37 @@ setup-project
 cd $WORK/project
 
 # Add a worktree for the default branch
-exec wt add --skip-setup main
+exec wtx add --skip-setup main
 exists worktrees/main
 
 # List should show the worktree
-exec wt list
+exec wtx list
 stderr 'main'
 
 # Add another worktree
-exec wt add --skip-setup develop
+exec wtx add --skip-setup develop
 exists worktrees/develop
 
 # List should show both
-exec wt list
+exec wtx list
 stderr 'main'
 stderr 'develop'
 
 # Remove one
-exec wt remove develop
+exec wtx remove develop
 stderr 'Removed worktree'
 ! exists worktrees/develop
 
 # List should show only main
-exec wt list
+exec wtx list
 stderr 'main'
 
 # Remove the main branch worktree (should succeed, branch preserved)
-exec wt remove main
+exec wtx remove main
 stderr 'branch preserved'
 stderr 'Removed worktree'
 ! exists worktrees/main
 
 # Re-add the main branch worktree
-exec wt add --skip-setup main
+exec wtx add --skip-setup main
 exists worktrees/main
