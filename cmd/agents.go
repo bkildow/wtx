@@ -6,40 +6,40 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const agentsMarkdown = `# AGENTS.md — AI Workflow Guide for wt
+const agentsMarkdown = `# AGENTS.md — AI Workflow Guide for wtx
 
 ## Overview
 
-wt is a CLI for git worktree-based development. It manages isolated worktrees
+wtx is a CLI for git worktree-based development. It manages isolated worktrees
 under a worktrees/ directory with shared config files, symlinks, and template
-variable substitution. Projects can be created via wt clone (bare repo) or
-wt init (existing repo).
+variable substitution. Projects can be created via wtx clone (bare repo) or
+wtx init (existing repo).
 
 ## Important: Non-Interactive Usage
 
-wt is interactive by default — commands launch pickers when arguments are
+wtx is interactive by default — commands launch pickers when arguments are
 omitted. AI agents MUST always pass explicit arguments to avoid interactive
 prompts.
 
     # Wrong (launches interactive picker):
-    wt add
-    wt remove
-    wt cd
+    wtx add
+    wtx remove
+    wtx cd
 
     # Correct (explicit arguments):
-    wt add feature/auth
-    wt remove feature/auth --force
-    wt cd feature/auth
+    wtx add feature/auth
+    wtx remove feature/auth --force
+    wtx cd feature/auth
 
 ## Project Structure
 
-After wt clone (bare repo):
+After wtx clone (bare repo):
 
     project/
       .bare/              # Bare git repository (no .git at root)
       .worktree.yml       # Project configuration
       bin/
-        refresh           # Starter script for 'wt run refresh' (a commented no-op)
+        refresh           # Starter script for 'wtx run refresh' (a commented no-op)
       shared/
         copy/             # Files copied into each new worktree
         symlink/          # Directories symlinked into each new worktree
@@ -47,14 +47,14 @@ After wt clone (bare repo):
         main/             # Each branch gets its own directory
         feature-auth/
 
-After wt init (existing repo):
+After wtx init (existing repo):
 
     project/
       .git/               # Existing git directory (project root is the main worktree)
       .worktree.yml       # Project configuration
       .worktrees/
         bin/
-          refresh         # Starter script for 'wt run refresh' (a commented no-op)
+          refresh         # Starter script for 'wtx run refresh' (a commented no-op)
         shared/
           copy/           # Files copied into each new worktree
           symlink/        # Directories symlinked into each new worktree
@@ -64,110 +64,111 @@ After wt init (existing repo):
 
 ### Clone a project (bare repo)
 
-    wt clone <url> [name]
-    wt clone <url> --dry-run          # Preview without executing
+    wtx clone <url> [name]
+    wtx clone <url> --dry-run          # Preview without executing
 
 ### Initialize in an existing repo
 
-    wt init                           # Run from the repo root
-    wt init --dry-run                 # Preview without executing
+    wtx init                           # Run from the repo root
+    wtx init --dry-run                 # Preview without executing
 
 ### Create a worktree
 
-    wt add <branch>                   # Detects remote or creates new branch
+    wtx add <branch>                   # Detects remote or creates new branch
 
 ### List worktrees
 
-    wt list
+    wtx list
 
 ### Remove a worktree
 
-    wt remove <name> --force          # Use --force to skip confirmation
+    wtx remove <name> --force          # Use --force to skip confirmation
 
 ### Get worktree path
 
-    wt cd <name>                      # Prints path to stdout (does NOT cd)
+    wtx cd <name>                      # Prints path to stdout (does NOT cd)
 
 ### Navigate to a worktree
 
-    cd "$(wt cd <name>)"              # Use shell substitution to cd
+    cd "$(wtx cd <name>)"              # Use shell substitution to cd
 
 ### Run a project script
 
-    wt run <name> [args...]           # Runs scripts.<name> from .worktree.yml in the current worktree
-    wt run --dry-run <name>           # wt flags must precede the name; later args go to the script
+    wtx run <name> [args...]           # Runs scripts.<name> from .worktree.yml in the current worktree
+    wtx run --dry-run <name>           # wtx flags must precede the name; later args go to the script
 
 bin/refresh is a generated stub. When asked to set up an environment refresh,
 read it and implement the commented steps for this project's stack. Scripts
-receive WT_PROJECT_ROOT, WT_SHARED_PATH, WT_MAIN_BRANCH, WT_MAIN_WORKTREE_PATH,
-WT_WORKTREE_PATH, WT_BRANCH_NAME, WT_WORKTREE_ID, and WT_SCRIPT_NAME.
+receive WTX_PROJECT_ROOT, WTX_SHARED_PATH, WTX_MAIN_BRANCH, WTX_MAIN_WORKTREE_PATH,
+WTX_WORKTREE_PATH, WTX_BRANCH_NAME, WTX_WORKTREE_ID, and WTX_SCRIPT_NAME.
+Deprecated WT_ aliases are also exported for compatibility.
 
 ### Apply shared files
 
-    wt apply <name>                   # Apply to one worktree
-    wt apply --all                    # Apply to all worktrees
+    wtx apply <name>                   # Apply to one worktree
+    wtx apply --all                    # Apply to all worktrees
 
 ### Open in editor
 
-    wt open <name>
+    wtx open <name>
 
 ### Show status of all worktrees
 
-    wt status
+    wtx status
 
 ### Fetch and pull all worktrees
 
-    wt sync                           # Pull all clean worktrees
-    wt sync --rebase                  # Use rebase instead of merge
+    wtx sync                           # Pull all clean worktrees
+    wtx sync --rebase                  # Use rebase instead of merge
 
 ### Remove worktrees with merged branches
 
-    wt prune --yes                    # Use --yes to skip confirmation
-    wt prune --force --yes            # Also remove merged worktrees with uncommitted changes
+    wtx prune --yes                    # Use --yes to skip confirmation
+    wtx prune --force --yes            # Also remove merged worktrees with uncommitted changes
 
 ### Preview any command safely
 
-    wt --dry-run <command> [args]
+    wtx --dry-run <command> [args]
 
 ### Configuration management
 
-    wt config init                    # Generate annotated .worktree.yml
-    wt config init --update           # Preserve existing values
+    wtx config init                    # Generate annotated .worktree.yml
+    wtx config init --update           # Preserve existing values
 
 ## Common Workflows
 
 ### Starting a new project (clone)
 
-    wt clone git@github.com:org/repo.git
+    wtx clone git@github.com:org/repo.git
     cd repo
-    wt add feature/my-feature
-    cd "$(wt cd feature/my-feature)"
+    wtx add feature/my-feature
+    cd "$(wtx cd feature/my-feature)"
 
-### Adding wt to an existing repo
+### Adding wtx to an existing repo
 
     cd existing-repo
-    wt init
-    wt add feature/my-feature
-    cd "$(wt cd feature/my-feature)"
+    wtx init
+    wtx add feature/my-feature
+    cd "$(wtx cd feature/my-feature)"
 
 ### Creating a feature branch
 
-    wt add feature/my-feature
-    cd "$(wt cd feature/my-feature)"
+    wtx add feature/my-feature
+    cd "$(wtx cd feature/my-feature)"
 
 ### Checking project state
 
-    wt status
-    wt list
+    wtx status
+    wtx list
 
 ### Cleaning up after merge
 
-    wt sync
-    wt prune --yes
+    wtx sync
+    wtx prune --yes
 
 ### Applying shared file changes
 
-    wt apply --all
+    wtx apply --all
 
 ## Configuration (.worktree.yml)
 
@@ -212,12 +213,12 @@ Available variables:
 
 ## Key Caveats
 
-1. wt cd prints a path — it does not change directory. Always use:
-   cd "$(wt cd <name>)"
+1. wtx cd prints a path — it does not change directory. Always use:
+   cd "$(wtx cd <name>)"
 2. For cloned projects, there is no .git at the project root (bare repo at .bare/).
    For initialized projects, .git exists and the project root is the main worktree.
-3. Use --force with wt remove and --yes with wt prune to skip interactive confirmation.
-   wt prune --force removes merged worktrees even when they have uncommitted changes.
+3. Use --force with wtx remove and --yes with wtx prune to skip interactive confirmation.
+   wtx prune --force removes merged worktrees even when they have uncommitted changes.
 4. Use --dry-run to safely preview any destructive operation.
 5. The project root is identified by .worktree.yml — look for this file.
 6. Run git commands inside the worktree directory, not the project root.
@@ -228,7 +229,7 @@ func newAgentsCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "agents",
 		Short: "Print AI agent workflow instructions",
-		Long:  "Outputs workflow instructions for AI tools to understand how to use wt effectively.\nPipe to a file to create an AGENTS.md: wt agents > AGENTS.md",
+		Long:  "Outputs workflow instructions for AI tools to understand how to use wtx effectively.\nPipe to a file to create an AGENTS.md: wtx agents > AGENTS.md",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Print(agentsMarkdown)

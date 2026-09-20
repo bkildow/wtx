@@ -187,7 +187,7 @@ func TestWriteAnnotated(t *testing.T) {
 	content := string(data)
 
 	// Should contain documentation comments
-	if !strings.Contains(content, "# wt - worktree project configuration") {
+	if !strings.Contains(content, "# wtx - worktree project configuration") {
 		t.Error("missing header comment")
 	}
 
@@ -274,7 +274,7 @@ func TestWriteAnnotatedWithValues(t *testing.T) {
 	content := string(data)
 
 	// Should contain documentation comments
-	if !strings.Contains(content, "# wt - worktree project configuration") {
+	if !strings.Contains(content, "# wtx - worktree project configuration") {
 		t.Error("missing header comment")
 	}
 

@@ -85,8 +85,8 @@ func TestLowDiskMessages(t *testing.T) {
 			if tt.wantSummary != "" && !strings.Contains(msgs[0], tt.wantSummary) {
 				t.Errorf("first message = %q, want it to contain %q", msgs[0], tt.wantSummary)
 			}
-			if !strings.Contains(msgs[1], "wt prune") {
-				t.Errorf("second message = %q, want a 'wt prune' recommendation", msgs[1])
+			if !strings.Contains(msgs[1], "wtx prune") {
+				t.Errorf("second message = %q, want a 'wtx prune' recommendation", msgs[1])
 			}
 
 			joined := strings.Join(msgs, "\n")

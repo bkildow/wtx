@@ -23,20 +23,22 @@ Script paths are resolved relative to the project root (absolute paths are
 allowed). The script runs with the current worktree as its working directory
 and receives these environment variables:
 
-  WT_SCRIPT_NAME         Name of the script being run
-  WT_PROJECT_ROOT        Project root (where .worktree.yml lives)
-  WT_SHARED_PATH         Shared directory (copy/ and symlink/)
-  WT_MAIN_BRANCH         main_branch from .worktree.yml
-  WT_MAIN_WORKTREE_PATH  Worktree checked out on the main branch (empty if none)
-  WT_WORKTREE_PATH       Path of the current worktree (empty outside a worktree)
-  WT_WORKTREE_ID         Sanitized branch name (empty outside a worktree)
-  WT_BRANCH_NAME         Branch of the current worktree (empty outside a worktree)
+  WTX_SCRIPT_NAME         Name of the script being run
+  WTX_PROJECT_ROOT        Project root (where .worktree.yml lives)
+  WTX_SHARED_PATH         Shared directory (copy/ and symlink/)
+  WTX_MAIN_BRANCH         main_branch from .worktree.yml
+  WTX_MAIN_WORKTREE_PATH  Worktree checked out on the main branch (empty if none)
+  WTX_WORKTREE_PATH       Path of the current worktree (empty outside a worktree)
+  WTX_WORKTREE_ID         Sanitized branch name (empty outside a worktree)
+  WTX_BRANCH_NAME         Branch of the current worktree (empty outside a worktree)
+
+Deprecated WT_ aliases are also exported for compatibility.
 
 Arguments after the script name are passed through to the script verbatim.
-Because of this, wt flags must come before the script name:
+Because of this, wtx flags must come before the script name:
 
-  wt run refresh --no-cache        # --no-cache is passed to the script
-  wt run --dry-run refresh         # dry-run applies to wt
+  wtx run refresh --no-cache        # --no-cache is passed to the script
+  wtx run --dry-run refresh         # dry-run applies to wtx
 
 With no name, an interactive picker lists the configured scripts.`,
 		Args:              cobra.ArbitraryArgs,
@@ -146,7 +148,7 @@ func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Co
 }
 
 // resolveMainWorktreePath finds the worktree checked out on cfg.MainBranch.
-// For wt init projects the main worktree is the project root itself, which
+// For wtx init projects the main worktree is the project root itself, which
 // filterManagedWorktrees excludes, so fall back to the unfiltered list.
 func resolveMainWorktreePath(all, filtered []git.WorktreeInfo, cfg *config.Config) string {
 	if cfg.MainBranch == "" {

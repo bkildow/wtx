@@ -33,7 +33,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	if len(filtered) == 0 {
-		ui.Info("No worktrees found. Use 'wt add' to create one.")
+		ui.Info("No worktrees found. Use 'wtx add' to create one.")
 		return nil
 	}
 

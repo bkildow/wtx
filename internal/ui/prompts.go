@@ -27,10 +27,10 @@ func wtKeyMap() *huh.KeyMap {
 	return km
 }
 
-// runForm wraps a field in a standard wt form and runs it.
+// runForm wraps a field in a standard wtx form and runs it.
 func runForm(fields ...huh.Field) error {
 	return huh.NewForm(huh.NewGroup(fields...)).
-		WithTheme(WtTheme()).
+		WithTheme(WtxTheme()).
 		WithKeyMap(wtKeyMap()).
 		WithShowHelp(true).
 		WithOutput(Output).
