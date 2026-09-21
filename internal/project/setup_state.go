@@ -102,13 +102,19 @@ func ResolveSetupStatus(worktreePath string) (*SetupState, error) {
 		return state, err
 	}
 
+	ResolveDeadSetupProcess(state)
+	return state, nil
+}
+
+// ResolveDeadSetupProcess updates only a running record whose process has exited.
+func ResolveDeadSetupProcess(state *SetupState) bool {
 	if state.Status == SetupRunning && !IsProcessAlive(state.PID) {
 		state.Status = SetupFailed
 		state.Error = staleProcessError
 		state.CompletedAt = time.Now()
+		return true
 	}
-
-	return state, nil
+	return false
 }
 
 // ReconcileSetupState reads the setup state, resolves stale processes,

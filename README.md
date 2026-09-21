@@ -43,6 +43,66 @@
 - **Shell completions** — tab-complete worktree names in bash, zsh, and fish
 - **Dry-run support** — preview every destructive operation with `--dry-run`
 
+## Project health and migration checks
+
+```bash
+wtx doctor                    # Inspect from the project root or a worktree
+wtx doctor --fix --dry-run    # Preview safe repairs, without writes or backups
+wtx doctor --fix              # Apply safe repairs, then inspect again
+wtx doctor --json             # Structured report on stdout (schema_version: 1)
+wtx doctor --strict           # Warnings also produce exit code 1
+wtx doctor --user             # Inspect user settings, even outside a project
+```
+
+Doctor checks Git compatibility, managed exclusions, setup state, existing Claude
+hooks, missing shared copies and managed links, worktree registrations, local
+orphaned branches, executable script targets, disk thresholds, and Compose
+projects without teardown hooks. It never runs project scripts or setup hooks,
+fetches remotes, invokes Docker, deletes branches, or removes worktrees.
+Shared copies are checked for existence, including rendered `.template` names;
+different worktree-local contents are expected and are not treated as drift.
+
+`--fix` repairs only Git compatibility configuration, managed exclusions, dead
+setup-process records, and recognized existing Claude hook commands. It preserves
+custom settings and hooks and adds no absent hooks. Absolute `wt` hook paths are
+changed only when their sibling `wtx` is executable; bare commands require `wtx`
+on PATH. Linked settings inside the project are deduplicated by resolved path;
+external targets require manual attention.
+
+Modified files receive unique adjacent `*.wtx-backup-*` backups without replacing
+previous backups. Repairs preserve permissions, stage replacements atomically,
+and refuse inputs that changed after inspection. A second successful run makes
+no further changes. A reconciled dead setup process remains a failed setup:
+review its preserved log before rerunning `wtx setup`. Partial repair failures
+remain visible. `wtx repair` keeps its existing narrow Git compatibility purpose.
+
+Shared copies/links, worktree pruning, branches, arbitrary scripts, and user
+dotfiles receive findings and manual remedies only. Review the suggested
+`wtx apply` or Git pruning commands before running them yourself. Compose findings
+ask you to review external resource cleanup and configure suitable teardown hooks.
+`--user --fix` is rejected because dotfile changes are manual.
+
+The rename scan covers `.worktree.yml`, configured scripts, project `bin/`, shared
+text configuration, root `AGENTS.md`/`CLAUDE.md`, and Git-tracked text files in
+existing worktrees. It skips Git internals, dependency/build directories, symlinks,
+binary/non-UTF-8 files, backups, and files larger than 1 MiB. Reports describe these
+limits; this is a bounded candidate scan, not a shell parser or a complete audit.
+Matches include paths, line numbers, and identifiers, never full source lines.
+The user scan honors `ZDOTDIR` and `XDG_CONFIG_HOME`, checks standard Bash, Zsh, and
+Fish startup files, and never sources them or follows arbitrary shell includes.
+
+Replace legacy input settings `WT_THEME` and `WT_NO_DISK_WARN` with their `WTX_`
+names **before v0.12**. Replace `wt` command calls, shell startup invocations,
+and legacy `WT_*` script-variable references **before v1.0**. Installation alone
+does not migrate binaries, shell initialization, or projects.
+
+Exit code is 0 when no failures remain, or 1 for failures, inspection errors, or
+unsuccessful repairs. `--strict` also returns 1 for remaining warnings. Actual
+repairs evaluate the resulting state; previews evaluate the current state. Human
+reports use stderr; JSON uses stdout and includes scope, sorted findings,
+`planned`/`applied`/`failed` repair outcomes, backup paths, and severity counts.
+The deprecated `wt doctor` shim supports the same command and retains its warning.
+
 ## Requirements
 
 - **macOS or Linux.** Windows is not supported — `wtx` leans on POSIX process
@@ -116,6 +176,7 @@ wtx prune
 | `wtx apply [name]` | Apply shared files to a worktree |
 | `wtx open [name]` | Open a worktree in an IDE |
 | `wtx status` | Show status of all worktrees |
+| `wtx doctor` | Check project health and migration readiness |
 | `wtx sync` | Fetch and pull all worktrees |
 | `wtx prune` | Remove worktrees with fully merged branches |
 | `wtx config init` | Generate annotated `.worktree.yml` with documentation |

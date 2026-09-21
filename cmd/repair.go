@@ -95,27 +95,7 @@ func worktreeBareOverrideOK(worktreePath string) (bool, error) {
 // (worktrees have a .git file: "gitdir: <relative-or-absolute-path>") and
 // returns the path to its config.worktree file.
 func worktreeConfigPath(worktreePath string) (string, error) {
-	gitFile := filepath.Join(worktreePath, ".git")
-	info, err := os.Stat(gitFile)
-	if err != nil {
-		return "", err
-	}
-	// In init setups the main worktree's .git is a real directory.
-	if info.IsDir() {
-		return filepath.Join(gitFile, "config.worktree"), nil
-	}
-	data, err := os.ReadFile(gitFile)
-	if err != nil {
-		return "", err
-	}
-	gitdir := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(string(data)), "gitdir:"))
-	if gitdir == "" {
-		return "", fmt.Errorf("malformed .git file at %s", gitFile)
-	}
-	if !filepath.IsAbs(gitdir) {
-		gitdir = filepath.Join(worktreePath, gitdir)
-	}
-	return filepath.Join(gitdir, "config.worktree"), nil
+	return git.WorktreeConfigPath(worktreePath)
 }
 
 // hasBareFalse parses a git config blob and reports whether [core] bare = false

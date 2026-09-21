@@ -62,6 +62,7 @@ func init() {
 	rootCmd.AddCommand(newSyncCmd())
 	rootCmd.AddCommand(newPruneCmd())
 	rootCmd.AddCommand(newRepairCmd())
+	rootCmd.AddCommand(newDoctorCmd())
 	rootCmd.AddCommand(newRootCmd())
 	rootCmd.AddCommand(newRunSetupCmd())
 	rootCmd.AddCommand(newClaudeCmd())

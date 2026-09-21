@@ -30,6 +30,22 @@ func EnsureGitExclude(gitDir string, dryRun bool) error {
 		return err
 	}
 
+	updated := ManagedExclude(existing)
+	if string(updated) == string(existing) {
+		return nil
+	}
+	if dryRun {
+		ui.DryRunNotice("update managed exclusions in " + excludePath)
+		return nil
+	}
+	if err := os.MkdirAll(infoDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(excludePath, updated, 0o600)
+}
+
+// ManagedExclude returns the updated exclusions, preserving custom content.
+func ManagedExclude(existing []byte) []byte {
 	lines := strings.Split(string(existing), "\n")
 	present := make(map[string]bool)
 	migrated := false
@@ -49,16 +65,7 @@ func EnsureGitExclude(gitDir string, dryRun bool) error {
 	}
 
 	if len(missing) == 0 && !migrated {
-		return nil
-	}
-
-	if dryRun {
-		ui.DryRunNotice("update managed exclusions in " + excludePath)
-		return nil
-	}
-
-	if err := os.MkdirAll(infoDir, 0o755); err != nil {
-		return err
+		return existing
 	}
 
 	// Preserve all existing patterns and comments while migrating the marker.
@@ -78,5 +85,5 @@ func EnsureGitExclude(gitDir string, dryRun bool) error {
 		buf.WriteByte('\n')
 	}
 
-	return os.WriteFile(excludePath, []byte(buf.String()), 0o600)
+	return []byte(buf.String())
 }

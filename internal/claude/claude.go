@@ -5,11 +5,99 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
 
 const settingsFile = ".claude/settings.local.json"
+
+// MigrateLegacyHooks updates only existing, recognized legacy hook commands.
+// unresolved counts commands whose replacement executable is unavailable.
+func MigrateLegacyHooks(data []byte) (updated []byte, changed, unresolved int, err error) {
+	var settings map[string]json.RawMessage
+	if err := json.Unmarshal(data, &settings); err != nil {
+		return nil, 0, 0, err
+	}
+	if settings == nil {
+		return nil, 0, 0, fmt.Errorf("settings must be an object")
+	}
+	raw, exists := settings["hooks"]
+	if !exists {
+		return data, 0, 0, nil
+	}
+	var hooks map[string]json.RawMessage
+	if err = json.Unmarshal(raw, &hooks); err != nil || hooks == nil {
+		return nil, 0, 0, fmt.Errorf("hooks must be an object")
+	}
+	for _, event := range []string{HookWorktreeCreate, HookWorktreeRemove} {
+		raw, exists := hooks[event]
+		if !exists {
+			continue
+		}
+		var groups []map[string]json.RawMessage
+		if err = json.Unmarshal(raw, &groups); err != nil || groups == nil {
+			return nil, 0, 0, fmt.Errorf("%s hooks must be an array of objects", event)
+		}
+		for _, group := range groups {
+			var entries []map[string]json.RawMessage
+			if err = json.Unmarshal(group["hooks"], &entries); err != nil || entries == nil {
+				return nil, 0, 0, fmt.Errorf("%s group hooks must be an array of objects", event)
+			}
+			for _, entry := range entries {
+				var kind, command string
+				if json.Unmarshal(entry["type"], &kind) != nil || kind != "command" {
+					continue
+				}
+				if json.Unmarshal(entry["command"], &command) != nil {
+					return nil, 0, 0, fmt.Errorf("hook command must be a string")
+				}
+				if !isManagedHook(map[string]any{"type": kind, "command": command}, event, "") {
+					continue
+				}
+				suffix := " claude " + hookSubcommand(event)
+				binary := strings.TrimSuffix(command, suffix)
+				if filepath.Base(binary) != "wt" {
+					continue
+				}
+				replacement := "wtx"
+				if binary != "wt" {
+					if !filepath.IsAbs(binary) {
+						unresolved++
+						continue
+					}
+					replacement = filepath.Join(filepath.Dir(binary), "wtx")
+				}
+				if _, err := exec.LookPath(replacement); err != nil {
+					unresolved++
+					continue
+				}
+				entry["command"], err = json.Marshal(replacement + suffix)
+				if err != nil {
+					return nil, 0, 0, err
+				}
+				changed++
+			}
+			group["hooks"], err = json.Marshal(entries)
+			if err != nil {
+				return nil, 0, 0, err
+			}
+		}
+		hooks[event], err = json.Marshal(groups)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+	}
+	if changed == 0 {
+		return data, 0, unresolved, nil
+	}
+	settings["hooks"], err = json.Marshal(hooks)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	updated, err = json.MarshalIndent(settings, "", "  ")
+	return append(updated, '\n'), changed, unresolved, err
+}
 
 // Hook event names used by Claude Code.
 const (

@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 
 	"github.com/bkildow/wtx/cmd"
@@ -10,7 +11,9 @@ import (
 
 func main() {
 	if err := cmd.Execute(); err != nil {
-		ui.Error(err.Error())
+		if !errors.Is(err, cmd.ErrDoctorUnhealthy) {
+			ui.Error(err.Error())
+		}
 		os.Exit(1)
 	}
 }

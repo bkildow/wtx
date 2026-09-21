@@ -116,6 +116,31 @@ Deprecated WT_ aliases are also exported for compatibility.
 
     wtx status
 
+### Check health and migration readiness
+
+    wtx doctor --json                 # Read-only project report
+    wtx doctor --fix --dry-run        # Preview safe repairs
+    wtx doctor --fix                  # Apply repairs and check resulting state
+    wtx doctor --strict               # Warnings also cause exit code 1
+    wtx doctor --user                 # User configuration only, works outside projects
+
+Doctor repairs only Git compatibility config, managed exclusions, dead setup
+records, and recognized existing Claude hooks. Repairs preserve permissions,
+create unique adjacent backups, and refuse inputs changed since inspection.
+Review manual remedies for shared copies/links, registrations, scripts, branches,
+and dotfiles. User dotfile changes are manual; --user --fix is rejected.
+Dead setup records become failed, so review retained logs before running setup.
+Exit 1 means failures, inspection errors, unsuccessful repairs, or strict warnings.
+After repairs, exit status reflects the rechecked state; previews use current state.
+
+The bounded rename scan checks project configuration, configured scripts, bin/,
+shared text, root agent instructions, and tracked worktree files. It skips Git
+internals, dependency/build directories, symlinks, binaries, and files over 1 MiB.
+Treat text matches as review candidates. User scanning honors ZDOTDIR and
+XDG_CONFIG_HOME without sourcing startup files or following arbitrary includes.
+Replace WT_THEME and WT_NO_DISK_WARN input settings before v0.12; replace wt
+commands and WT_* script exports before v1.0. Installing wtx migrates nothing.
+
 ### Fetch and pull all worktrees
 
     wtx sync                           # Pull all clean worktrees

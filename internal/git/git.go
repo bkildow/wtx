@@ -17,10 +17,12 @@ import (
 )
 
 type WorktreeInfo struct {
-	Path   string
-	Branch string
-	Head   string
-	Bare   bool
+	Path     string
+	Branch   string
+	Head     string
+	Bare     bool
+	Locked   bool
+	Prunable bool
 }
 
 type Git interface {
@@ -56,6 +58,7 @@ type Runner struct {
 	GitDir    string
 	DryRun    bool
 	BatchMode bool // Suppress interactive prompts (for non-TTY environments like hooks)
+	Quiet     bool // Suppress diagnostic command output for structured reports.
 
 	worktreeConfigEnabled bool
 
@@ -104,7 +107,9 @@ func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...st
 	fullArgs := append([]string{"--git-dir", r.GitDir}, args...)
 	cmdStr := "git " + strings.Join(fullArgs, " ")
 
-	ui.Command(cmdStr)
+	if !r.Quiet {
+		ui.Command(cmdStr)
+	}
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -179,15 +184,11 @@ func (r *Runner) SetWorktreeBareFalse(ctx context.Context, worktreePath string) 
 	}
 
 	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
+	path, err := WorktreeConfigPath(worktreePath)
+	if err != nil {
+		return err
 	}
-
-	return nil
+	return SetConfigFile(ctx, path, "core.bare", "false")
 }
 
 func (r *Runner) Fetch(ctx context.Context, remote string) error {
@@ -392,6 +393,10 @@ func parseWorktreeList(output string) []WorktreeInfo {
 			current.Branch = strings.TrimPrefix(ref, "refs/heads/")
 		case line == "bare":
 			current.Bare = true
+		case line == "locked" || strings.HasPrefix(line, "locked "):
+			current.Locked = true
+		case line == "prunable" || strings.HasPrefix(line, "prunable "):
+			current.Prunable = true
 		case line == "":
 			if current.Path != "" {
 				worktrees = append(worktrees, current)
