@@ -12,7 +12,7 @@ const (
 	SetupStateFile = ".wtx-setup.json"
 	SetupLogFile   = ".wtx-setup.log"
 
-	legacySetupStateFile = ".wt-setup.json"
+	LegacySetupStateFile = ".wt-setup.json"
 	legacySetupLogFile   = ".wt-setup.log"
 
 	// staleProcessError is the sentinel error string used when a running
@@ -53,12 +53,17 @@ func SetupLogPath(worktreePath string) string {
 }
 
 // WriteSetupState atomically writes the setup state to the worktree directory.
-func WriteSetupState(worktreePath string, state *SetupState) error {
+// EncodeSetupState returns the on-disk form of a setup state.
+func EncodeSetupState(state *SetupState) ([]byte, error) {
 	data, err := json.MarshalIndent(state, "", "  ")
+	return append(data, '\n'), err
+}
+
+func WriteSetupState(worktreePath string, state *SetupState) error {
+	data, err := EncodeSetupState(state)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 
 	target := SetupStatePath(worktreePath)
 	tmp := target + ".tmp"
@@ -76,7 +81,7 @@ func ReadSetupState(worktreePath string) (*SetupState, error) {
 	// Read legacy state in place so an old background process remains visible
 	// as it updates its file. New runs always take precedence.
 	if errors.Is(err, os.ErrNotExist) {
-		data, err = os.ReadFile(filepath.Join(worktreePath, legacySetupStateFile))
+		data, err = os.ReadFile(filepath.Join(worktreePath, LegacySetupStateFile))
 	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -102,13 +107,19 @@ func ResolveSetupStatus(worktreePath string) (*SetupState, error) {
 		return state, err
 	}
 
+	ResolveDeadSetupProcess(state)
+	return state, nil
+}
+
+// ResolveDeadSetupProcess updates only a running record whose process has exited.
+func ResolveDeadSetupProcess(state *SetupState) bool {
 	if state.Status == SetupRunning && !IsProcessAlive(state.PID) {
 		state.Status = SetupFailed
 		state.Error = staleProcessError
 		state.CompletedAt = time.Now()
+		return true
 	}
-
-	return state, nil
+	return false
 }
 
 // ReconcileSetupState reads the setup state, resolves stale processes,

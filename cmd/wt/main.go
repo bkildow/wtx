@@ -2,6 +2,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -14,7 +15,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, "wt is deprecated; use wtx instead. The wt command will be removed in v1.0.0.")
 	}
 	if err := cmd.Execute(); err != nil {
-		ui.Error(err.Error())
+		if !errors.Is(err, cmd.ErrReported) {
+			ui.Error(err.Error())
+		}
 		os.Exit(1)
 	}
 }

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -132,3 +133,13 @@ func TestWarnLowDiskEnvOverride(t *testing.T) {
 		})
 	}
 }
+
+func unsetEnv(t *testing.T, name string) {
+	t.Helper()
+	t.Setenv(name, "") // Restore the original value when the test finishes.
+	if err := os.Unsetenv(name); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func envValue(value string) *string { return &value }

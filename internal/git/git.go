@@ -17,10 +17,12 @@ import (
 )
 
 type WorktreeInfo struct {
-	Path   string
-	Branch string
-	Head   string
-	Bare   bool
+	Path     string
+	Branch   string
+	Head     string
+	Bare     bool
+	Locked   bool
+	Prunable bool
 }
 
 type Git interface {
@@ -56,6 +58,7 @@ type Runner struct {
 	GitDir    string
 	DryRun    bool
 	BatchMode bool // Suppress interactive prompts (for non-TTY environments like hooks)
+	Quiet     bool // Suppress diagnostic command output for structured reports.
 
 	worktreeConfigEnabled bool
 
@@ -101,10 +104,23 @@ func (r *Runner) Query(ctx context.Context, args ...string) (string, error) {
 // callers that need to steer git itself (an isolated object store, a synthetic
 // commit identity) rather than just pass flags.
 func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	out, err := r.queryRaw(ctx, extraEnv, args...)
+	return strings.TrimSpace(out), err
+}
+
+// QueryRaw is Query without whitespace trimming, for NUL-delimited output
+// (e.g. ls-files -z) where leading or trailing spaces belong to a path.
+func (r *Runner) QueryRaw(ctx context.Context, args ...string) (string, error) {
+	return r.queryRaw(ctx, nil, args...)
+}
+
+func (r *Runner) queryRaw(ctx context.Context, extraEnv []string, args ...string) (string, error) {
 	fullArgs := append([]string{"--git-dir", r.GitDir}, args...)
 	cmdStr := "git " + strings.Join(fullArgs, " ")
 
-	ui.Command(cmdStr)
+	if !r.Quiet {
+		ui.Command(cmdStr)
+	}
 	cmd := exec.CommandContext(ctx, "git", fullArgs...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -123,7 +139,7 @@ func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...st
 		return "", fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 func (r *Runner) CloneBare(ctx context.Context, url, dest string) error {
@@ -392,6 +408,10 @@ func parseWorktreeList(output string) []WorktreeInfo {
 			current.Branch = strings.TrimPrefix(ref, "refs/heads/")
 		case line == "bare":
 			current.Bare = true
+		case line == "locked" || strings.HasPrefix(line, "locked "):
+			current.Locked = true
+		case line == "prunable" || strings.HasPrefix(line, "prunable "):
+			current.Prunable = true
 		case line == "":
 			if current.Path != "" {
 				worktrees = append(worktrees, current)

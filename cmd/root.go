@@ -6,6 +6,7 @@ import (
 	"os"
 
 	lipgloss "charm.land/lipgloss/v2"
+	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
@@ -26,7 +27,7 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if theme := lookupEnv("THEME"); theme != "" {
+		if theme := config.LookupEnv("THEME"); theme != "" {
 			ui.ApplyTheme(theme)
 		}
 		return nil
@@ -62,6 +63,7 @@ func init() {
 	rootCmd.AddCommand(newSyncCmd())
 	rootCmd.AddCommand(newPruneCmd())
 	rootCmd.AddCommand(newRepairCmd())
+	rootCmd.AddCommand(newDoctorCmd())
 	rootCmd.AddCommand(newRootCmd())
 	rootCmd.AddCommand(newRunSetupCmd())
 	rootCmd.AddCommand(newClaudeCmd())

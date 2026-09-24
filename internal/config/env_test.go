@@ -1,4 +1,4 @@
-package cmd
+package config
 
 import (
 	"os"
@@ -35,8 +35,8 @@ func TestLookupEnv(t *testing.T) {
 			if tt.current != nil {
 				t.Setenv("WTX_THEME", *tt.current)
 			}
-			if got := lookupEnv("THEME"); got != tt.want {
-				t.Fatalf("lookupEnv = %q, want %q", got, tt.want)
+			if got := LookupEnv("THEME"); got != tt.want {
+				t.Fatalf("LookupEnv = %q, want %q", got, tt.want)
 			}
 		})
 	}
