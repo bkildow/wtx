@@ -228,7 +228,7 @@ func TestSetupLogPath(t *testing.T) {
 
 func TestLegacySetupStateContinuesUpdating(t *testing.T) {
 	dir := t.TempDir()
-	legacy := filepath.Join(dir, legacySetupStateFile)
+	legacy := filepath.Join(dir, LegacySetupStateFile)
 	for _, status := range []SetupStatus{SetupRunning, SetupComplete} {
 		data := []byte(`{"status":"` + string(status) + `","pid":` + strconv.Itoa(os.Getpid()) + `,"log_file":".wt-setup.log"}`)
 		if err := os.WriteFile(legacy, data, 0o644); err != nil {
@@ -259,7 +259,7 @@ func TestLegacySetupStateContinuesUpdating(t *testing.T) {
 
 func TestReconcileStaleLegacyState(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, legacySetupStateFile), []byte(`{"status":"running","pid":-1}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, LegacySetupStateFile), []byte(`{"status":"running","pid":-1}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	got, err := ReconcileSetupState(dir)

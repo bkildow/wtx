@@ -18,7 +18,8 @@ import (
 
 func (s *inspection) scripts() {
 	if len(s.cfg.Scripts) == 0 {
-		s.add("scripts", "warn", filepath.Join(s.root, config.ConfigFileName), "No project scripts are configured.", "Add named executable paths under scripts: to use wtx run.")
+		// Scripts are optional; their absence is not a health problem.
+		s.add("scripts", "ok", filepath.Join(s.root, config.ConfigFileName), "No project scripts are configured.", "")
 		return
 	}
 	for _, name := range project.ScriptNames(s.cfg) {
@@ -194,7 +195,7 @@ func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo)
 }
 
 func (s *inspection) states(root string) {
-	for _, name := range []string{project.SetupStateFile, ".wt-setup.json"} {
+	for _, name := range []string{project.SetupStateFile, project.LegacySetupStateFile} {
 		path := filepath.Join(root, name)
 		file, err := takeSnapshot(path)
 		if err != nil {
@@ -317,10 +318,8 @@ func (s *inspection) danglingManagedLinks(root, shared string) {
 			s.problem("shared.symlink", path, err)
 			return nil
 		}
-		for _, f := range s.report.Findings {
-			if f.ID == "shared.symlink" && f.Path == path {
-				return nil
-			}
+		if s.seenLinks[path] {
+			return nil
 		}
 		s.add("shared.symlink", "warn", path, "Managed symlink points to a shared source that no longer exists.", "Restore the shared source or review and repair the link manually.")
 		return nil
@@ -356,6 +355,7 @@ func (s *inspection) links(source, dest string) {
 		actual, linkErr := filepath.EvalSymlinks(target)
 		expected, srcErr := filepath.EvalSymlinks(src)
 		if err != nil || info.Mode()&os.ModeSymlink == 0 || linkErr != nil || srcErr != nil || actual != expected {
+			s.seenLinks[target] = true
 			s.add("shared.symlink", "warn", target, "Managed symlink is missing, broken, or points to an unexpected target.", "Review the link and shared source, then repair manually or run wtx apply for this worktree.")
 		}
 	}

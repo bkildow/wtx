@@ -8,7 +8,11 @@ import (
 	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/project"
 )
+
+// backupDirName lives under the Git directory, which scans and apply skip.
+const backupDirName = "wtx-doctor-backups"
 
 type snapshot struct {
 	path   string
@@ -68,6 +72,7 @@ type repair struct {
 	data     []byte
 	key      string
 	value    string
+	backups  string
 	validate func() error
 }
 
@@ -77,7 +82,9 @@ func (s *inspection) plan(index int, file snapshot, data []byte, key, value stri
 		return
 	}
 	s.report.Findings[index].Repairable = true
-	s.repairs = append(s.repairs, repair{id: s.report.Findings[index].ID, file: file, data: data, key: key, value: value, guards: append([]snapshot(nil), s.guards...), validate: validate})
+	// Keep backups out of worktrees and shared/, where apply would copy or link them.
+	backups := filepath.Join(project.GitDirPath(s.root, s.cfg), backupDirName)
+	s.repairs = append(s.repairs, repair{id: s.report.Findings[index].ID, file: file, data: data, key: key, value: value, backups: backups, guards: append([]snapshot(nil), s.guards...), validate: validate})
 }
 
 func (r repair) check() error {
@@ -169,7 +176,10 @@ func (r repair) apply(ctx context.Context) (string, error) {
 	}
 	backup := ""
 	if r.file.info != nil {
-		b, err := os.CreateTemp(dir, filepath.Base(r.file.path)+".wtx-backup-*")
+		if err := os.MkdirAll(r.backups, 0o700); err != nil {
+			return "", err
+		}
+		b, err := os.CreateTemp(r.backups, filepath.Base(r.file.path)+".wtx-backup-*")
 		if err != nil {
 			return "", err
 		}

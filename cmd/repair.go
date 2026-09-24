@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -54,7 +55,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		inspected++
-		ok, err := worktreeBareOverrideOK(wt.Path)
+		ok, err := worktreeBareOverrideOK(ctx, wt.Path)
 		if err != nil {
 			ui.Warning(fmt.Sprintf("Could not inspect %s: %v", wt.Path, err))
 			continue
@@ -76,55 +77,19 @@ func runRepair(cmd *cobra.Command, args []string) error {
 // worktreeBareOverrideOK reports whether the worktree's config.worktree
 // already contains core.bare = false. Returns true when the override is in
 // place, false when missing or when the file doesn't exist.
-func worktreeBareOverrideOK(worktreePath string) (bool, error) {
-	cfgPath, err := worktreeConfigPath(worktreePath)
+func worktreeBareOverrideOK(ctx context.Context, worktreePath string) (bool, error) {
+	cfgPath, err := git.WorktreeConfigPath(worktreePath)
 	if err != nil {
 		return false, err
 	}
-	data, err := os.ReadFile(cfgPath)
-	if err != nil {
+	if _, err := os.Stat(cfgPath); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
 		return false, err
 	}
-	return hasBareFalse(string(data)), nil
-}
-
-// worktreeConfigPath resolves <worktreePath>/.git to its actual gitdir
-// (worktrees have a .git file: "gitdir: <relative-or-absolute-path>") and
-// returns the path to its config.worktree file.
-func worktreeConfigPath(worktreePath string) (string, error) {
-	return git.WorktreeConfigPath(worktreePath)
-}
-
-// hasBareFalse parses a git config blob and reports whether [core] bare = false
-// is set. We don't need a full INI parser — a tolerant scan is enough for the
-// repair check.
-func hasBareFalse(s string) bool {
-	inCore := false
-	for _, raw := range strings.Split(s, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
-			continue
-		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			inCore = strings.EqualFold(strings.Trim(line, "[]"), "core")
-			continue
-		}
-		if !inCore {
-			continue
-		}
-		k, v, ok := strings.Cut(line, "=")
-		if !ok {
-			continue
-		}
-		if !strings.EqualFold(strings.TrimSpace(k), "bare") {
-			continue
-		}
-		return strings.EqualFold(strings.TrimSpace(v), "false")
-	}
-	return false
+	value, err := git.ConfigBool(ctx, cfgPath, "core.bare")
+	return value == "false", err
 }
 
 func displayPath(projectRoot, p string) string {

@@ -2,59 +2,62 @@
 package claude
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 )
 
 const settingsFile = ".claude/settings.local.json"
 
+// ErrManualMigration marks recognized legacy hooks that cannot be rewritten
+// in place safely and need a manual edit.
+var ErrManualMigration = errors.New("cannot rewrite legacy hook commands in place; edit them manually")
+
 // MigrateLegacyHooks updates only existing, recognized legacy hook commands.
 // unresolved counts commands whose replacement executable is unavailable.
+// Commands are replaced in the original bytes so formatting, key order, and
+// unrelated content are preserved exactly.
 func MigrateLegacyHooks(data []byte) (updated []byte, changed, unresolved int, err error) {
-	var settings map[string]json.RawMessage
-	if err := json.Unmarshal(data, &settings); err != nil {
+	settings, err := decodeSettings(data)
+	if err != nil {
 		return nil, 0, 0, err
 	}
-	if settings == nil {
-		return nil, 0, 0, fmt.Errorf("settings must be an object")
-	}
-	raw, exists := settings["hooks"]
-	if !exists {
+	hooks, ok := settings["hooks"].(map[string]any)
+	if !ok {
+		if settings["hooks"] != nil {
+			return nil, 0, 0, fmt.Errorf("hooks must be an object")
+		}
 		return data, 0, 0, nil
 	}
-	var hooks map[string]json.RawMessage
-	if err = json.Unmarshal(raw, &hooks); err != nil || hooks == nil {
-		return nil, 0, 0, fmt.Errorf("hooks must be an object")
-	}
+	replacements := map[string]string{}
 	for _, event := range []string{HookWorktreeCreate, HookWorktreeRemove} {
-		raw, exists := hooks[event]
-		if !exists {
-			continue
-		}
-		var groups []map[string]json.RawMessage
-		if err = json.Unmarshal(raw, &groups); err != nil || groups == nil {
+		// Absent or null values are tolerated like ConfigureHooks does; other
+		// shapes are malformed.
+		groups, ok := hooks[event].([]any)
+		if !ok && hooks[event] != nil {
 			return nil, 0, 0, fmt.Errorf("%s hooks must be an array of objects", event)
 		}
-		for _, group := range groups {
-			var entries []map[string]json.RawMessage
-			if err = json.Unmarshal(group["hooks"], &entries); err != nil || entries == nil {
-				return nil, 0, 0, fmt.Errorf("%s group hooks must be an array of objects", event)
+		for _, value := range groups {
+			group, ok := value.(map[string]any)
+			if !ok {
+				return nil, 0, 0, fmt.Errorf("%s hooks must be an array of objects", event)
+			}
+			entries, ok := group["hooks"].([]any)
+			if !ok && group["hooks"] != nil {
+				return nil, 0, 0, fmt.Errorf("%s group hooks must be an array", event)
 			}
 			for _, entry := range entries {
-				var kind, command string
-				if json.Unmarshal(entry["type"], &kind) != nil || kind != "command" {
+				hook, _ := entry.(map[string]any)
+				if !isManagedHook(hook, event, "") {
 					continue
 				}
-				if json.Unmarshal(entry["command"], &command) != nil {
-					return nil, 0, 0, fmt.Errorf("hook command must be a string")
-				}
-				if !isManagedHook(map[string]any{"type": kind, "command": command}, event, "") {
-					continue
-				}
+				command := hook["command"].(string)
 				suffix := " claude " + hookSubcommand(event)
 				binary := strings.TrimSuffix(command, suffix)
 				if filepath.Base(binary) != "wt" {
@@ -72,31 +75,47 @@ func MigrateLegacyHooks(data []byte) (updated []byte, changed, unresolved int, e
 					unresolved++
 					continue
 				}
-				entry["command"], err = json.Marshal(replacement + suffix)
-				if err != nil {
-					return nil, 0, 0, err
-				}
+				hook["command"] = replacement + suffix
+				replacements[command] = replacement + suffix
 				changed++
 			}
-			group["hooks"], err = json.Marshal(entries)
-			if err != nil {
-				return nil, 0, 0, err
-			}
-		}
-		hooks[event], err = json.Marshal(groups)
-		if err != nil {
-			return nil, 0, 0, err
 		}
 	}
 	if changed == 0 {
 		return data, 0, unresolved, nil
 	}
-	settings["hooks"], err = json.Marshal(hooks)
-	if err != nil {
-		return nil, 0, 0, err
+	updated = data
+	for from, to := range replacements {
+		updated = bytes.ReplaceAll(updated, jsonString(from), jsonString(to))
 	}
-	updated, err = json.MarshalIndent(settings, "", "  ")
-	return append(updated, '\n'), changed, unresolved, err
+	// Refuse if the textual replacement touched anything but the hook commands
+	// (e.g. the same string elsewhere, or an escaped spelling it missed).
+	got, err := decodeSettings(updated)
+	if err != nil || !reflect.DeepEqual(got, settings) {
+		return nil, 0, 0, ErrManualMigration
+	}
+	return updated, changed, unresolved, nil
+}
+
+func decodeSettings(data []byte) (map[string]any, error) {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	var settings map[string]any
+	if err := decoder.Decode(&settings); err != nil {
+		return nil, err
+	}
+	if settings == nil {
+		return nil, fmt.Errorf("settings must be an object")
+	}
+	return settings, nil
+}
+
+func jsonString(s string) []byte {
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(s)
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
 }
 
 // Hook event names used by Claude Code.

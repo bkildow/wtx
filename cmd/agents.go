@@ -126,7 +126,7 @@ Deprecated WT_ aliases are also exported for compatibility.
 
 Doctor repairs only Git compatibility config, managed exclusions, dead setup
 records, and recognized existing Claude hooks. Repairs preserve permissions,
-create unique adjacent backups, and refuse inputs changed since inspection.
+back up to the Git directory, and refuse inputs changed since inspection.
 Review manual remedies for shared copies/links, registrations, scripts, branches,
 and dotfiles. User dotfile changes are manual; --user --fix is rejected.
 Dead setup records become failed, so review retained logs before running setup.

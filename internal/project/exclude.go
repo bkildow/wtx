@@ -14,7 +14,7 @@ import (
 var excludePatterns = []string{
 	SetupStateFile,
 	SetupLogFile,
-	legacySetupStateFile,
+	LegacySetupStateFile,
 	legacySetupLogFile,
 }
 

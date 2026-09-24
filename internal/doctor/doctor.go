@@ -75,6 +75,9 @@ type inspection struct {
 	guards       []snapshot
 	seenSettings map[string]bool
 	seenScan     map[string]bool
+	seenLinks    map[string]bool
+	gitDir       string // resolved Git directory, excluded from scans
+	scanSkipped  int
 }
 
 // Run always returns a report, including discovery and operational failures.
@@ -170,7 +173,7 @@ func (s *inspection) blocked(ids ...string) {
 }
 
 func inspect(ctx context.Context, opts Options) *inspection {
-	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}}
+	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}}
 	if opts.User {
 		s.report.Scope = "user"
 		if opts.Fix {
@@ -215,6 +218,8 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		return s
 	}
 	s.guards = append(s.guards, guard)
+	s.gitDir = resolved(project.GitDirPath(s.root, s.cfg))
+	defer s.scanLimitations(s.root)
 	s.add("project.config", "ok", configPath, "Project configuration is readable.", "")
 	s.scripts()
 	s.disk()

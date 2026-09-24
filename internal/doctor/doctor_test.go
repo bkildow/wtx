@@ -157,7 +157,7 @@ func TestReadOnlyPreviewAndGitRepairs(t *testing.T) {
 			if info.Mode().Perm() != 0o640 {
 				t.Fatal("permissions changed")
 			}
-			backups, err := filepath.Glob(exclude + ".wtx-backup-*")
+			backups, err := filepath.Glob(filepath.Join(gitDir, backupDirName, "exclude.wtx-backup-*"))
 			if err != nil || len(backups) != 1 {
 				t.Fatalf("backups: %v %v", backups, err)
 			}
@@ -231,14 +231,14 @@ func TestRepairGuardsBackupsAndFailure(t *testing.T) {
 		t.Fatal("overwrote edit")
 	}
 	Run(context.Background(), Options{StartDir: root, Fix: true})
-	backups, _ := filepath.Glob(path + ".wtx-backup-*")
+	backups, _ := filepath.Glob(filepath.Join(gitDir, backupDirName, "exclude.wtx-backup-*"))
 	if len(backups) != 1 {
 		t.Fatalf("backups %v", backups)
 	}
 	first, _ := os.ReadFile(backups[0])
 	write(t, path, "third\n", 0o600)
 	Run(context.Background(), Options{StartDir: root, Fix: true})
-	all, _ := filepath.Glob(path + ".wtx-backup-*")
+	all, _ := filepath.Glob(filepath.Join(gitDir, backupDirName, "exclude.wtx-backup-*"))
 	if len(all) != 2 {
 		t.Fatalf("backups overwritten: %v", all)
 	}
@@ -320,8 +320,8 @@ func TestScriptsTeardownDiskAndShared(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = Run(context.Background(), Options{StartDir: root})
-	if f := finding(r, "scripts", ""); f == nil || f.Severity != "warn" {
-		t.Fatal("empty scripts should warn")
+	if f := finding(r, "scripts", ""); f == nil || f.Severity != "ok" {
+		t.Fatal("empty scripts are optional")
 	}
 	if finding(r, "teardown", "") != nil {
 		t.Fatal("warned despite teardown")
@@ -435,6 +435,11 @@ func TestOperationalReportsAndStrict(t *testing.T) {
 	}
 	root, _, _ := fixture(t, false)
 	write(t, filepath.Join(root, ".worktree.yml"), "scripts: {}\ndisk_warn: false\ngit_dir: .git\n", 0o600)
+	r = Run(context.Background(), Options{StartDir: root})
+	if r.Unsuccessful(false) || r.Unsuccessful(true) {
+		t.Fatalf("healthy project must pass strict: %+v", r)
+	}
+	write(t, filepath.Join(root, "compose.yml"), "services: {}\n", 0o600)
 	r = Run(context.Background(), Options{StartDir: root})
 	if r.Unsuccessful(false) || !r.Unsuccessful(true) {
 		t.Fatalf("wrong warning exits: %+v", r)

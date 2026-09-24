@@ -12,7 +12,7 @@ const (
 	SetupStateFile = ".wtx-setup.json"
 	SetupLogFile   = ".wtx-setup.log"
 
-	legacySetupStateFile = ".wt-setup.json"
+	LegacySetupStateFile = ".wt-setup.json"
 	legacySetupLogFile   = ".wt-setup.log"
 
 	// staleProcessError is the sentinel error string used when a running
@@ -76,7 +76,7 @@ func ReadSetupState(worktreePath string) (*SetupState, error) {
 	// Read legacy state in place so an old background process remains visible
 	// as it updates its file. New runs always take precedence.
 	if errors.Is(err, os.ErrNotExist) {
-		data, err = os.ReadFile(filepath.Join(worktreePath, legacySetupStateFile))
+		data, err = os.ReadFile(filepath.Join(worktreePath, LegacySetupStateFile))
 	}
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {

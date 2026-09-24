@@ -104,6 +104,17 @@ func (r *Runner) Query(ctx context.Context, args ...string) (string, error) {
 // callers that need to steer git itself (an isolated object store, a synthetic
 // commit identity) rather than just pass flags.
 func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	out, err := r.queryRaw(ctx, extraEnv, args...)
+	return strings.TrimSpace(out), err
+}
+
+// QueryRaw is Query without whitespace trimming, for NUL-delimited output
+// (e.g. ls-files -z) where leading or trailing spaces belong to a path.
+func (r *Runner) QueryRaw(ctx context.Context, args ...string) (string, error) {
+	return r.queryRaw(ctx, nil, args...)
+}
+
+func (r *Runner) queryRaw(ctx context.Context, extraEnv []string, args ...string) (string, error) {
 	fullArgs := append([]string{"--git-dir", r.GitDir}, args...)
 	cmdStr := "git " + strings.Join(fullArgs, " ")
 
@@ -128,7 +139,7 @@ func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...st
 		return "", fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
 	}
 
-	return strings.TrimSpace(stdout.String()), nil
+	return stdout.String(), nil
 }
 
 func (r *Runner) CloneBare(ctx context.Context, url, dest string) error {
@@ -184,11 +195,15 @@ func (r *Runner) SetWorktreeBareFalse(ctx context.Context, worktreePath string) 
 	}
 
 	ui.Command(cmdStr)
-	path, err := WorktreeConfigPath(worktreePath)
-	if err != nil {
-		return err
+	cmd := exec.CommandContext(ctx, "git", args...)
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
 	}
-	return SetConfigFile(ctx, path, "core.bare", "false")
+
+	return nil
 }
 
 func (r *Runner) Fetch(ctx context.Context, remote string) error {

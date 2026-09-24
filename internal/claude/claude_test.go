@@ -2,9 +2,11 @@ package claude
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -310,5 +312,50 @@ func TestConfigureHooks_customBinaryMigration(t *testing.T) {
 	expected := map[string]any{"hooks": buildHooksConfig("/opt/bin/custom")}
 	if got := readSettingsFile(t, dir); !reflect.DeepEqual(got, expected) {
 		t.Fatalf("got %#v, want %#v", got, expected)
+	}
+}
+
+func TestMigrateLegacyHooks_preservesFormatting(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "wtx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	input := "{\n    \"zeta\": \"a && b <c>\",\n    \"hooks\": {\n        \"WorktreeCreate\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"wt claude hook-worktree-create\"}]}]\n    },\n    \"alpha\": 1\n}\n"
+	got, changed, unresolved, err := MigrateLegacyHooks([]byte(input))
+	if err != nil || changed != 1 || unresolved != 0 {
+		t.Fatalf("got %d %d %v", changed, unresolved, err)
+	}
+	want := strings.Replace(input, `"wt claude`, `"wtx claude`, 1)
+	if string(got) != want {
+		t.Fatalf("formatting changed:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+func TestMigrateLegacyHooks_toleratesAbsentShapes(t *testing.T) {
+	for _, input := range []string{
+		`{"hooks":null}`,
+		`{"hooks":{"WorktreeCreate":null}}`,
+		`{"hooks":{"WorktreeCreate":[{"matcher":""}]}}`,
+		`{"hooks":{"WorktreeCreate":[{"hooks":null}]}}`,
+		`{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command"}]}]}}`,
+		`{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":7}]}]}}`,
+	} {
+		got, changed, _, err := MigrateLegacyHooks([]byte(input))
+		if err != nil || changed != 0 || string(got) != input {
+			t.Errorf("%s: got %q %d %v", input, got, changed, err)
+		}
+	}
+}
+
+func TestMigrateLegacyHooks_refusesAmbiguousReplacement(t *testing.T) {
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "wtx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	input := `{"note":"wt claude hook-worktree-create","hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`
+	if _, _, _, err := MigrateLegacyHooks([]byte(input)); !errors.Is(err, ErrManualMigration) {
+		t.Fatal("rewrote an unrelated string with the same text")
 	}
 }

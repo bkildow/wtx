@@ -98,10 +98,9 @@ func TestScanSkipsDirectoryLinksAndConfiguredDependencyPaths(t *testing.T) {
 	if err := os.Symlink(external, filepath.Join(root, "bin", "outside")); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(root, "node_modules", "tool"), "wt status", 0o755)
+	write(t, filepath.Join(root, "bin", "node_modules", "tool"), "wt status", 0o755)
 	s := inspect(context.Background(), Options{StartDir: root})
-	s.scanFile(filepath.Join(root, "bin", "outside", "secret.sh"), false)
-	s.scanFile(filepath.Join(root, "node_modules", "tool"), false)
+	s.scanFile(filepath.Join(root, "bin", "outside", "secret.sh"), scopeProject)
 	for _, f := range s.report.Findings {
 		if f.ID == "migration.references" {
 			t.Fatalf("followed excluded path: %+v", f)
@@ -154,5 +153,60 @@ func TestDiskDisableEnvironmentPrecedence(t *testing.T) {
 	r = Run(context.Background(), Options{StartDir: root})
 	if f := finding(r, "disk", ""); f == nil || !strings.Contains(f.Explanation, "disabled") {
 		t.Fatal("new disable ignored")
+	}
+}
+
+func TestScanIgnoresSkippedNamesAboveProject(t *testing.T) {
+	src, _, _ := fixture(t, false)
+	root := filepath.Join(resolved(t.TempDir()), "build", "proj")
+	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(src, root); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(root, "bin", "check"), "#!/bin/sh\necho $WT_PROJECT_ROOT\n", 0o750)
+	r := Run(context.Background(), Options{StartDir: root})
+	if finding(r, "migration.references", filepath.Join(root, "bin", "check")) == nil {
+		t.Fatalf("project under a build/ ancestor was not scanned: %+v", r)
+	}
+}
+
+func TestTrackedScanCandidates(t *testing.T) {
+	root, gitDir, _ := fixture(t, false)
+	write(t, filepath.Join(root, "main.go"), "for _, wt := range xs { _ = wt }\n", 0o600)
+	write(t, filepath.Join(root, "deploy.sh"), "wt add feature\n", 0o600)
+	write(t, filepath.Join(root, "compat.sh"), "root=\"${WTX_PROJECT_ROOT:-${WT_PROJECT_ROOT:-}}\"\n", 0o600)
+	write(t, filepath.Join(root, "a.bin"), "\x00", 0o600)
+	write(t, filepath.Join(root, "b.bin"), "\x00", 0o600)
+	gitRun(t, "--git-dir", gitDir, "--work-tree", root, "add", "main.go", "deploy.sh", "compat.sh", "a.bin", "b.bin")
+	r := Run(context.Background(), Options{StartDir: root})
+	if f := finding(r, "migration.references", filepath.Join(root, "main.go")); f != nil {
+		t.Fatalf("Go identifier reported: %+v", f)
+	}
+	if f := finding(r, "migration.references", filepath.Join(root, "compat.sh")); f != nil {
+		t.Fatalf("WTX_/WT_ fallback reported: %+v", f)
+	}
+	if finding(r, "migration.references", filepath.Join(root, "deploy.sh")) == nil {
+		t.Fatal("shell wt invocation missed")
+	}
+	limits := 0
+	for _, f := range r.Findings {
+		if strings.HasPrefix(f.Explanation, "Scan limitation") {
+			limits++
+		}
+	}
+	if limits != 1 {
+		t.Fatalf("scan limitations not aggregated: %d", limits)
+	}
+}
+
+func TestTrackedScanKeepsWhitespacePaths(t *testing.T) {
+	root, gitDir, _ := fixture(t, false)
+	write(t, filepath.Join(root, " first.sh"), "echo $WT_PROJECT_ROOT\n", 0o600)
+	gitRun(t, "--git-dir", gitDir, "--work-tree", root, "add", " first.sh")
+	r := Run(context.Background(), Options{StartDir: root})
+	if finding(r, "migration.references", filepath.Join(root, " first.sh")) == nil {
+		t.Fatalf("leading-space tracked path skipped: %+v", r)
 	}
 }

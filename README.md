@@ -69,8 +69,9 @@ changed only when their sibling `wtx` is executable; bare commands require `wtx`
 on PATH. Linked settings inside the project are deduplicated by resolved path;
 external targets require manual attention.
 
-Modified files receive unique adjacent `*.wtx-backup-*` backups without replacing
-previous backups. Repairs preserve permissions, stage replacements atomically,
+Modified files receive unique `*.wtx-backup-*` backups under the Git directory's
+`wtx-doctor-backups/` (outside worktrees and `shared/`) without replacing previous
+backups. Repairs preserve permissions, stage replacements atomically,
 and refuse inputs that changed after inspection. A second successful run makes
 no further changes. A reconciled dead setup process remains a failed setup:
 review its preserved log before rerunning `wtx setup`. Partial repair failures
@@ -85,8 +86,11 @@ ask you to review external resource cleanup and configure suitable teardown hook
 The rename scan covers `.worktree.yml`, configured scripts, project `bin/`, shared
 text configuration, root `AGENTS.md`/`CLAUDE.md`, and Git-tracked text files in
 existing worktrees. It skips Git internals, dependency/build directories, symlinks,
-binary/non-UTF-8 files, backups, and files larger than 1 MiB. Reports describe these
-limits; this is a bounded candidate scan, not a shell parser or a complete audit.
+binary/non-UTF-8 files, backups, and files larger than 1 MiB, and reports the skipped
+count. In tracked application files, bare `wt` is only reported in shell-like files
+(shebang, shell, Makefile, YAML, Markdown); `WT_*` names are reported everywhere
+except `${WTX_X:-${WT_X}}`-style compatibility fallbacks. This is a bounded
+candidate scan, not a shell parser or a complete audit.
 Matches include paths, line numbers, and identifiers, never full source lines.
 The user scan honors `ZDOTDIR` and `XDG_CONFIG_HOME`, checks standard Bash, Zsh, and
 Fish startup files, and never sources them or follows arbitrary shell includes.

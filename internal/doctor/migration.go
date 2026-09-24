@@ -3,6 +3,7 @@ package doctor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -22,6 +23,32 @@ import (
 const scanLimit = 1 << 20
 
 var legacyIdentifiers = regexp.MustCompile(`\b(wt|WT_(THEME|NO_DISK_WARN|SCRIPT_NAME|PROJECT_ROOT|SHARED_PATH|MAIN_BRANCH|MAIN_WORKTREE_PATH|WORKTREE_PATH|WORKTREE_ID|BRANCH_NAME))\b`)
+
+// scanScope controls which candidates a scanned file can produce.
+type scanScope int
+
+const (
+	scopeProject scanScope = iota // wtx-managed files: config, scripts, bin/, shared/
+	scopeTracked                  // application files tracked in a worktree
+	scopeUser                     // user startup files
+)
+
+// Bare "wt" is a common identifier in source code, so tracked files report it
+// only when they are shell-like; WT_* names are distinctive and always reported.
+func shellLike(path string, data []byte) bool {
+	if bytes.HasPrefix(data, []byte("#!")) {
+		return true
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".sh", ".bash", ".zsh", ".fish", ".ksh", ".mk", ".yml", ".yaml", ".md":
+		return true
+	}
+	switch filepath.Base(path) {
+	case "Makefile", "GNUmakefile", "Justfile", "justfile", ".envrc":
+		return true
+	}
+	return false
+}
 
 func (s *inspection) settings(path string) {
 	actual, err := filepath.EvalSymlinks(path)
@@ -50,6 +77,10 @@ func (s *inspection) settings(path string) {
 		return
 	}
 	updated, changed, unresolved, err := claude.MigrateLegacyHooks(file.data)
+	if errors.Is(err, claude.ErrManualMigration) {
+		s.add("claude.hooks.manual", "warn", actual, "Legacy hook commands cannot be rewritten in place safely.", "Replace wt with wtx in the hook commands manually before v1.0.")
+		return
+	}
 	if err != nil {
 		s.problem("claude.hooks", actual, err)
 		return
@@ -94,13 +125,13 @@ func repairArtifact(name string) bool {
 func (s *inspection) scanProject() {
 	s.add("migration.scan", "ok", s.root, "Bounded candidate scan: configuration, configured scripts, bin/, shared text, root agent instructions, and tracked worktree files only. Skips Git internals, dependency/build directories, symlinks, binary/non-UTF-8 files, and files over 1 MiB; arbitrary shell includes are not followed.", "")
 	for _, name := range []string{config.ConfigFileName, "AGENTS.md", "CLAUDE.md"} {
-		s.scanFile(filepath.Join(s.root, name), false)
+		s.scanFile(filepath.Join(s.root, name), scopeProject)
 	}
 	for _, path := range s.cfg.Scripts {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(s.root, path)
 		}
-		s.scanFile(path, false)
+		s.scanFile(path, scopeProject)
 	}
 	s.scanDir(filepath.Join(s.root, "bin"), false)
 	if bin := project.BinPath(s.root, s.cfg); bin != filepath.Join(s.root, "bin") {
@@ -122,7 +153,7 @@ func (s *inspection) scanDir(root string, settings bool) {
 			s.problem("migration.scan", path, err)
 			return nil
 		}
-		if skippedName(entry.Name()) {
+		if path != root && skippedName(entry.Name()) {
 			if entry.IsDir() {
 				return filepath.SkipDir
 			}
@@ -141,7 +172,7 @@ func (s *inspection) scanDir(root string, settings bool) {
 				s.settings(filepath.Join(path, name))
 			}
 		}
-		s.scanFile(path, false)
+		s.scanFile(path, scopeProject)
 		return nil
 	})
 	if err != nil {
@@ -158,7 +189,7 @@ func (s *inspection) scanTracked(ctx context.Context, root string) {
 	runner := git.NewRunner(filepath.Dir(path), false)
 	runner.Quiet = true
 	// Explicit work-tree and bare override allow scanning before compatibility repair.
-	output, err := runner.Query(ctx, "--work-tree", root, "-c", "core.bare=false", "ls-files", "-z")
+	output, err := runner.QueryRaw(ctx, "--work-tree", root, "-c", "core.bare=false", "ls-files", "-z")
 	if err != nil {
 		s.problem("migration.scan", root, err)
 		return
@@ -175,18 +206,15 @@ func (s *inspection) scanTracked(ctx context.Context, root string) {
 			}
 		}
 		if !skip {
-			s.scanFile(filepath.Join(root, rel), false)
+			s.scanFile(filepath.Join(root, rel), scopeTracked)
 		}
 	}
 }
 
-func (s *inspection) scanFile(path string, user bool) {
-	for _, name := range strings.Split(filepath.Clean(path), string(filepath.Separator)) {
-		if skippedName(name) {
-			return
-		}
-	}
-	if s.cfg != nil && within(resolved(project.GitDirPath(s.root, s.cfg)), resolved(path)) {
+// scanFile scans one file. Callers filter skipped directory names relative to
+// their scan root; the project's own ancestors must not cause a skip.
+func (s *inspection) scanFile(path string, scope scanScope) {
+	if s.gitDir != "" && within(s.gitDir, resolved(path)) {
 		return
 	}
 	if s.seenScan[path] {
@@ -202,12 +230,12 @@ func (s *inspection) scanFile(path string, user bool) {
 		return
 	}
 	if !info.Mode().IsRegular() || info.Size() > scanLimit {
-		s.add("migration.scan", "ok", path, "Scan limitation: non-regular file or file larger than 1 MiB skipped.", "")
+		s.scanSkipped++
 		return
 	}
 	// Refuse files reached through directory symlinks, including tracked paths.
 	if resolved(filepath.Dir(path)) != filepath.Clean(filepath.Dir(path)) {
-		s.add("migration.scan", "ok", path, "Scan limitation: path through directory symlink skipped.", "")
+		s.scanSkipped++
 		return
 	}
 	f, err := os.Open(path)
@@ -226,13 +254,21 @@ func (s *inspection) scanFile(path string, user bool) {
 		return
 	}
 	if len(data) > scanLimit || bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
-		s.add("migration.scan", "ok", path, "Scan limitation: binary, non-UTF-8, or oversized file skipped.", "")
+		s.scanSkipped++
 		return
 	}
+	bareWT := scope != scopeTracked || shellLike(path, data)
 	for line, text := range strings.Split(string(data), "\n") {
 		seen := map[string]bool{}
 		for _, match := range legacyIdentifiers.FindAllStringIndex(text, -1) {
 			identifier := text[match[0]:match[1]]
+			if identifier == "wt" && !bareWT {
+				continue
+			}
+			// ${WTX_X:-${WT_X}} style fallbacks are transition compatibility.
+			if identifier != "wt" && strings.Contains(text, "WTX_"+strings.TrimPrefix(identifier, "WT_")) {
+				continue
+			}
 			if identifier == "wt" && ((match[0] > 0 && strings.ContainsRune(".-_", rune(text[match[0]-1]))) || (match[1] < len(text) && strings.ContainsRune(".-_", rune(text[match[1]])))) {
 				continue
 			}
@@ -249,7 +285,7 @@ func (s *inspection) scanFile(path string, user bool) {
 				deadline = "v0.12"
 			}
 			remedy := fmt.Sprintf("Review candidate %s reference and replace with %s before %s.", identifier, replacement, deadline)
-			if user && identifier == "wt" {
+			if scope == scopeUser && identifier == "wt" {
 				if strings.Contains(text, "wt shell-init") {
 					remedy = "Replace the wt shell-init startup invocation with wtx shell-init before v1.0."
 				} else {
@@ -259,6 +295,13 @@ func (s *inspection) scanFile(path string, user bool) {
 			i := s.add("migration.references", "warn", path, "Legacy identifier candidate: "+identifier+" (text match; execution not established).", remedy)
 			s.report.Findings[i].Line = line + 1
 		}
+	}
+}
+
+// scanLimitations reports skipped files once instead of one finding per file.
+func (s *inspection) scanLimitations(path string) {
+	if s.scanSkipped > 0 {
+		s.add("migration.scan", "ok", path, fmt.Sprintf("Scan limitation: %d non-regular, binary, non-UTF-8, oversized (over 1 MiB), or symlinked-directory file(s) skipped.", s.scanSkipped), "")
 	}
 }
 
@@ -297,12 +340,12 @@ func (s *inspection) user() {
 	}
 	xdg = resolved(xdg)
 	for _, name := range []string{".bashrc", ".bash_profile", ".bash_login", ".profile"} {
-		s.scanFile(filepath.Join(home, name), true)
+		s.scanFile(filepath.Join(home, name), scopeUser)
 	}
 	for _, name := range []string{".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"} {
-		s.scanFile(filepath.Join(zdir, name), true)
+		s.scanFile(filepath.Join(zdir, name), scopeUser)
 	}
-	s.scanFile(filepath.Join(xdg, "fish", "config.fish"), true)
+	s.scanFile(filepath.Join(xdg, "fish", "config.fish"), scopeUser)
 	conf := filepath.Join(xdg, "fish", "conf.d")
 	entries, err := os.ReadDir(conf)
 	if err != nil && !os.IsNotExist(err) {
@@ -310,8 +353,9 @@ func (s *inspection) user() {
 	}
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".fish") {
-			s.scanFile(filepath.Join(conf, entry.Name()), true)
+			s.scanFile(filepath.Join(conf, entry.Name()), scopeUser)
 		}
 	}
+	s.scanLimitations(home)
 	s.add("migration.scan", "ok", home, "User scan checks standard Bash, Zsh, and Fish startup files only; honors ZDOTDIR and XDG_CONFIG_HOME. Files are never sourced; arbitrary includes, symlinks, binary files, and files over 1 MiB are skipped.", "")
 }

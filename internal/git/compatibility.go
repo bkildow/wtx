@@ -36,7 +36,9 @@ func WorktreeConfigPath(worktreePath string) (string, error) {
 }
 
 // SetConfigFile uses Git's parser and lock/rename protocol. Doctor calls it on
-// a staged copy before atomically replacing a guarded original.
+// a staged copy before atomically replacing a guarded original. It targets a
+// file path rather than a repository, so it deliberately bypasses Runner and
+// --git-dir; it has no dry-run handling, so callers must check first.
 func SetConfigFile(ctx context.Context, path, key, value string) error {
 	out, err := exec.CommandContext(ctx, "git", "config", "--file", path, key, value).CombinedOutput()
 	if err != nil {
@@ -45,7 +47,8 @@ func SetConfigFile(ctx context.Context, path, key, value string) error {
 	return nil
 }
 
-// ConfigBool reads one file without following arbitrary includes.
+// ConfigBool reads one file without following arbitrary includes. Like
+// SetConfigFile, it operates on a file path and bypasses Runner.
 func ConfigBool(ctx context.Context, path, key string) (string, error) {
 	out, err := exec.CommandContext(ctx, "git", "config", "--file", path, "--no-includes", "--bool", "--get", key).Output()
 	var exit *exec.ExitError

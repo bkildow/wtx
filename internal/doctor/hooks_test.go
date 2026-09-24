@@ -47,11 +47,17 @@ func TestHookMigrationAndSettingsLinks(t *testing.T) {
 	if f := finding(r, "shared.symlink", ""); f != nil {
 		t.Fatalf("backup was mistaken for a managed shared file: %+v", f)
 	}
+	if leaked, _ := filepath.Glob(filepath.Join(filepath.Dir(settings), "*.wtx-backup-*")); len(leaked) != 0 {
+		t.Fatalf("backup written into shared/: %v", leaked)
+	}
+	if kept, _ := filepath.Glob(filepath.Join(gitDir, backupDirName, "settings.local.json.wtx-backup-*")); len(kept) != 1 {
+		t.Fatalf("backup missing from git dir: %v", kept)
+	}
 	data, err := os.ReadFile(settings)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"wtx claude hook-worktree-create", filepath.Join(bin, "wtx") + " claude hook-worktree-remove", "9007199254740993", "permissions"} {
+	for _, want := range []string{"echo custom && wt status", "wtx claude hook-worktree-create", filepath.Join(bin, "wtx") + " claude hook-worktree-remove", "9007199254740993", "permissions"} {
 		if !strings.Contains(string(data), want) {
 			t.Fatalf("lost %s in %s", want, data)
 		}
@@ -124,6 +130,11 @@ func TestHookExternalMalformedAndMissingExecutables(t *testing.T) {
 	r = Run(context.Background(), Options{StartDir: root, Fix: true})
 	if f := finding(r, "claude.hooks.manual", path); f == nil || f.Repairable {
 		t.Fatalf("missing executable should require manual repair: %+v", r)
+	}
+	write(t, path, `{"note":"wt claude hook-worktree-create","hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`, 0o600)
+	r = Run(context.Background(), Options{StartDir: root, Fix: true})
+	if f := finding(r, "claude.hooks.manual", path); f == nil || f.Severity != "warn" || f.Repairable || r.Unsuccessful(false) {
+		t.Fatalf("ambiguous rewrite should be a manual warning: %+v", r)
 	}
 	write(t, path, `{"permissions":{"allow":[]}}`, 0o600)
 	before = files(t, root)
