@@ -14,7 +14,10 @@ import (
 func TestGitVersionThresholds(t *testing.T) {
 	bin := resolved(t.TempDir())
 	t.Setenv("PATH", bin)
-	for _, tt := range []struct{ version, severity string }{{"2.19.9", "fail"}, {"2.20.0", "warn"}, {"2.47.9", "warn"}, {"2.48.0", "ok"}, {"3.0.0", "ok"}} {
+	for _, tt := range []struct {
+		version  string
+		severity Severity
+	}{{"2.19.9", "fail"}, {"2.20.0", "warn"}, {"2.47.9", "warn"}, {"2.48.0", "ok"}, {"3.0.0", "ok"}} {
 		write(t, filepath.Join(bin, "git"), "#!/bin/sh\necho 'git version "+tt.version+"'\n", 0o755)
 		s := &inspection{runner: git.NewRunner("", false)}
 		s.gitVersion(context.Background())
@@ -49,7 +52,7 @@ func TestPartialRepairWriteFailure(t *testing.T) {
 	if !r.Unsuccessful(false) {
 		t.Fatal("failed write must be unsuccessful")
 	}
-	statuses := map[string]string{}
+	statuses := map[string]RepairStatus{}
 	for _, outcome := range r.Repairs {
 		statuses[outcome.ID] = outcome.Status
 	}

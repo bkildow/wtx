@@ -11,7 +11,7 @@ import (
 
 func main() {
 	if err := cmd.Execute(); err != nil {
-		if !errors.Is(err, cmd.ErrDoctorUnhealthy) {
+		if !errors.Is(err, cmd.ErrReported) {
 			ui.Error(err.Error())
 		}
 		os.Exit(1)

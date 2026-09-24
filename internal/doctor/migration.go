@@ -5,12 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -95,7 +95,7 @@ func (s *inspection) settings(path string) {
 		return
 	}
 	i := s.add("claude.hooks", "warn", actual, fmt.Sprintf("%d recognized legacy hook command(s) can be migrated.", changed), "Run wtx doctor --fix to replace recognized wt executables before v1.0.")
-	s.plan(i, file, updated, "", "", func() error {
+	s.planContent(i, file, updated, func() error {
 		if resolved(path) != actual {
 			return fmt.Errorf("settings link changed since inspection: %s", path)
 		}
@@ -118,8 +118,16 @@ func skippedName(name string) bool {
 	return repairArtifact(name)
 }
 
+// repairArtifact matches staged repair files a crash may leave beside targets.
 func repairArtifact(name string) bool {
-	return strings.Contains(name, ".wtx-backup-") || strings.HasPrefix(name, ".wtx-doctor-")
+	return strings.HasPrefix(name, ".wtx-doctor-")
+}
+
+// claudeSettings inspects both Claude settings files under dir/.claude.
+func (s *inspection) claudeSettings(dir string) {
+	for _, name := range []string{"settings.local.json", "settings.json"} {
+		s.settings(filepath.Join(dir, ".claude", name))
+	}
 }
 
 func (s *inspection) scanProject() {
@@ -159,18 +167,11 @@ func (s *inspection) scanDir(root string, settings bool) {
 			}
 			return nil
 		}
-		if entry.IsDir() {
-			if settings && entry.Name() == ".claude" {
-				for _, name := range []string{"settings.local.json", "settings.json"} {
-					s.settings(filepath.Join(path, name))
-				}
-			}
-			return nil
+		if settings && entry.Name() == ".claude" && (entry.IsDir() || entry.Type()&os.ModeSymlink != 0) {
+			s.claudeSettings(filepath.Dir(path))
 		}
-		if settings && entry.Name() == ".claude" && entry.Type()&os.ModeSymlink != 0 {
-			for _, name := range []string{"settings.local.json", "settings.json"} {
-				s.settings(filepath.Join(path, name))
-			}
+		if entry.IsDir() {
+			return nil
 		}
 		s.scanFile(path, scopeProject)
 		return nil
@@ -195,17 +196,7 @@ func (s *inspection) scanTracked(ctx context.Context, root string) {
 		return
 	}
 	for _, rel := range strings.Split(output, "\x00") {
-		if rel == "" {
-			continue
-		}
-		skip := false
-		for _, name := range strings.Split(rel, "/") {
-			if skippedName(name) {
-				skip = true
-				break
-			}
-		}
-		if !skip {
+		if rel != "" && !slices.ContainsFunc(strings.Split(rel, "/"), skippedName) {
 			s.scanFile(filepath.Join(root, rel), scopeTracked)
 		}
 	}
@@ -214,9 +205,6 @@ func (s *inspection) scanTracked(ctx context.Context, root string) {
 // scanFile scans one file. Callers filter skipped directory names relative to
 // their scan root; the project's own ancestors must not cause a skip.
 func (s *inspection) scanFile(path string, scope scanScope) {
-	if s.gitDir != "" && within(s.gitDir, resolved(path)) {
-		return
-	}
 	if s.seenScan[path] {
 		return
 	}
@@ -234,23 +222,18 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 		return
 	}
 	// Refuse files reached through directory symlinks, including tracked paths.
-	if resolved(filepath.Dir(path)) != filepath.Clean(filepath.Dir(path)) {
+	// With no symlinks on the path, it is already canonical.
+	dir := filepath.Clean(filepath.Dir(path))
+	if s.resolveDir(dir) != dir {
 		s.scanSkipped++
 		return
 	}
-	f, err := os.Open(path)
+	if s.gitDir != "" && within(s.gitDir, path) {
+		return
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		s.problem("migration.scan", path, err)
-		return
-	}
-	data, readErr := io.ReadAll(io.LimitReader(f, scanLimit+1))
-	closeErr := f.Close()
-	if readErr != nil {
-		s.problem("migration.scan", path, readErr)
-		return
-	}
-	if closeErr != nil {
-		s.problem("migration.scan", path, closeErr)
 		return
 	}
 	if len(data) > scanLimit || bytes.IndexByte(data, 0) >= 0 || !utf8.Valid(data) {
@@ -258,6 +241,11 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 		return
 	}
 	bareWT := scope != scopeTracked || shellLike(path, data)
+	// Most files contain no candidate at all; skip the per-line regex for them.
+	candidate := bytes.Contains(data, []byte("WT_")) || (bareWT && bytes.Contains(data, []byte("wt")))
+	if !candidate {
+		return
+	}
 	for line, text := range strings.Split(string(data), "\n") {
 		seen := map[string]bool{}
 		for _, match := range legacyIdentifiers.FindAllStringIndex(text, -1) {
@@ -296,6 +284,16 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 			s.report.Findings[i].Line = line + 1
 		}
 	}
+}
+
+// resolveDir memoizes directory resolution; tracked files share few dirs.
+func (s *inspection) resolveDir(dir string) string {
+	if r, ok := s.resolvedDirs[dir]; ok {
+		return r
+	}
+	r := resolved(dir)
+	s.resolvedDirs[dir] = r
+	return r
 }
 
 // scanLimitations reports skipped files once instead of one finding per file.

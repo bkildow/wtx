@@ -10,8 +10,12 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// ErrReported marks failures a command has already rendered; main exits
+// unsuccessfully without printing them again.
+var ErrReported = errors.New("already reported")
+
 // ErrDoctorUnhealthy signals an unsuccessful, already-rendered report.
-var ErrDoctorUnhealthy = errors.New("doctor found unsuccessful checks or repairs")
+var ErrDoctorUnhealthy = fmt.Errorf("doctor found unsuccessful checks or repairs: %w", ErrReported)
 
 func newDoctorCmd() *cobra.Command {
 	var fix, user, structured, strict bool

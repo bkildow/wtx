@@ -36,10 +36,7 @@ func (s *inspection) scripts() {
 }
 
 func (s *inspection) disk() {
-	disable, present := os.LookupEnv("WTX_NO_DISK_WARN")
-	if !present {
-		disable = os.Getenv("WT_NO_DISK_WARN")
-	}
+	disable := config.LookupEnv("NO_DISK_WARN")
 	threshold := s.cfg.DiskThreshold()
 	if disable != "" || threshold == nil {
 		s.add("disk", "ok", s.root, "Disk warnings disabled by configuration.", "")
@@ -50,7 +47,7 @@ func (s *inspection) disk() {
 		s.problem("disk", s.root, err)
 		return
 	}
-	severity, remedy := "ok", ""
+	severity, remedy := OK, ""
 	if threshold.IsLow(u) {
 		severity = "warn"
 		remedy = "Review disk usage and unused worktrees with wtx list before choosing cleanup actions."
@@ -84,7 +81,7 @@ func (s *inspection) gitVersion(ctx context.Context) {
 		s.problem("git.version", "", err)
 		return
 	}
-	severity, remedy := "ok", ""
+	severity, remedy := OK, ""
 	if v[0] < 2 || (v[0] == 2 && v[1] < 20) {
 		severity = "fail"
 		remedy = "Upgrade Git to 2.20 or newer (2.48+ recommended)."
@@ -108,7 +105,7 @@ func (s *inspection) exclusions() {
 		return
 	}
 	i := s.add("git.exclude", "warn", path, "Managed exclusions have a legacy marker or missing setup-state/log patterns.", "Run wtx doctor --fix to update managed exclusions.")
-	s.plan(i, file, updated, "", "", nil)
+	s.planContent(i, file, updated, nil)
 }
 
 func (s *inspection) compatibility(ctx context.Context, worktrees []git.WorktreeInfo) {
@@ -141,14 +138,11 @@ func (s *inspection) compatibility(ctx context.Context, worktrees []git.Worktree
 			s.problem("git.compatibility", wt.Path, err)
 			continue
 		}
-		guards := s.guards
-		s.guards = append(append([]snapshot(nil), guards...), pointer)
-		s.configRepair(ctx, path, "core.bare", "false")
-		s.guards = guards
+		s.configRepair(ctx, path, "core.bare", "false", pointer)
 	}
 }
 
-func (s *inspection) configRepair(ctx context.Context, path, key, want string) {
+func (s *inspection) configRepair(ctx context.Context, path, key, want string, guards ...snapshot) {
 	file, err := takeSnapshot(path)
 	if err != nil {
 		s.problem("git.compatibility", path, err)
@@ -167,7 +161,7 @@ func (s *inspection) configRepair(ctx context.Context, path, key, want string) {
 		return
 	}
 	i := s.add("git.compatibility", "fail", path, "Missing required "+key+"="+want+" for bare repository worktrees.", "Run wtx doctor --fix (or wtx repair) to repair Git compatibility.")
-	s.plan(i, file, nil, key, want, nil)
+	s.planConfig(i, file, key, want, guards...)
 }
 
 func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo) {
@@ -224,12 +218,12 @@ func (s *inspection) states(root string) {
 		switch {
 		case project.ResolveDeadSetupProcess(&state):
 			i := s.add("setup.state", "fail", path, "Setup is marked running but its process has exited.", "Run wtx doctor --fix to reconcile state; review the retained log before rerunning wtx setup.")
-			data, err := json.MarshalIndent(state, "", "  ")
+			data, err := project.EncodeSetupState(&state)
 			if err != nil {
 				s.problem("setup.state", path, err)
 				continue
 			}
-			s.plan(i, file, append(data, '\n'), "", "", func() error {
+			s.planContent(i, file, data, func() error {
 				if project.IsProcessAlive(pid) {
 					return fmt.Errorf("setup process is now alive; refusing repair")
 				}

@@ -3,7 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -82,12 +81,7 @@ func worktreeBareOverrideOK(ctx context.Context, worktreePath string) (bool, err
 	if err != nil {
 		return false, err
 	}
-	if _, err := os.Stat(cfgPath); err != nil {
-		if os.IsNotExist(err) {
-			return false, nil
-		}
-		return false, err
-	}
+	// A missing file reads as unset.
 	value, err := git.ConfigBool(ctx, cfgPath, "core.bare")
 	return value == "false", err
 }

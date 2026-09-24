@@ -13,7 +13,7 @@ import (
 // must not block the command that called it. Safe under --dry-run, since a
 // statfs has no side effects.
 func warnLowDisk(projectRoot string, cfg *config.Config) {
-	if lookupEnv("NO_DISK_WARN") != "" {
+	if config.LookupEnv("NO_DISK_WARN") != "" {
 		return
 	}
 	if cfg.DiskThreshold() == nil {

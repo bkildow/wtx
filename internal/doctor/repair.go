@@ -3,12 +3,12 @@ package doctor
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/git"
-	"github.com/bkildow/wtx/internal/project"
 )
 
 // backupDirName lives under the Git directory, which scans and apply skip.
@@ -76,15 +76,27 @@ type repair struct {
 	validate func() error
 }
 
-func (s *inspection) plan(index int, file snapshot, data []byte, key, value string, validate func() error) {
-	if !within(s.root, resolved(file.path)) || !within(s.root, file.parent) {
+// planContent schedules replacing file with data.
+func (s *inspection) planContent(index int, file snapshot, data []byte, validate func() error) {
+	s.plan(index, repair{file: file, data: data, validate: validate})
+}
+
+// planConfig schedules setting one Git config key in file.
+func (s *inspection) planConfig(index int, file snapshot, key, value string, guards ...snapshot) {
+	s.plan(index, repair{file: file, key: key, value: value, guards: guards})
+}
+
+func (s *inspection) plan(index int, r repair) {
+	if !within(s.root, resolved(r.file.path)) || !within(s.root, r.file.parent) {
 		s.report.Findings[index].Remedy += " Repair manually: target is outside the project."
 		return
 	}
 	s.report.Findings[index].Repairable = true
+	r.id = s.report.Findings[index].ID
 	// Keep backups out of worktrees and shared/, where apply would copy or link them.
-	backups := filepath.Join(project.GitDirPath(s.root, s.cfg), backupDirName)
-	s.repairs = append(s.repairs, repair{id: s.report.Findings[index].ID, file: file, data: data, key: key, value: value, backups: backups, guards: append([]snapshot(nil), s.guards...), validate: validate})
+	r.backups = s.backups
+	r.guards = append(append([]snapshot(nil), s.guards...), r.guards...)
+	s.repairs = append(s.repairs, r)
 }
 
 func (r repair) check() error {
@@ -141,35 +153,29 @@ func (r repair) apply(ctx context.Context) (string, error) {
 	if err := r.check(); err != nil {
 		return "", err
 	}
-	tmp, err := os.CreateTemp(dir, ".wtx-doctor-*")
-	if err != nil {
-		return "", err
+	mode := os.FileMode(0o600)
+	if r.file.info != nil {
+		mode = r.file.info.Mode().Perm()
 	}
-	name := tmp.Name()
-	defer func() { _ = os.Remove(name) }()
 	data := r.data
 	if r.key != "" {
 		data = r.file.data
 	}
-	_, writeErr := tmp.Write(data)
-	closeErr := tmp.Close()
-	if writeErr != nil {
-		return "", writeErr
+	name, err := writeTemp(dir, ".wtx-doctor-*", data, mode)
+	if name != "" {
+		defer func() { _ = os.Remove(name) }()
 	}
-	if closeErr != nil {
-		return "", closeErr
+	if err != nil {
+		return "", err
 	}
 	if r.key != "" {
 		if err := git.SetConfigFile(ctx, name, r.key, r.value); err != nil {
 			return "", err
 		}
-	}
-	mode := os.FileMode(0o600)
-	if r.file.info != nil {
-		mode = r.file.info.Mode().Perm()
-	}
-	if err := os.Chmod(name, mode); err != nil {
-		return "", err
+		// git config replaces the file via rename; restore the mode.
+		if err := os.Chmod(name, mode); err != nil {
+			return "", err
+		}
 	}
 	if err := r.check(); err != nil {
 		return "", err
@@ -179,26 +185,25 @@ func (r repair) apply(ctx context.Context) (string, error) {
 		if err := os.MkdirAll(r.backups, 0o700); err != nil {
 			return "", err
 		}
-		b, err := os.CreateTemp(r.backups, filepath.Base(r.file.path)+".wtx-backup-*")
-		if err != nil {
-			return "", err
-		}
-		backup = b.Name()
-		_, writeErr := b.Write(r.file.data)
-		modeErr := b.Chmod(mode)
-		closeErr := b.Close()
-		if writeErr != nil {
-			return backup, writeErr
-		}
-		if modeErr != nil {
-			return backup, modeErr
-		}
-		if closeErr != nil {
-			return backup, closeErr
+		if backup, err = writeTemp(r.backups, filepath.Base(r.file.path)+".wtx-backup-*", r.file.data, mode); err != nil {
+			return backup, err
 		}
 	}
 	if err := r.check(); err != nil {
 		return backup, err
 	}
 	return backup, os.Rename(name, r.file.path)
+}
+
+// writeTemp writes data to a new uniquely named file in dir with mode. It
+// returns the name whenever the file was created, even on error.
+func writeTemp(dir, pattern string, data []byte, mode os.FileMode) (string, error) {
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		return "", err
+	}
+	_, writeErr := f.Write(data)
+	modeErr := f.Chmod(mode)
+	closeErr := f.Close()
+	return f.Name(), errors.Join(writeErr, modeErr, closeErr)
 }

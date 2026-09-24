@@ -15,22 +15,38 @@ import (
 	"github.com/bkildow/wtx/internal/project"
 )
 
+type Severity string
+
+const (
+	OK   Severity = "ok"
+	Warn Severity = "warn"
+	Fail Severity = "fail"
+)
+
+type RepairStatus string
+
+const (
+	Planned RepairStatus = "planned"
+	Applied RepairStatus = "applied"
+	Failed  RepairStatus = "failed"
+)
+
 type Finding struct {
-	ID          string `json:"check_id"`
-	Severity    string `json:"severity"`
-	Path        string `json:"path,omitempty"`
-	Line        int    `json:"line,omitempty"`
-	Explanation string `json:"explanation"`
-	Remedy      string `json:"remedy,omitempty"`
-	Repairable  bool   `json:"repairable"`
+	ID          string   `json:"check_id"`
+	Severity    Severity `json:"severity"`
+	Path        string   `json:"path,omitempty"`
+	Line        int      `json:"line,omitempty"`
+	Explanation string   `json:"explanation"`
+	Remedy      string   `json:"remedy,omitempty"`
+	Repairable  bool     `json:"repairable"`
 }
 
 type RepairOutcome struct {
-	ID     string `json:"check_id"`
-	Path   string `json:"path"`
-	Status string `json:"status"`
-	Backup string `json:"backup,omitempty"`
-	Error  string `json:"error,omitempty"`
+	ID     string       `json:"check_id"`
+	Path   string       `json:"path"`
+	Status RepairStatus `json:"status"`
+	Backup string       `json:"backup,omitempty"`
+	Error  string       `json:"error,omitempty"`
 }
 
 type Counts struct {
@@ -52,7 +68,7 @@ func (r Report) Unsuccessful(strict bool) bool {
 		return true
 	}
 	for _, repair := range r.Repairs {
-		if repair.Status == "failed" {
+		if repair.Status == Failed {
 			return true
 		}
 	}
@@ -77,51 +93,58 @@ type inspection struct {
 	seenScan     map[string]bool
 	seenLinks    map[string]bool
 	gitDir       string // resolved Git directory, excluded from scans
+	backups      string // repair backup directory
+	resolvedDirs map[string]string
 	scanSkipped  int
 }
 
 // Run always returns a report, including discovery and operational failures.
 func Run(ctx context.Context, opts Options) Report {
 	s := inspect(ctx, opts)
-	if opts.Fix && !opts.User {
-		outcomes := make([]RepairOutcome, 0, len(s.repairs))
-		for _, change := range s.repairs {
-			outcome := RepairOutcome{ID: change.id, Path: change.file.path, Status: "planned"}
-			if !opts.DryRun {
-				var err error
-				outcome.Backup, err = change.apply(ctx)
-				outcome.Status = "applied"
-				if err != nil {
-					outcome.Status = "failed"
-					outcome.Error = err.Error()
-				}
-			}
-			outcomes = append(outcomes, outcome)
-		}
-		if !opts.DryRun {
-			changes := s.repairs
-			s = inspect(ctx, opts)
-			for i := range outcomes {
-				if outcomes[i].Status != "applied" {
-					continue
-				}
-				if err := changes[i].verify(ctx); err != nil {
-					outcomes[i].Status = "failed"
-					outcomes[i].Error = "repair verification: " + err.Error()
-					continue
-				}
-				for _, f := range s.report.Findings {
-					if f.ID == outcomes[i].ID && f.Path == outcomes[i].Path && f.Repairable {
-						outcomes[i].Status = "failed"
-						outcomes[i].Error = "repair did not pass verification"
-					}
-				}
-			}
-		}
-		s.report.Repairs = outcomes
+	if !opts.Fix || opts.User {
+		s.report.finish()
+		return s.report
 	}
+	repairs := s.repairs
+	outcomes := make([]RepairOutcome, len(repairs))
+	for i, change := range repairs {
+		outcomes[i] = RepairOutcome{ID: change.id, Path: change.file.path, Status: Planned}
+	}
+	if !opts.DryRun {
+		for i, change := range repairs {
+			outcomes[i].Status = Applied
+			var err error
+			if outcomes[i].Backup, err = change.apply(ctx); err != nil {
+				outcomes[i].Status, outcomes[i].Error = Failed, err.Error()
+			}
+		}
+		s = inspect(ctx, opts)
+		s.recheck(ctx, repairs, outcomes)
+	}
+	s.report.Repairs = outcomes
 	s.report.finish()
 	return s.report
+}
+
+// recheck fails applied repairs whose result differs from the plan or that
+// the fresh inspection still considers repairable.
+func (s *inspection) recheck(ctx context.Context, repairs []repair, outcomes []RepairOutcome) {
+	pending := map[[2]string]bool{}
+	for _, f := range s.report.Findings {
+		if f.Repairable {
+			pending[[2]string{f.ID, f.Path}] = true
+		}
+	}
+	for i := range outcomes {
+		if outcomes[i].Status != Applied {
+			continue
+		}
+		if err := repairs[i].verify(ctx); err != nil {
+			outcomes[i].Status, outcomes[i].Error = Failed, "repair verification: "+err.Error()
+		} else if pending[[2]string{outcomes[i].ID, outcomes[i].Path}] {
+			outcomes[i].Status, outcomes[i].Error = Failed, "repair did not pass verification"
+		}
+	}
 }
 
 func (r *Report) finish() {
@@ -147,17 +170,17 @@ func (r *Report) finish() {
 	r.Counts = Counts{}
 	for _, f := range r.Findings {
 		switch f.Severity {
-		case "ok":
+		case OK:
 			r.Counts.OK++
-		case "warn":
+		case Warn:
 			r.Counts.Warn++
-		case "fail":
+		case Fail:
 			r.Counts.Fail++
 		}
 	}
 }
 
-func (s *inspection) add(id, severity, path, explanation, remedy string) int {
+func (s *inspection) add(id string, severity Severity, path, explanation, remedy string) int {
 	s.report.Findings = append(s.report.Findings, Finding{ID: id, Severity: severity, Path: path, Explanation: explanation, Remedy: remedy})
 	return len(s.report.Findings) - 1
 }
@@ -166,6 +189,13 @@ func (s *inspection) problem(id, path string, err error) {
 	s.add(id, "fail", path, "Inspection failed: "+err.Error(), "Correct the file or access permissions and rerun wtx doctor.")
 }
 
+// Checks skipped when a prerequisite stage fails, from innermost outward.
+var (
+	worktreeChecks = []string{"git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state"}
+	gitChecks      = append([]string{"git.worktrees", "git.exclude"}, worktreeChecks...)
+	configChecks   = append([]string{"scripts", "teardown", "disk", "migration.references", "claude.hooks"}, gitChecks...)
+)
+
 func (s *inspection) blocked(ids ...string) {
 	for _, id := range ids {
 		s.add(id, "fail", "", "Check blocked by unavailable project configuration or Git worktree information.", "Resolve the prerequisite findings and rerun wtx doctor.")
@@ -173,7 +203,7 @@ func (s *inspection) blocked(ids ...string) {
 }
 
 func inspect(ctx context.Context, opts Options) *inspection {
-	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}}
+	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}}
 	if opts.User {
 		s.report.Scope = "user"
 		if opts.Fix {
@@ -196,44 +226,40 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	if err == nil {
 		s.root, err = filepath.EvalSymlinks(s.root)
 	}
-	if err != nil {
-		s.problem("project.config", start, err)
-		s.blocked("git.compatibility", "git.worktrees", "shared.copy", "shared.symlink", "setup.state", "scripts", "teardown", "disk", "migration.references", "claude.hooks", "git.branches")
-		return s
+	where := start
+	var guard snapshot
+	if err == nil {
+		where = filepath.Join(s.root, config.ConfigFileName)
+		guard, err = takeSnapshot(where)
 	}
-	configPath := filepath.Join(s.root, config.ConfigFileName)
-	guard, err := takeSnapshot(configPath)
-	if err != nil {
-		s.problem("project.config", configPath, err)
-		s.blocked("git.compatibility", "git.worktrees", "shared.copy", "shared.symlink", "setup.state", "scripts", "teardown", "disk", "migration.references", "claude.hooks", "git.branches", "git.exclude")
-		return s
+	if err == nil {
+		s.cfg, err = config.Load(s.root)
 	}
-	s.cfg, err = config.Load(s.root)
 	if err == nil {
 		err = guard.unchanged()
 	}
 	if err != nil {
-		s.problem("project.config", configPath, err)
-		s.blocked("git.compatibility", "git.worktrees", "shared.copy", "shared.symlink", "setup.state", "scripts", "teardown", "disk", "migration.references", "claude.hooks", "git.branches", "git.exclude")
+		s.problem("project.config", where, err)
+		s.blocked(configChecks...)
 		return s
 	}
 	s.guards = append(s.guards, guard)
-	s.gitDir = resolved(project.GitDirPath(s.root, s.cfg))
+	gitDir := project.GitDirPath(s.root, s.cfg)
+	s.gitDir = resolved(gitDir)
+	s.backups = filepath.Join(gitDir, backupDirName)
 	defer s.scanLimitations(s.root)
-	s.add("project.config", "ok", configPath, "Project configuration is readable.", "")
+	s.add("project.config", "ok", where, "Project configuration is readable.", "")
 	s.scripts()
 	s.disk()
 	s.teardown(s.root)
-	s.settings(filepath.Join(s.root, ".claude", "settings.local.json"))
-	s.settings(filepath.Join(s.root, ".claude", "settings.json"))
+	s.claudeSettings(s.root)
 	s.scanProject()
-	gitDir := project.GitDirPath(s.root, s.cfg)
 	s.runner = git.NewRunner(gitDir, false)
 	s.runner.Quiet = true
 	s.gitVersion(ctx)
 	if _, err := s.runner.Query(ctx, "rev-parse", "--git-dir"); err != nil {
 		s.problem("project.git", gitDir, err)
-		s.blocked("git.compatibility", "git.worktrees", "git.branches", "shared.copy", "shared.symlink", "setup.state", "git.exclude")
+		s.blocked(gitChecks...)
 		return s
 	}
 	s.add("project.git", "ok", gitDir, "Git directory is usable.", "")
@@ -241,7 +267,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	worktrees, err := s.runner.WorktreeList(ctx)
 	if err != nil {
 		s.problem("git.worktrees", gitDir, err)
-		s.blocked("git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state")
+		s.blocked(worktreeChecks...)
 		return s
 	}
 	s.compatibility(ctx, worktrees)
@@ -278,9 +304,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 			s.shared(wt.Path)
 			s.teardown(wt.Path)
 		}
-		for _, name := range []string{"settings.local.json", "settings.json"} {
-			s.settings(filepath.Join(wt.Path, ".claude", name))
-		}
+		s.claudeSettings(wt.Path)
 		s.scanTracked(ctx, wt.Path)
 	}
 	return s

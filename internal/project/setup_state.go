@@ -53,12 +53,17 @@ func SetupLogPath(worktreePath string) string {
 }
 
 // WriteSetupState atomically writes the setup state to the worktree directory.
-func WriteSetupState(worktreePath string, state *SetupState) error {
+// EncodeSetupState returns the on-disk form of a setup state.
+func EncodeSetupState(state *SetupState) ([]byte, error) {
 	data, err := json.MarshalIndent(state, "", "  ")
+	return append(data, '\n'), err
+}
+
+func WriteSetupState(worktreePath string, state *SetupState) error {
+	data, err := EncodeSetupState(state)
 	if err != nil {
 		return err
 	}
-	data = append(data, '\n')
 
 	target := SetupStatePath(worktreePath)
 	tmp := target + ".tmp"
