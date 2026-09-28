@@ -46,7 +46,8 @@
 ## Project health and migration checks
 
 ```bash
-wtx doctor                    # Inspect from the project root or a worktree
+wtx doctor                    # Inspect from the project root or a worktree (grouped summary)
+wtx doctor --verbose          # List every finding, including passing checks
 wtx doctor --fix --dry-run    # Preview safe repairs, without writes or backups
 wtx doctor --fix              # Apply safe repairs, then inspect again
 wtx doctor --json             # Structured report on stdout (schema_version: 1)

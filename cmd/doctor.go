@@ -21,7 +21,7 @@ func newDoctorCmd() *cobra.Command {
 	var fix, user, structured, strict bool
 	cmd := &cobra.Command{
 		Use: "doctor", Short: "Check project health and migration readiness",
-		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings must migrate before v0.12; commands and script exports before v1.0.",
+		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings must migrate before v0.12; commands and script exports before v1.0. Output groups related findings; --verbose lists every finding, including passing checks.",
 		Args: cobra.NoArgs,
 		// Avoid theme/progress diagnostics in JSON mode, including --verbose.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -39,26 +39,7 @@ func newDoctorCmd() *cobra.Command {
 					return err
 				}
 			} else {
-				for _, f := range report.Findings {
-					where := f.Path
-					if f.Line > 0 {
-						where += fmt.Sprintf(":%d", f.Line)
-					}
-					fmt.Fprintf(ui.Output, "%s %s %s: %s\n", f.Severity, f.ID, where, f.Explanation)
-					if f.Remedy != "" {
-						fmt.Fprintf(ui.Output, "  %s\n", f.Remedy)
-					}
-				}
-				for _, r := range report.Repairs {
-					fmt.Fprintf(ui.Output, "%s %s: %s\n", r.Status, r.ID, r.Path)
-					if r.Backup != "" {
-						fmt.Fprintf(ui.Output, "  Backup: %s\n", r.Backup)
-					}
-					if r.Error != "" {
-						fmt.Fprintf(ui.Output, "  %s\n", r.Error)
-					}
-				}
-				fmt.Fprintf(ui.Output, "%d ok, %d warnings, %d failures\n", report.Counts.OK, report.Counts.Warn, report.Counts.Fail)
+				renderDoctorReport(ui.Output, report, ui.Verbose)
 			}
 			if report.Unsuccessful(strict) {
 				return ErrDoctorUnhealthy

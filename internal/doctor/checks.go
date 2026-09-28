@@ -121,7 +121,8 @@ func (s *inspection) compatibility(ctx context.Context, worktrees []git.Worktree
 	}
 	s.configRepair(ctx, common, "extensions.worktreeConfig", "true")
 	for _, wt := range worktrees {
-		if wt.Bare {
+		// Prunable worktrees have no .git link to configure; git.worktrees reports them.
+		if wt.Bare || wt.Prunable {
 			continue
 		}
 		if _, err := os.Stat(wt.Path); os.IsNotExist(err) {
@@ -183,7 +184,8 @@ func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo)
 	}
 	for _, ref := range refs {
 		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok && !used[branch] {
-			s.add("git.branches", "warn", s.runner.GitDir, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
+			i := s.add("git.branches", "warn", s.runner.GitDir, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
+			s.report.Findings[i].Subject = branch
 		}
 	}
 }

@@ -282,6 +282,7 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 			}
 			i := s.add("migration.references", "warn", path, "Legacy identifier candidate: "+identifier+" (text match; execution not established).", remedy)
 			s.report.Findings[i].Line = line + 1
+			s.report.Findings[i].Subject = identifier
 		}
 	}
 }
