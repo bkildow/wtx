@@ -219,9 +219,10 @@ Generates a `.worktree.yml` with documentation comments for every field. If a co
 wtx add feature/auth          # Create worktree for branch
 wtx add                       # Interactive branch picker
 wtx add feature/auth --skip-setup  # Create worktree without running setup hooks
+wtx add feature/auth --base-branch develop  # Start the new branch from develop
 ```
 
-Detects whether the branch exists remotely or creates a new local branch. Applies shared files and runs setup hooks. If setup hooks fail, the worktree is still created and you are CDed into it. Use `wtx setup [name]` later to bootstrap a worktree created with `--skip-setup`.
+Detects whether the branch exists remotely or creates a new local branch. New branches start from `main_branch` unless `--base-branch` names another branch, tag, or commit (`origin/<name>` is preferred when it exists, unless your local branch has unpushed commits). `--base-branch` errors if the ref doesn't resolve or the branch already exists; without a branch argument it prompts for a new branch name. Applies shared files and runs setup hooks. If setup hooks fail, the worktree is still created and you are CDed into it. Use `wtx setup [name]` later to bootstrap a worktree created with `--skip-setup`.
 
 <a id="wt-remove"></a>
 
@@ -471,7 +472,7 @@ scripts:
 |-------|-------------|---------|
 | `version` | Config version | `1` |
 | `git_dir` | Path to bare repository | `.bare` |
-| `main_branch` | Primary branch (branch ref protected from deletion, used as base for new branches) | `main` |
+| `main_branch` | Primary branch (branch ref protected from deletion, used as base for new branches unless `wtx add --base-branch` is given) | `main` |
 | `editor` | Preferred editor binary name | (auto-detect) |
 | `setup` | Commands to run sequentially after creating a worktree | `[]` |
 | `parallel_setup` | Commands to run concurrently after serial setup hooks | `[]` |

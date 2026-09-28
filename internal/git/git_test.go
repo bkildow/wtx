@@ -695,3 +695,90 @@ func TestIntegrationCloneAndWorktree(t *testing.T) {
 		t.Errorf("expected at least 2 worktrees (bare + added), got %d", len(worktrees))
 	}
 }
+
+func TestIntegrationResolveRefAndBaseBranch(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+
+	run := func(args ...string) string {
+		t.Helper()
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("cmd %v failed: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+
+	// Source repo with main plus a develop branch one commit ahead.
+	srcDir := t.TempDir()
+	run("git", "init", "-b", "main", srcDir)
+	run("git", "-C", srcDir, "config", "user.email", "test@test.com")
+	run("git", "-C", srcDir, "config", "user.name", "Test")
+	if err := os.WriteFile(filepath.Join(srcDir, "README.md"), []byte("# Test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("git", "-C", srcDir, "add", ".")
+	run("git", "-C", srcDir, "commit", "-m", "initial")
+	run("git", "-C", srcDir, "switch", "-c", "develop")
+	run("git", "-C", srcDir, "commit", "--allow-empty", "-m", "develop only")
+	developSHA := run("git", "-C", srcDir, "rev-parse", "develop")
+	run("git", "-C", srcDir, "switch", "main")
+
+	projectDir := t.TempDir()
+	bareDir := filepath.Join(projectDir, ".bare")
+	runner := NewRunner(bareDir, false)
+	ctx := context.Background()
+
+	if err := runner.CloneBare(ctx, srcDir, bareDir); err != nil {
+		t.Fatalf("CloneBare: %v", err)
+	}
+	if err := runner.ConfigureRemoteFetch(ctx); err != nil {
+		t.Fatalf("ConfigureRemoteFetch: %v", err)
+	}
+	if err := runner.Fetch(ctx, "origin"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	ref, err := runner.ResolveRef(ctx, "develop")
+	if err != nil {
+		t.Fatalf("ResolveRef(develop): %v", err)
+	}
+	if ref != "origin/develop" {
+		t.Errorf("ResolveRef(develop) = %q, want %q", ref, "origin/develop")
+	}
+
+	if _, err := runner.ResolveRef(ctx, "does-not-exist"); err == nil {
+		t.Error("ResolveRef(does-not-exist) should fail")
+	}
+	if got := runner.ResolveStartPoint(ctx, "does-not-exist"); got != "HEAD" {
+		t.Errorf("ResolveStartPoint(does-not-exist) = %q, want HEAD", got)
+	}
+
+	wtPath := filepath.Join(projectDir, "worktrees", "feature-x")
+	if err := runner.WorktreeAddNew(ctx, wtPath, "feature-x", ref); err != nil {
+		t.Fatalf("WorktreeAddNew: %v", err)
+	}
+	if got := run("git", "-C", wtPath, "rev-parse", "HEAD"); got != developSHA {
+		t.Errorf("new branch HEAD = %s, want develop %s", got, developSHA)
+	}
+
+	if _, err := runner.ResolveRef(ctx, "HEAD"); err == nil {
+		t.Error("ResolveRef(HEAD) should fail: HEAD in a bare repo isn't the user's worktree")
+	}
+
+	// A local branch with unpushed commits wins over its origin copy.
+	ahead := run("git", "--git-dir", bareDir, "-c", "user.name=Test", "-c", "user.email=test@test.com",
+		"commit-tree", "-p", "refs/heads/develop", "-m", "unpushed", "refs/heads/develop^{tree}")
+	run("git", "--git-dir", bareDir, "update-ref", "refs/heads/develop", ahead)
+	ref, err = runner.ResolveRef(ctx, "develop")
+	if err != nil {
+		t.Fatalf("ResolveRef(develop) with local ahead: %v", err)
+	}
+	if ref != "develop" {
+		t.Errorf("ResolveRef(develop) with unpushed local commits = %q, want %q", ref, "develop")
+	}
+}

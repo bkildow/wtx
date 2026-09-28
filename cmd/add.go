@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -25,6 +26,8 @@ func newAddCmd() *cobra.Command {
 	cmd.Flags().Bool("skip-setup", false, "Skip running setup hooks after creating the worktree")
 	cmd.Flags().Bool("background", false, "Run setup hooks in the background")
 	cmd.Flags().Bool("foreground", false, "Run setup hooks in the foreground (blocking)")
+	cmd.Flags().String("base-branch", "", "Branch or ref to start a new branch from (default: main_branch)")
+	_ = cmd.RegisterFlagCompletionFunc("base-branch", completeBranchNames)
 	return cmd
 }
 
@@ -53,6 +56,15 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	baseBranch, _ := cmd.Flags().GetString("base-branch")
+
+	// Fail on a bad base before prompting rather than after the user types a name.
+	if baseBranch != "" && len(args) == 0 && !dry {
+		if _, err := runner.ResolveRef(ctx, baseBranch); err != nil {
+			return fmt.Errorf("invalid --base-branch: %w", err)
+		}
+	}
+
 	var branch string
 	if len(args) > 0 {
 		branch = args[0]
@@ -62,7 +74,9 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if len(branches) > 0 {
+		// --base-branch only makes sense for a new branch, so skip the picker
+		// of existing branches and ask for a name instead.
+		if len(branches) > 0 && baseBranch == "" {
 			branch, err = prompter.SelectBranch(branches)
 			if err != nil {
 				if ui.IsUserAbort(err) {
@@ -97,13 +111,18 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	exists := hasRemote || hasLocal
+	startPoint, err := newBranchStartPoint(ctx, runner, cfg, branch, baseBranch, exists)
+	if err != nil {
+		return err
+	}
+
 	ui.Step("Adding worktree for branch: " + branch)
-	if hasRemote || hasLocal {
+	if exists {
 		if err := runner.WorktreeAdd(ctx, worktreePath, branch); err != nil {
 			return err
 		}
 	} else {
-		startPoint := runner.ResolveStartPoint(ctx, cfg.MainBranchOrDefault())
 		if err := runner.WorktreeAddNew(ctx, worktreePath, branch, startPoint); err != nil {
 			return err
 		}
@@ -153,6 +172,33 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	return runSetupForeground(cmd, worktreePath, cfg, dry, msg)
+}
+
+// newBranchStartPoint picks the ref a new branch is created from. An explicit
+// --base-branch must resolve and is rejected for branches that already exist,
+// since the existing branch's history would silently win over the flag.
+// Without the flag it falls back to the configured main branch.
+func newBranchStartPoint(ctx context.Context, runner *git.Runner, cfg *config.Config, branch, baseBranch string, exists bool) (string, error) {
+	if baseBranch == "" {
+		if exists {
+			return "", nil
+		}
+		return runner.ResolveStartPoint(ctx, cfg.MainBranchOrDefault()), nil
+	}
+	if exists {
+		return "", fmt.Errorf("branch %q already exists; --base-branch only applies when creating a new branch", branch)
+	}
+	ref, err := runner.ResolveRef(ctx, baseBranch)
+	if err != nil {
+		// Dry-run skips the fetch, so a branch pushed since the last fetch
+		// looks missing here even though the real run would find it.
+		if runner.DryRun {
+			ui.Warning(fmt.Sprintf("could not resolve --base-branch (refs not fetched in dry-run): %s", err))
+			return baseBranch, nil
+		}
+		return "", fmt.Errorf("invalid --base-branch: %w", err)
+	}
+	return ref, nil
 }
 
 // resolveBackgroundMode determines whether setup should run in background.
