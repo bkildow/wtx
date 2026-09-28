@@ -36,6 +36,7 @@ type Finding struct {
 	Severity    Severity `json:"severity"`
 	Path        string   `json:"path,omitempty"`
 	Line        int      `json:"line,omitempty"`
+	Subject     string   `json:"subject,omitempty"` // what the finding is about when Path is shared, e.g. a branch
 	Explanation string   `json:"explanation"`
 	Remedy      string   `json:"remedy,omitempty"`
 	Repairable  bool     `json:"repairable"`
@@ -58,6 +59,7 @@ type Counts struct {
 type Report struct {
 	SchemaVersion int             `json:"schema_version"`
 	Scope         string          `json:"scope"`
+	Root          string          `json:"root,omitempty"`
 	Findings      []Finding       `json:"findings"`
 	Repairs       []RepairOutcome `json:"repairs"`
 	Counts        Counts          `json:"counts"`
@@ -244,6 +246,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		return s
 	}
 	s.guards = append(s.guards, guard)
+	s.report.Root = s.root
 	gitDir := project.GitDirPath(s.root, s.cfg)
 	s.gitDir = resolved(gitDir)
 	s.backups = filepath.Join(gitDir, backupDirName)
@@ -296,6 +299,15 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		}
 		if !info.IsDir() {
 			s.problem("git.worktrees", wt.Path, fmt.Errorf("worktree path is not a directory"))
+			continue
+		}
+		if wt.Prunable {
+			// The directory survives but Git no longer links it, so deeper checks would only fail.
+			remedy := fmt.Sprintf("Review git --git-dir=%q worktree prune --dry-run, then git --git-dir=%q worktree prune.", gitDir, gitDir)
+			if wt.Locked {
+				remedy = "Review the worktree lock before taking manual action."
+			}
+			s.add("git.worktrees", "warn", wt.Path, "Worktree directory exists but Git marks it prunable.", remedy)
 			continue
 		}
 		s.add("git.worktrees", "ok", wt.Path, "Worktree directory exists.", "")

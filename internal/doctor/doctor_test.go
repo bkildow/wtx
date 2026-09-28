@@ -31,7 +31,9 @@ func write(t *testing.T, path, content string, mode os.FileMode) {
 func gitRun(t *testing.T, args ...string) {
 	t.Helper()
 	c := exec.Command("git", args...)
-	c.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t")
+	c.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
+		// Background auto-maintenance writes lock files that race file snapshots.
+		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0")
 	out, err := c.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
@@ -333,13 +335,18 @@ func TestScriptsTeardownDiskAndShared(t *testing.T) {
 
 func TestRegistrationsAndBranches(t *testing.T) {
 	root, gitDir, _ := fixture(t, false)
-	for _, name := range []string{"missing", "locked"} {
+	for _, name := range []string{"missing", "locked", "unlinked"} {
 		path := filepath.Join(root, "worktrees", name)
 		gitRun(t, "--git-dir", gitDir, "worktree", "add", "-b", name, path)
 		if name == "locked" {
 			gitRun(t, "--git-dir", gitDir, "worktree", "lock", path)
 		}
-		if err := os.RemoveAll(path); err != nil {
+		// unlinked keeps its directory but loses the .git link, as tmp cleaners do.
+		remove := path
+		if name == "unlinked" {
+			remove = filepath.Join(path, ".git")
+		}
+		if err := os.RemoveAll(remove); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -351,7 +358,7 @@ func TestRegistrationsAndBranches(t *testing.T) {
 	if !reflect.DeepEqual(before, files(t, root)) {
 		t.Fatal("changed branches or registrations")
 	}
-	for _, name := range []string{"missing", "locked"} {
+	for _, name := range []string{"missing", "locked", "unlinked"} {
 		f := finding(r, "git.worktrees", filepath.Join(root, "worktrees", name))
 		if f == nil || f.Severity != "warn" {
 			t.Fatalf("missing registration: %+v", f)
@@ -359,21 +366,44 @@ func TestRegistrationsAndBranches(t *testing.T) {
 		if name == "locked" && !strings.Contains(f.Explanation, "locked") {
 			t.Fatalf("lock omitted: %+v", f)
 		}
-		if name == "missing" && !strings.Contains(f.Remedy, "prune --dry-run") {
+		if name != "locked" && !strings.Contains(f.Remedy, "prune --dry-run") {
 			t.Fatalf("prune omitted: %+v", f)
+		}
+	}
+	for _, f := range r.Findings {
+		if f.Severity == "fail" {
+			t.Fatalf("unlinked worktree should not fail deeper checks: %+v", f)
 		}
 	}
 	count := 0
 	for _, f := range r.Findings {
 		if f.ID == "git.branches" {
 			count++
-			if !strings.Contains(f.Explanation, "orphan") {
+			if !strings.Contains(f.Explanation, "orphan") || f.Subject != "orphan" {
 				t.Fatalf("wrong orphan: %+v", f)
 			}
 		}
 	}
 	if count != 1 {
 		t.Fatalf("orphan count %d", count)
+	}
+}
+
+func TestUnlinkedWorktreeInBareRepository(t *testing.T) {
+	root, gitDir, _ := fixture(t, true)
+	path := filepath.Join(root, "worktrees", "unlinked")
+	gitRun(t, "--git-dir", gitDir, "worktree", "add", "-b", "unlinked", path)
+	if err := os.Remove(filepath.Join(path, ".git")); err != nil {
+		t.Fatal(err)
+	}
+	r := Run(context.Background(), Options{StartDir: root})
+	for _, f := range r.Findings {
+		if f.Path == path && f.ID != "git.worktrees" {
+			t.Fatalf("unlinked worktree should only be reported as a registration: %+v", f)
+		}
+	}
+	if f := finding(r, "git.worktrees", path); f == nil || f.Severity != "warn" || !strings.Contains(f.Remedy, "prune") {
+		t.Fatalf("unlinked registration: %+v", f)
 	}
 }
 
