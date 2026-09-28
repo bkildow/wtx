@@ -31,7 +31,9 @@ func write(t *testing.T, path, content string, mode os.FileMode) {
 func gitRun(t *testing.T, args ...string) {
 	t.Helper()
 	c := exec.Command("git", args...)
-	c.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t")
+	c.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
+		// Background auto-maintenance writes lock files that race file snapshots.
+		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0")
 	out, err := c.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
