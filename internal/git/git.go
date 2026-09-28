@@ -670,13 +670,48 @@ func (r *Runner) GetDefaultBranch(ctx context.Context) (string, error) {
 // It tries origin/<branch> first (for bare repos), then the local branch,
 // and falls back to HEAD if neither exists.
 func (r *Runner) ResolveStartPoint(ctx context.Context, branch string) string {
-	if _, err := r.Query(ctx, "rev-parse", "--verify", "origin/"+branch); err == nil {
+	if r.refExists(ctx, "origin/"+branch) {
 		return "origin/" + branch
 	}
-	if _, err := r.Query(ctx, "rev-parse", "--verify", branch); err == nil {
+	if r.refExists(ctx, branch) {
 		return branch
 	}
 	return "HEAD"
+}
+
+// ResolveRef finds the git ref to start a new branch from for a user-supplied
+// name. A local branch with commits not on origin wins so unpushed work isn't
+// silently dropped; otherwise origin/<ref> is preferred because local branches
+// in a bare clone are usually stale copies from clone time. Tags, commits and
+// fully qualified names like origin/develop fall through to <ref> itself.
+func (r *Runner) ResolveRef(ctx context.Context, ref string) (string, error) {
+	if ref == "HEAD" {
+		// HEAD in the bare repo is the clone-time default branch, not the
+		// worktree the user is standing in.
+		return "", fmt.Errorf("HEAD is ambiguous in a bare repo; name a branch, tag, or commit")
+	}
+
+	hasRemote := r.refExists(ctx, "refs/remotes/origin/"+ref)
+	hasLocal := r.refExists(ctx, "refs/heads/"+ref)
+
+	if hasLocal && hasRemote {
+		out, err := r.Query(ctx, "rev-list", "--count", "refs/remotes/origin/"+ref+"..refs/heads/"+ref)
+		if err == nil && strings.TrimSpace(out) != "0" {
+			return ref, nil
+		}
+	}
+	if hasRemote {
+		return "origin/" + ref, nil
+	}
+	if r.refExists(ctx, ref) {
+		return ref, nil
+	}
+	return "", fmt.Errorf("ref %q not found locally or on origin", ref)
+}
+
+func (r *Runner) refExists(ctx context.Context, ref string) bool {
+	_, err := r.Query(ctx, "rev-parse", "--verify", "--quiet", ref+"^{commit}")
+	return err == nil
 }
 
 func (r *Runner) WorktreePrune(ctx context.Context) error {

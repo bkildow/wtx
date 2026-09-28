@@ -1,0 +1,28 @@
+[!exec:git] skip 'git not available'
+
+setup-repo develop
+setup-project
+
+cd $WORK/project
+
+# An unknown base ref fails before anything is created
+! exec wtx add --skip-setup --base-branch nope feature/x
+! exists worktrees/feature/x
+
+# --base-branch is rejected for a branch that already exists
+! exec wtx add --skip-setup --base-branch master develop
+! exists worktrees/develop
+
+# Dry run shows the resolved start point without creating the worktree
+exec wtx --dry-run add --skip-setup --base-branch develop feature/x
+stderr 'origin/develop'
+! exists worktrees/feature/x
+
+# Dry run can't fetch, so an unresolvable base only warns
+exec wtx --dry-run add --skip-setup --base-branch nope feature/x
+stderr 'could not resolve --base-branch'
+! exists worktrees/feature/x
+
+# A valid base creates the new branch from it
+exec wtx add --skip-setup --base-branch develop feature/x
+exists worktrees/feature/x

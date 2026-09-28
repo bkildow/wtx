@@ -24,22 +24,11 @@ func completeWorktreeNames(cmd *cobra.Command, args []string, toComplete string)
 }
 
 func listWorktreeNames() ([]string, error) {
-	cwd, err := os.Getwd()
+	runner, projectRoot, err := completionRunner()
 	if err != nil {
 		return nil, err
 	}
 
-	projectRoot, err := project.FindRoot(cwd)
-	if err != nil {
-		return nil, err
-	}
-
-	cfg, err := config.Load(projectRoot)
-	if err != nil {
-		return nil, err
-	}
-
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), false)
 	worktrees, err := runner.WorktreeList(context.Background())
 	if err != nil {
 		return nil, err
@@ -53,4 +42,35 @@ func listWorktreeNames() ([]string, error) {
 	}
 
 	return names, nil
+}
+
+// completeBranchNames completes flag values with the project's remote branches.
+func completeBranchNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	runner, _, err := completionRunner()
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	branches, err := runner.ListRemoteBranches(context.Background())
+	if err != nil {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return branches, cobra.ShellCompDirectiveNoFileComp
+}
+
+// completionRunner locates the project from the working directory and returns
+// a git runner for it, for use by shell completion functions.
+func completionRunner() (*git.Runner, string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, "", err
+	}
+	projectRoot, err := project.FindRoot(cwd)
+	if err != nil {
+		return nil, "", err
+	}
+	cfg, err := config.Load(projectRoot)
+	if err != nil {
+		return nil, "", err
+	}
+	return git.NewRunner(project.GitDirPath(projectRoot, cfg), false), projectRoot, nil
 }
