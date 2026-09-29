@@ -20,8 +20,12 @@ const doctorItemLimit = 5
 
 // doctorCheck describes a check ID for the human report. about and remedy
 // replace per-finding text when findings in a group vary only by subject.
+// summarize hides the item list without --verbose (cleanup hints, not health
+// problems); note marks informational checks that only appear with --verbose
+// when they pass, since they verify nothing.
 type doctorCheck struct {
 	id, title, about, remedy string
+	summarize, note          bool
 }
 
 // doctorChecks lists checks in report order.
@@ -32,7 +36,11 @@ var doctorChecks = []doctorCheck{
 	{id: "git.compatibility", title: "Bare repository compatibility"},
 	{id: "git.exclude", title: "Git exclude file"},
 	{id: "git.worktrees", title: "Worktrees"},
-	{id: "git.branches", title: "Local branches with no worktree or remote"},
+	{
+		id: "git.branches", title: "Local branches with no worktree or remote",
+		about:     "Not checked out anywhere and no matching remote-tracking branch; often merged or abandoned work.",
+		summarize: true,
+	},
 	{id: "shared.copy", title: "Shared copies"},
 	{id: "shared.symlink", title: "Shared symlinks"},
 	{id: "setup.state", title: "Setup state"},
@@ -46,7 +54,7 @@ var doctorChecks = []doctorCheck{
 		about:  "Text matches for the old name; not every match is executed.",
 		remedy: "Replace wt with wtx and WT_* with WTX_* (WT_THEME and WT_NO_DISK_WARN before v0.12, the rest before v1.0).",
 	},
-	{id: "migration.scan", title: "Reference scan"},
+	{id: "migration.scan", title: "Reference scan", note: true},
 	{id: "user.repair", title: "User repairs"},
 	{id: "user.path", title: "wtx on PATH"},
 	{id: "user.environment", title: "Legacy environment variables"},
@@ -119,7 +127,7 @@ func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
 		}
 	}
 	for _, g := range groups {
-		if g.severity == doctor.OK && !failing[g.check.id] {
+		if g.severity == doctor.OK && !failing[g.check.id] && !g.check.note {
 			passed = append(passed, g)
 		}
 	}
@@ -212,13 +220,18 @@ func (d doctorRenderer) group(g doctorGroup) {
 
 	items := d.items(g, about == "")
 	limit := len(items)
-	if !d.verbose && limit > doctorItemLimit+1 {
+	if !d.verbose && g.check.summarize {
+		limit = 0
+	} else if !d.verbose && limit > doctorItemLimit+1 {
 		limit = doctorItemLimit
 	}
 	for _, item := range items[:limit] {
 		d.line(ui.StyleMuted.Render("    " + item))
 	}
-	if limit < len(items) {
+	switch {
+	case limit == 0 && len(items) > 0:
+		d.line(ui.StyleMuted.Render("    --verbose lists them"))
+	case limit < len(items):
 		d.line(ui.StyleMuted.Render(fmt.Sprintf("    … and %d more (--verbose lists all)", len(items)-limit)))
 	}
 

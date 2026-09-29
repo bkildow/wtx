@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -239,89 +238,15 @@ func (s *inspection) states(root string) {
 	}
 }
 
-func (s *inspection) shared(root string) {
+func (s *inspection) shared(root string, f *worktreeFacts) {
 	shared := project.SharedPath(s.root, s.cfg)
-	copyDir := filepath.Join(shared, "copy")
-	err := filepath.WalkDir(copyDir, func(path string, entry fs.DirEntry, err error) error {
-		if os.IsNotExist(err) && path == copyDir {
-			return nil
-		}
-		if err != nil {
-			s.problem("shared.copy", path, err)
-			return nil
-		}
-		if repairArtifact(entry.Name()) {
-			return nil
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		rel, err := filepath.Rel(copyDir, path)
-		if err != nil {
-			return err
-		}
-		dest := filepath.Join(root, project.StripTemplateExt(rel))
-		info, err := os.Stat(dest)
-		if os.IsNotExist(err) {
-			s.add("shared.copy", "warn", dest, "Expected shared copy is missing.", "Review and run wtx apply for this worktree (or wtx apply --all).")
-			return nil
-		}
-		if err != nil {
-			s.problem("shared.copy", dest, err)
-		} else if info.IsDir() {
-			s.add("shared.copy", "fail", dest, "Expected shared file is a directory.", "Review the destination before running wtx apply.")
-		}
-		return nil
-	})
-	if err != nil {
-		s.problem("shared.copy", copyDir, err)
-	}
+	s.report.Findings = append(s.report.Findings, f.copies...)
 	s.links(filepath.Join(shared, "symlink"), root)
-	s.danglingManagedLinks(root, filepath.Join(shared, "symlink"))
-}
-
-// Inspect destinations too: a deleted shared source is no longer enumerable,
-// but links pointing into the managed tree still need a finding.
-func (s *inspection) danglingManagedLinks(root, shared string) {
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			s.problem("shared.symlink", path, err)
-			return nil
+	s.report.Findings = append(s.report.Findings, f.danglingErrs...)
+	for _, path := range f.dangling {
+		if !s.seenLinks[path] {
+			s.add("shared.symlink", "warn", path, "Managed symlink points to a shared source that no longer exists.", "Restore the shared source or review and repair the link manually.")
 		}
-		if entry.IsDir() {
-			if path != root && skippedName(entry.Name()) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink == 0 {
-			return nil
-		}
-		target, err := os.Readlink(path)
-		if err != nil {
-			s.problem("shared.symlink", path, err)
-			return nil
-		}
-		if !filepath.IsAbs(target) {
-			target = filepath.Join(filepath.Dir(path), target)
-		}
-		if !within(resolved(shared), resolved(target)) {
-			return nil
-		}
-		if _, err := os.Stat(path); err == nil {
-			return nil
-		} else if !os.IsNotExist(err) {
-			s.problem("shared.symlink", path, err)
-			return nil
-		}
-		if s.seenLinks[path] {
-			return nil
-		}
-		s.add("shared.symlink", "warn", path, "Managed symlink points to a shared source that no longer exists.", "Restore the shared source or review and repair the link manually.")
-		return nil
-	})
-	if err != nil {
-		s.problem("shared.symlink", root, err)
 	}
 }
 
