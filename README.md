@@ -404,8 +404,6 @@ wtx skill                     # Print the agent skill to stdout
 
 Prints the full agent skill (a `SKILL.md` with frontmatter) that teaches AI coding agents how to use `wtx` non-interactively. The [installable skill](#agent-skill) is a thin wrapper that runs this command, so agents always get instructions that match the installed `wtx` version.
 
-`wtx skill` replaces `wtx agents`, which has been removed.
-
 <a id="wt-claude-init"></a>
 
 ### wtx claude init
