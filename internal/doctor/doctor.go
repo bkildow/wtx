@@ -97,6 +97,7 @@ type inspection struct {
 	gitDir       string // resolved Git directory, excluded from scans
 	backups      string // repair backup directory
 	resolvedDirs map[string]string
+	seenBlobs    map[string]bool // tracked blob+path pairs already scanned
 	scanSkipped  int
 }
 
@@ -205,7 +206,7 @@ func (s *inspection) blocked(ids ...string) {
 }
 
 func inspect(ctx context.Context, opts Options) *inspection {
-	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}}
+	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}, seenBlobs: map[string]bool{}}
 	if opts.User {
 		s.report.Scope = "user"
 		if opts.Fix {
@@ -275,6 +276,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	}
 	s.compatibility(ctx, worktrees)
 	s.branches(ctx, worktrees)
+	facts := s.prefetch(ctx, worktrees)
 	for _, wt := range worktrees {
 		if wt.Bare {
 			continue
@@ -312,12 +314,16 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		}
 		s.add("git.worktrees", "ok", wt.Path, "Worktree directory exists.", "")
 		s.states(wt.Path)
+		f := facts[wt.Path]
+		if f == nil {
+			continue // directory appeared after prefetch
+		}
 		if resolved(wt.Path) != s.root {
-			s.shared(wt.Path)
+			s.shared(wt.Path, f)
 			s.teardown(wt.Path)
 		}
 		s.claudeSettings(wt.Path)
-		s.scanTracked(ctx, wt.Path)
+		s.scanTracked(wt.Path, f)
 	}
 	return s
 }

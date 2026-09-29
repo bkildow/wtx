@@ -24,6 +24,7 @@ func TestRenderDoctorReportGroupsFindings(t *testing.T) {
 	}
 	add(doctor.Finding{ID: "migration.references", Severity: doctor.Warn, Path: root + "/run.sh", Line: 3, Subject: "WT_THEME", Explanation: "Legacy identifier candidate: WT_THEME.", Remedy: "Replace WT_THEME."})
 	add(doctor.Finding{ID: "git.version", Severity: doctor.Fail, Explanation: "Git 2.10.0", Remedy: "Upgrade Git."})
+	add(doctor.Finding{ID: "migration.scan", Severity: doctor.OK, Path: root, Explanation: "Bounded candidate scan."})
 
 	var buf bytes.Buffer
 	renderDoctorReport(&buf, report, false)
@@ -33,9 +34,7 @@ func TestRenderDoctorReportGroupsFindings(t *testing.T) {
 		"1 failure · 3 warnings · 1 check passed",
 		"✗ Git version\n    Git 2.10.0\n  → Upgrade Git.",
 		"⚠ Git exclude file  [fixable]",
-		"⚠ Local branches with no worktree or remote (8)",
-		"    topic-0\n",
-		"… and 3 more (--verbose lists all)",
+		"⚠ Local branches with no worktree or remote (8)\n    Not checked out anywhere and no matching remote-tracking branch; often merged or abandoned work.\n    --verbose lists them\n  → Review the branch.",
 		"⚠ Legacy wt references (31 in 2 files)",
 		"    README.md (30 lines) — wt\n    run.sh:3 — WT_THEME\n",
 		"✓ Passed: Project config",
@@ -45,7 +44,10 @@ func TestRenderDoctorReportGroupsFindings(t *testing.T) {
 			t.Errorf("output missing %q:\n%s", want, out)
 		}
 	}
-	if strings.Contains(out, "topic-7") || strings.Contains(out, "Legacy identifier candidate") || strings.Contains(out, root+"/") {
+	if strings.Contains(out, "Reference scan") {
+		t.Errorf("passing informational checks belong in --verbose only:\n%s", out)
+	}
+	if strings.Contains(out, "topic-0") || strings.Contains(out, "topic-7") || strings.Contains(out, "Legacy identifier candidate") || strings.Contains(out, root+"/") {
 		t.Errorf("output not collapsed:\n%s", out)
 	}
 	if strings.Index(out, "Git version") > strings.Index(out, "Git exclude") {
@@ -54,7 +56,7 @@ func TestRenderDoctorReportGroupsFindings(t *testing.T) {
 
 	buf.Reset()
 	renderDoctorReport(&buf, report, true)
-	if out := buf.String(); !strings.Contains(out, "topic-7") || !strings.Contains(out, "✓ Project config\n    Project configuration is readable.") {
+	if out := buf.String(); !strings.Contains(out, "topic-7") || !strings.Contains(out, "✓ Project config\n    Project configuration is readable.") || !strings.Contains(out, "✓ Reference scan") {
 		t.Errorf("verbose output should list everything:\n%s", out)
 	}
 }

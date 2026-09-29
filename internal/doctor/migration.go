@@ -2,7 +2,6 @@ package doctor
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -10,13 +9,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/bkildow/wtx/internal/claude"
 	"github.com/bkildow/wtx/internal/config"
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 )
 
@@ -181,24 +178,20 @@ func (s *inspection) scanDir(root string, settings bool) {
 	}
 }
 
-func (s *inspection) scanTracked(ctx context.Context, root string) {
-	path, err := git.WorktreeConfigPath(root)
-	if err != nil {
-		s.problem("migration.scan", root, err)
-		return
-	}
-	runner := git.NewRunner(filepath.Dir(path), false)
-	runner.Quiet = true
-	// Explicit work-tree and bare override allow scanning before compatibility repair.
-	output, err := runner.QueryRaw(ctx, "--work-tree", root, "-c", "core.bare=false", "ls-files", "-z")
-	if err != nil {
-		s.problem("migration.scan", root, err)
-		return
-	}
-	for _, rel := range strings.Split(output, "\x00") {
-		if rel != "" && !slices.ContainsFunc(strings.Split(rel, "/"), skippedName) {
-			s.scanFile(filepath.Join(root, rel), scopeTracked)
+// scanTracked scans a worktree's tracked files. Worktrees share most of
+// their content, so an unmodified file whose blob was already scanned at the
+// same path in another worktree is skipped (and its findings not repeated).
+func (s *inspection) scanTracked(root string, f *worktreeFacts) {
+	s.report.Findings = append(s.report.Findings, f.trackedErrs...)
+	for _, file := range f.tracked {
+		if !f.modified[file.rel] {
+			key := file.blob + "\x00" + file.rel
+			if s.seenBlobs[key] {
+				continue
+			}
+			s.seenBlobs[key] = true
 		}
+		s.scanFile(filepath.Join(root, file.rel), scopeTracked)
 	}
 }
 
