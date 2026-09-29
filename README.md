@@ -39,6 +39,7 @@
 - **Interactive by default** — branch/worktree pickers when arguments are omitted
 - **Setup/teardown hooks** — run commands automatically when creating or removing worktrees
 - **Claude Code integration** — automatic worktree creation/removal via Claude Code hooks
+- **Agent skill** — teaches any skills-aware coding agent to drive `wtx` non-interactively ([install](#agent-skill))
 - **Editor integration** — open worktrees in your preferred editor ($EDITOR, config, or auto-detect)
 - **Shell completions** — tab-complete worktree names in bash, zsh, and fish
 - **Dry-run support** — preview every destructive operation with `--dry-run`
@@ -145,6 +146,21 @@ cd wtx
 go build -o wtx ./cmd/wtx
 # move wtx to somewhere in your $PATH
 ```
+
+<a id="agent-skill"></a>
+
+### Agent skill (optional)
+
+Install the `wtx` skill so coding agents (Claude Code, Codex, Cursor, and others that support skills) know how to use `wtx`. Requires Node.js for `npx`:
+
+```bash
+npx skills add bkildow/wtx -g    # User-level, for every project
+npx skills add bkildow/wtx       # Current project only
+```
+
+The installed skill is a thin wrapper that tells the agent to run `wtx skill`, so its instructions come from your installed `wtx` binary and stay current when you upgrade `wtx`. The wrapper itself rarely changes; refresh it with `npx skills update`.
+
+Without `npx`, copy [`skills/wtx/`](skills/wtx/) into your agent's skills directory (for example `~/.agents/skills/wtx` or `~/.claude/skills/wtx`).
 
 ## Quick Start
 
@@ -384,10 +400,9 @@ Compares branches against the default branch (main/master). Detects regular, squ
 
 ```bash
 wtx skill                     # Print the agent skill to stdout
-npx skills add bkildow/wtx    # Install the wtx skill for your coding agents
 ```
 
-Prints the full agent skill (a `SKILL.md` with frontmatter) that teaches AI coding agents how to use `wtx` non-interactively. The skill installed by `npx skills add bkildow/wtx` ([`skills/wtx/SKILL.md`](skills/wtx/SKILL.md)) is a thin wrapper that runs `wtx skill`, so agents always get instructions that match the installed `wtx` version. It works with any agent that supports skills.
+Prints the full agent skill (a `SKILL.md` with frontmatter) that teaches AI coding agents how to use `wtx` non-interactively. The [installable skill](#agent-skill) is a thin wrapper that runs this command, so agents always get instructions that match the installed `wtx` version.
 
 `wtx skill` replaces `wtx agents`, which has been removed.
 
