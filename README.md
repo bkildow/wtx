@@ -39,6 +39,7 @@
 - **Interactive by default** — branch/worktree pickers when arguments are omitted
 - **Setup/teardown hooks** — run commands automatically when creating or removing worktrees
 - **Claude Code integration** — automatic worktree creation/removal via Claude Code hooks
+- **Agent skill** — teaches any skills-aware coding agent to drive `wtx` non-interactively ([install](#agent-skill))
 - **Editor integration** — open worktrees in your preferred editor ($EDITOR, config, or auto-detect)
 - **Shell completions** — tab-complete worktree names in bash, zsh, and fish
 - **Dry-run support** — preview every destructive operation with `--dry-run`
@@ -146,6 +147,21 @@ go build -o wtx ./cmd/wtx
 # move wtx to somewhere in your $PATH
 ```
 
+<a id="agent-skill"></a>
+
+### Agent skill (optional)
+
+Install the `wtx` skill so coding agents (Claude Code, Codex, Cursor, and others that support skills) know how to use `wtx`. Requires Node.js for `npx`:
+
+```bash
+npx skills add bkildow/wtx -g    # User-level, for every project
+npx skills add bkildow/wtx       # Current project only
+```
+
+The installed skill is a thin wrapper that tells the agent to run `wtx skill`, so its instructions come from your installed `wtx` binary and stay current when you upgrade `wtx`. The wrapper itself rarely changes; refresh it with `npx skills update`.
+
+Without `npx`, copy [`skills/wtx/`](skills/wtx/) into your agent's skills directory (for example `~/.agents/skills/wtx` or `~/.claude/skills/wtx`).
+
 ## Quick Start
 
 ```bash
@@ -186,7 +202,7 @@ wtx prune
 | `wtx prune` | Remove worktrees with fully merged branches |
 | `wtx config init` | Generate annotated `.worktree.yml` with documentation |
 | `wtx claude init` | Configure Claude Code hooks for automatic worktree management |
-| `wtx agents` | Print AI agent workflow instructions |
+| `wtx skill` | Print the agent skill for AI coding agents |
 | `wtx shell-init <shell>` | Print shell startup config (wrapper + completions) |
 | `wtx completion <shell>` | Generate shell completion script |
 
@@ -378,16 +394,15 @@ wtx prune --yes               # Skip confirmation
 
 Compares branches against the default branch (main/master). Detects regular, squash, and rebase merges, plus merged pull requests when `gh` is available. Merged worktrees with uncommitted changes are listed as `dirty` and kept unless you pass `--force`.
 
-<a id="wt-agents"></a>
+<a id="wt-skill"></a>
 
-### wtx agents
+### wtx skill
 
 ```bash
-wtx agents                    # Print AI workflow guide to stdout
-wtx agents > AGENTS.md        # Save as a file in your project
+wtx skill                     # Print the agent skill to stdout
 ```
 
-Outputs structured workflow instructions for AI coding assistants to understand how to use `wtx` in non-interactive mode.
+Prints the full agent skill (a `SKILL.md` with frontmatter) that teaches AI coding agents how to use `wtx` non-interactively. The [installable skill](#agent-skill) is a thin wrapper that runs this command, so agents always get instructions that match the installed `wtx` version.
 
 <a id="wt-claude-init"></a>
 

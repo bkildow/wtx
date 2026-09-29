@@ -1,12 +1,9 @@
-package cmd
+---
+name: wtx
+description: Manage git worktrees with the wtx CLI — create, list, switch to, sync, prune, or remove worktrees, run project scripts, and check project health. Use when working inside a wtx project (a directory tree containing .worktree.yml) or when the user mentions wtx.
+---
 
-import (
-	"fmt"
-
-	"github.com/spf13/cobra"
-)
-
-const agentsMarkdown = `# AGENTS.md — AI Workflow Guide for wtx
+# wtx — agent skill
 
 ## Overview
 
@@ -75,6 +72,13 @@ After wtx init (existing repo):
 ### Create a worktree
 
     wtx add <branch>                   # Detects remote or creates new branch
+    wtx add <branch> --base-branch <ref>   # Start a new branch from <ref> instead of main_branch
+    wtx add <branch> --skip-setup      # Skip setup hooks
+    wtx add <branch> --foreground      # Block until setup hooks finish (or --background)
+
+### Re-run setup hooks on an existing worktree
+
+    wtx setup <name> --foreground
 
 ### List worktrees
 
@@ -83,10 +87,13 @@ After wtx init (existing repo):
 ### Remove a worktree
 
     wtx remove <name> --force          # Use --force to skip confirmation
+    wtx remove <name> --force --skip-teardown   # Also skip teardown hooks
 
 ### Get worktree path
 
     wtx cd <name>                      # Prints path to stdout (does NOT cd)
+    wtx cd .                           # Path of the current worktree
+    wtx root                           # Path of the project root (same as wtx cd ..)
 
 ### Navigate to a worktree
 
@@ -160,6 +167,14 @@ commands and WT_* script exports before v1.0. Installing wtx migrates nothing.
     wtx config init                    # Generate annotated .worktree.yml
     wtx config init --update           # Preserve existing values
 
+### Claude Code integration
+
+    wtx claude init                    # Route Claude Code's worktree hooks through wtx
+
+### Repair git config after upgrading git or wtx
+
+    wtx repair                         # Idempotent
+
 ## Common Workflows
 
 ### Starting a new project (clone)
@@ -210,6 +225,9 @@ commands and WT_* script exports before v1.0. Installing wtx migrates nothing.
       - "docker compose down"
     parallel_teardown:
       - "make clean"
+    background_setup: false
+    scripts:
+      refresh: bin/refresh
 
 Fields:
 - version: Config version (always 1)
@@ -221,6 +239,8 @@ Fields:
 - parallel_setup: Commands run concurrently after setup completes
 - teardown: Commands run sequentially before removing a worktree
 - parallel_teardown: Commands run concurrently after teardown completes
+- background_setup: Run setup hooks in the background by default
+- scripts: Named scripts for wtx run (paths relative to the project root)
 
 ## Template Variables
 
@@ -248,17 +268,3 @@ Available variables:
 5. The project root is identified by .worktree.yml — look for this file.
 6. Run git commands inside the worktree directory, not the project root.
 7. Worktree directories live at worktrees/<branch-name>/ under the project root.
-`
-
-func newAgentsCmd() *cobra.Command {
-	return &cobra.Command{
-		Use:   "agents",
-		Short: "Print AI agent workflow instructions",
-		Long:  "Outputs workflow instructions for AI tools to understand how to use wtx effectively.\nPipe to a file to create an AGENTS.md: wtx agents > AGENTS.md",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			fmt.Print(agentsMarkdown)
-			return nil
-		},
-	}
-}
