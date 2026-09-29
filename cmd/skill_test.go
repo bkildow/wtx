@@ -2,7 +2,9 @@ package cmd
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -64,5 +66,29 @@ func TestSkillWrapper_matchesEmbeddedSkill(t *testing.T) {
 	}
 	if !strings.Contains(string(data), "wtx skill") {
 		t.Error("wrapper does not tell the agent to run wtx skill")
+	}
+}
+
+// npx skills discovers any file named SKILL.md (case-insensitively), so the
+// wrapper must be the only one in the repo or it installs the wrong skill.
+func TestSkillWrapper_isOnlySkillFile(t *testing.T) {
+	var found []string
+	err := filepath.WalkDir("..", func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && path != ".." && (strings.HasPrefix(d.Name(), ".") || d.Name() == "worktrees") {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() && strings.EqualFold(d.Name(), "SKILL.md") {
+			found = append(found, filepath.ToSlash(path))
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(found) != 1 || found[0] != "../skills/wtx/SKILL.md" {
+		t.Errorf("SKILL.md files = %v, want only ../skills/wtx/SKILL.md", found)
 	}
 }
