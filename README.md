@@ -186,7 +186,7 @@ wtx prune
 | `wtx prune` | Remove worktrees with fully merged branches |
 | `wtx config init` | Generate annotated `.worktree.yml` with documentation |
 | `wtx claude init` | Configure Claude Code hooks for automatic worktree management |
-| `wtx agents` | Print AI agent workflow instructions |
+| `wtx skill` | Print the agent skill for AI coding agents |
 | `wtx shell-init <shell>` | Print shell startup config (wrapper + completions) |
 | `wtx completion <shell>` | Generate shell completion script |
 
@@ -378,16 +378,18 @@ wtx prune --yes               # Skip confirmation
 
 Compares branches against the default branch (main/master). Detects regular, squash, and rebase merges, plus merged pull requests when `gh` is available. Merged worktrees with uncommitted changes are listed as `dirty` and kept unless you pass `--force`.
 
-<a id="wt-agents"></a>
+<a id="wt-skill"></a>
 
-### wtx agents
+### wtx skill
 
 ```bash
-wtx agents                    # Print AI workflow guide to stdout
-wtx agents > AGENTS.md        # Save as a file in your project
+wtx skill                     # Print the agent skill to stdout
+npx skills add bkildow/wtx    # Install the wtx skill for your coding agents
 ```
 
-Outputs structured workflow instructions for AI coding assistants to understand how to use `wtx` in non-interactive mode.
+Prints the full agent skill (a `SKILL.md` with frontmatter) that teaches AI coding agents how to use `wtx` non-interactively. The skill installed by `npx skills add bkildow/wtx` ([`skills/wtx/SKILL.md`](skills/wtx/SKILL.md)) is a thin wrapper that runs `wtx skill`, so agents always get instructions that match the installed `wtx` version. It works with any agent that supports skills.
+
+`wtx skill` replaces `wtx agents`, which has been removed.
 
 <a id="wt-claude-init"></a>
 

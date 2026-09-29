@@ -23,6 +23,7 @@ var dryRun bool
 var rootCmd = &cobra.Command{
 	Use:           "wtx",
 	Short:         "A smarter git worktree workflow",
+	Long:          "A smarter git worktree workflow.\n\nAI agents: run 'wtx skill' for usage instructions (skip if a wtx skill is already loaded).",
 	Version:       version,
 	SilenceUsage:  true,
 	SilenceErrors: true,
@@ -45,7 +46,7 @@ func init() {
 
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "Show what would be done without making changes")
 	rootCmd.PersistentFlags().BoolVar(&ui.Verbose, "verbose", false, "Show git commands being executed")
-	rootCmd.AddCommand(newAgentsCmd())
+	rootCmd.AddCommand(newSkillCmd())
 	rootCmd.AddCommand(newCloneCmd())
 	rootCmd.AddCommand(newInitCmd())
 	rootCmd.AddCommand(newAddCmd())
