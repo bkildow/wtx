@@ -1,76 +1,66 @@
 package cmd
 
 import (
-	"io"
+	"bytes"
 	"os"
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wtx/internal/skill"
+	"gopkg.in/yaml.v3"
 )
 
-// frontmatter returns the name and description fields of a SKILL.md.
-func frontmatter(t *testing.T, doc string) (name, description string) {
+type skillFrontmatter struct {
+	Name        string `yaml:"name"`
+	Description string `yaml:"description"`
+}
+
+// parseFrontmatter decodes the YAML frontmatter of a SKILL.md and checks the
+// fields every skill needs.
+func parseFrontmatter(t *testing.T, doc string) skillFrontmatter {
 	t.Helper()
-	if !strings.HasPrefix(doc, "---\n") {
-		t.Fatalf("skill does not start with frontmatter: %q", doc[:min(len(doc), 40)])
-	}
 	block, _, ok := strings.Cut(strings.TrimPrefix(doc, "---\n"), "\n---\n")
-	if !ok {
-		t.Fatal("skill frontmatter is not closed")
+	if !strings.HasPrefix(doc, "---\n") || !ok {
+		t.Fatal("skill does not start with a closed frontmatter block")
 	}
-	for _, line := range strings.Split(block, "\n") {
-		if v, ok := strings.CutPrefix(line, "name: "); ok {
-			name = v
-		}
-		if v, ok := strings.CutPrefix(line, "description: "); ok {
-			description = v
-		}
+	var fm skillFrontmatter
+	if err := yaml.Unmarshal([]byte(block), &fm); err != nil {
+		t.Fatalf("invalid frontmatter: %v", err)
 	}
-	return name, description
+	if fm.Name != "wtx" {
+		t.Errorf("name = %q, want %q", fm.Name, "wtx")
+	}
+	if fm.Description == "" {
+		t.Error("description is empty")
+	}
+	return fm
 }
 
 func TestSkillCmd_printsSkill(t *testing.T) {
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
+	var out bytes.Buffer
+	c := newSkillCmd()
+	c.SetOut(&out)
+	c.SetArgs(nil)
+	if err := c.Execute(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	stdout := os.Stdout
-	os.Stdout = w
-	runErr := newSkillCmd().RunE(nil, nil)
-	os.Stdout = stdout
-	_ = w.Close()
-	out, _ := io.ReadAll(r)
-	if runErr != nil {
-		t.Fatalf("unexpected error: %v", runErr)
-	}
-	if string(out) != skill.Content {
+	if out.String() != skillContent {
 		t.Error("wtx skill output does not match embedded content")
 	}
-
-	name, description := frontmatter(t, string(out))
-	if name != "wtx" {
-		t.Errorf("name = %q, want %q", name, "wtx")
-	}
-	if description == "" {
-		t.Error("description is empty")
-	}
-	if !strings.Contains(string(out), "wtx add <branch>") {
+	parseFrontmatter(t, out.String())
+	if !strings.Contains(out.String(), "wtx add <branch>") {
 		t.Error("skill body is missing command reference")
 	}
 }
 
-func TestSkillWrapper_frontmatter(t *testing.T) {
+// The installable wrapper must advertise the same skill as `wtx skill`.
+func TestSkillWrapper_matchesEmbeddedSkill(t *testing.T) {
 	data, err := os.ReadFile("../skills/wtx/SKILL.md")
 	if err != nil {
 		t.Fatal(err)
 	}
-	name, description := frontmatter(t, string(data))
-	if name != "wtx" {
-		t.Errorf("name = %q, want %q", name, "wtx")
-	}
-	if description == "" {
-		t.Error("description is empty")
+	wrapper := parseFrontmatter(t, string(data))
+	if embedded := parseFrontmatter(t, skillContent); wrapper != embedded {
+		t.Errorf("wrapper frontmatter %+v differs from embedded %+v", wrapper, embedded)
 	}
 	if !strings.Contains(string(data), "wtx skill") {
 		t.Error("wrapper does not tell the agent to run wtx skill")
