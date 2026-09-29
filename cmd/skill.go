@@ -11,7 +11,7 @@ import (
 // installable wrapper in skills/wtx/SKILL.md tells agents to run `wtx skill`,
 // so this text always matches the installed binary.
 //
-//go:embed skill.md
+//go:embed agent_skill.md
 var skillContent string
 
 func newSkillCmd() *cobra.Command {
