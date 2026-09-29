@@ -1,270 +1,106 @@
 ---
 name: wtx
-description: Manage git worktrees with the wtx CLI — create, list, switch to, sync, prune, or remove worktrees, run project scripts, and check project health. Use when working inside a wtx project (a directory tree containing .worktree.yml) or when the user mentions wtx.
+description: wtx git-worktree CLI. Use when the user mentions wtx or worktrees, or when working inside a wtx project (a directory tree containing .worktree.yml).
 ---
 
-# wtx — agent skill
+# wtx
 
-## Overview
+wtx runs one git worktree per branch, with shared files copied or symlinked into each and setup/teardown hooks run around it. Run `wtx <command> --help` for any command's full flags; this skill covers what help does not.
 
-wtx is a CLI for git worktree-based development. It manages isolated worktrees
-under a worktrees/ directory with shared config files, symlinks, and template
-variable substitution. Projects can be created via wtx clone (bare repo) or
-wtx init (existing repo).
+## Explicit arguments
 
-## Important: Non-Interactive Usage
+Every command that takes a name opens an interactive picker when the name is omitted, and an agent cannot answer a picker. Always pass every argument, plus the flag that skips confirmation:
 
-wtx is interactive by default — commands launch pickers when arguments are
-omitted. AI agents MUST always pass explicit arguments to avoid interactive
-prompts.
-
-    # Wrong (launches interactive picker):
-    wtx add
-    wtx remove
-    wtx cd
-
-    # Correct (explicit arguments):
     wtx add feature/auth
-    wtx remove feature/auth --force
     wtx cd feature/auth
-
-## Project Structure
-
-After wtx clone (bare repo):
-
-    project/
-      .bare/              # Bare git repository (no .git at root)
-      .worktree.yml       # Project configuration
-      bin/
-        refresh           # Starter script for 'wtx run refresh' (a commented no-op)
-      shared/
-        copy/             # Files copied into each new worktree
-        symlink/          # Directories symlinked into each new worktree
-      worktrees/
-        main/             # Each branch gets its own directory
-        feature-auth/
-
-After wtx init (existing repo):
-
-    project/
-      .git/               # Existing git directory (project root is the main worktree)
-      .worktree.yml       # Project configuration
-      .worktrees/
-        bin/
-          refresh         # Starter script for 'wtx run refresh' (a commented no-op)
-        shared/
-          copy/           # Files copied into each new worktree
-          symlink/        # Directories symlinked into each new worktree
-        feature-auth/     # Additional worktrees live here
-
-## Command Reference
-
-### Clone a project (bare repo)
-
-    wtx clone <url> [name]
-    wtx clone <url> --dry-run          # Preview without executing
-
-### Initialize in an existing repo
-
-    wtx init                           # Run from the repo root
-    wtx init --dry-run                 # Preview without executing
-
-### Create a worktree
-
-    wtx add <branch>                   # Detects remote or creates new branch
-    wtx add <branch> --base-branch <ref>   # Start a new branch from <ref> instead of main_branch
-    wtx add <branch> --skip-setup      # Skip setup hooks
-    wtx add <branch> --foreground      # Block until setup hooks finish (or --background)
-
-### Re-run setup hooks on an existing worktree
-
-    wtx setup <name> --foreground
-
-### List worktrees
-
-    wtx list
-
-### Remove a worktree
-
-    wtx remove <name> --force          # Use --force to skip confirmation
-    wtx remove <name> --force --skip-teardown   # Also skip teardown hooks
-
-### Get worktree path
-
-    wtx cd <name>                      # Prints path to stdout (does NOT cd)
-    wtx cd .                           # Path of the current worktree
-    wtx root                           # Path of the project root (same as wtx cd ..)
-
-### Navigate to a worktree
-
-    cd "$(wtx cd <name>)"              # Use shell substitution to cd
-
-### Run a project script
-
-    wtx run <name> [args...]           # Runs scripts.<name> from .worktree.yml in the current worktree
-    wtx run --dry-run <name>           # wtx flags must precede the name; later args go to the script
-
-bin/refresh is a generated stub. When asked to set up an environment refresh,
-read it and implement the commented steps for this project's stack. Scripts
-receive WTX_PROJECT_ROOT, WTX_SHARED_PATH, WTX_MAIN_BRANCH, WTX_MAIN_WORKTREE_PATH,
-WTX_WORKTREE_PATH, WTX_BRANCH_NAME, WTX_WORKTREE_ID, and WTX_SCRIPT_NAME.
-Deprecated WT_ aliases are also exported for compatibility.
-
-### Apply shared files
-
-    wtx apply <name>                   # Apply to one worktree
-    wtx apply --all                    # Apply to all worktrees
-
-### Open in editor
-
-    wtx open <name>
-
-### Show status of all worktrees
-
-    wtx status
-
-### Check health and migration readiness
-
-    wtx doctor --json                 # Read-only project report
-    wtx doctor --fix --dry-run        # Preview safe repairs
-    wtx doctor --fix                  # Apply repairs and check resulting state
-    wtx doctor --strict               # Warnings also cause exit code 1
-    wtx doctor --user                 # User configuration only, works outside projects
-
-Doctor repairs only Git compatibility config, managed exclusions, dead setup
-records, and recognized existing Claude hooks. Repairs preserve permissions,
-back up to the Git directory, and refuse inputs changed since inspection.
-Review manual remedies for shared copies/links, registrations, scripts, branches,
-and dotfiles. User dotfile changes are manual; --user --fix is rejected.
-Dead setup records become failed, so review retained logs before running setup.
-Exit 1 means failures, inspection errors, unsuccessful repairs, or strict warnings.
-After repairs, exit status reflects the rechecked state; previews use current state.
-
-The bounded rename scan checks project configuration, configured scripts, bin/,
-shared text, root agent instructions, and tracked worktree files. It skips Git
-internals, dependency/build directories, symlinks, binaries, and files over 1 MiB.
-Treat text matches as review candidates. User scanning honors ZDOTDIR and
-XDG_CONFIG_HOME without sourcing startup files or following arbitrary includes.
-Replace WT_THEME and WT_NO_DISK_WARN input settings before v0.12; replace wt
-commands and WT_* script exports before v1.0. Installing wtx migrates nothing.
-
-### Fetch and pull all worktrees
-
-    wtx sync                           # Pull all clean worktrees
-    wtx sync --rebase                  # Use rebase instead of merge
-
-### Remove worktrees with merged branches
-
-    wtx prune --yes                    # Use --yes to skip confirmation
-    wtx prune --force --yes            # Also remove merged worktrees with uncommitted changes
-
-### Preview any command safely
-
-    wtx --dry-run <command> [args]
-
-### Configuration management
-
-    wtx config init                    # Generate annotated .worktree.yml
-    wtx config init --update           # Preserve existing values
-
-### Claude Code integration
-
-    wtx claude init                    # Route Claude Code's worktree hooks through wtx
-
-### Repair git config after upgrading git or wtx
-
-    wtx repair                         # Idempotent
-
-## Common Workflows
-
-### Starting a new project (clone)
-
-    wtx clone git@github.com:org/repo.git
-    cd repo
-    wtx add feature/my-feature
-    cd "$(wtx cd feature/my-feature)"
-
-### Adding wtx to an existing repo
-
-    cd existing-repo
-    wtx init
-    wtx add feature/my-feature
-    cd "$(wtx cd feature/my-feature)"
-
-### Creating a feature branch
-
-    wtx add feature/my-feature
-    cd "$(wtx cd feature/my-feature)"
-
-### Checking project state
-
-    wtx status
-    wtx list
-
-### Cleaning up after merge
-
-    wtx sync
+    wtx remove feature/auth --force
     wtx prune --yes
+    wtx run refresh
 
-### Applying shared file changes
+`--dry-run` previews any command. It is a global flag: `wtx --dry-run remove feature/auth --force`.
 
-    wtx apply --all
+## Project layout
 
-## Configuration (.worktree.yml)
+The project root is the directory containing `.worktree.yml`. Worktree directories use the branch name verbatim, so `feature/auth` lives at `worktrees/feature/auth/`.
+
+Cloned project (`wtx clone <url>`), a bare repo with no `.git` at the root:
+
+    project/
+      .bare/              # bare git repository
+      .worktree.yml
+      bin/refresh         # starter script for `wtx run refresh`
+      shared/
+        copy/             # copied into each new worktree
+        symlink/          # symlinked into each new worktree
+      worktrees/
+        main/
+        feature/auth/
+
+Initialized project (`wtx init` inside an existing repo), where the root is itself the main worktree:
+
+    project/
+      .git/
+      .worktree.yml
+      .worktrees/
+        bin/refresh
+        shared/copy/
+        shared/symlink/
+        feature/auth/
+
+Run git commands inside a worktree. In a cloned project the root has no `.git`, so git fails there.
+
+## Paths and navigation
+
+`wtx cd <name>` prints a path and changes nothing. Move with `cd "$(wtx cd <name>)"`. `wtx cd .` prints the current worktree and `wtx root` prints the project root.
+
+## Creating a worktree
+
+`wtx add <branch>` checks out the remote branch if one exists and otherwise creates a new branch from `main_branch` (override with `--base-branch <ref>`). It then applies shared files and runs setup hooks.
+
+When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. The worktree is ready when `wtx cd <branch>` resolves and the SETUP column of `wtx status` reads Complete (or `-` when no hooks are configured). Failed means read the setup output before working there. `wtx setup <name> --foreground` re-runs setup.
+
+## Removing worktrees
+
+- `wtx remove <name> --force` runs teardown hooks, then removes the worktree and its branch.
+- `wtx prune --yes` removes every worktree whose branch is merged, including squash, rebase and merged-PR merges. Merged worktrees with uncommitted changes are kept unless you add `--force`.
+- `--skip-teardown` skips teardown hooks on either command.
+
+## Project scripts
+
+`wtx run <name> [args...]` runs `scripts.<name>` from `.worktree.yml` in the current worktree. Every argument after the name goes to the script, so wtx flags go first: `wtx run --dry-run refresh`.
+
+`bin/refresh` is a generated stub. When asked to set up an environment refresh, read it and implement its commented steps for this project's stack. `wtx run --help` lists the `WTX_*` environment variables scripts receive.
+
+## Shared files and templates
+
+Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. After changing them, run `wtx apply --all` (or `wtx apply <name>`) to update existing worktrees.
+
+Files ending in `.template` are copied with the suffix stripped and these variables substituted:
+
+- `${WORKTREE_ID}`: the branch lowercased with `/` replaced by `-` (`feature/Auth` → `feature-auth`)
+- `${WORKTREE_PATH}`: absolute path to the worktree
+- `${BRANCH_NAME}`: the branch name verbatim
+
+## .worktree.yml
 
     version: 1
-    git_dir: .bare                    # .bare for clone, .git for init
+    git_dir: .bare            # .git for initialized projects
     worktree_dir: worktrees
-    main_branch: main                 # auto-detected at clone/init
+    main_branch: main         # protected from deletion; default base for new branches
     editor: cursor
-    setup:
-      - "npm install"
-    parallel_setup:
-      - "bundle install"
-    teardown:
-      - "docker compose down"
-    parallel_teardown:
-      - "make clean"
+    setup: ["npm install"]            # sequential, after creating a worktree
+    parallel_setup: ["bundle install"]    # concurrent, after setup
+    teardown: ["docker compose down"]     # sequential, before removing a worktree
+    parallel_teardown: ["make clean"]     # concurrent, after teardown
     background_setup: false
     scripts:
-      refresh: bin/refresh
+      refresh: bin/refresh    # relative to the project root
 
-Fields:
-- version: Config version (always 1)
-- git_dir: Path to git directory (.bare for cloned, .git for initialized)
-- worktree_dir: Directory for worktrees (default: worktrees)
-- main_branch: Primary branch, branch ref protected from deletion and used as base for new branches (default: main)
-- editor: Preferred editor binary name (default: auto-detect)
-- setup: Commands run sequentially after creating a worktree
-- parallel_setup: Commands run concurrently after setup completes
-- teardown: Commands run sequentially before removing a worktree
-- parallel_teardown: Commands run concurrently after teardown completes
-- background_setup: Run setup hooks in the background by default
-- scripts: Named scripts for wtx run (paths relative to the project root)
+`wtx config init --update` rewrites the file with documentation comments and keeps existing values.
 
-## Template Variables
+## Project health
 
-Files in shared/copy/ ending in .template get variable substitution, with the
-.template suffix stripped from the output filename. All other files are copied
-as-is (no scanning, no substitution).
-
-Example: shared/copy/.env.template → worktrees/feature-auth/.env
-
-Available variables:
-
-- ${WORKTREE_ID} — branch lowercased with / replaced by - (e.g. feature-auth)
-- ${WORKTREE_PATH} — absolute path to the worktree
-- ${BRANCH_NAME} — original branch name (e.g. feature/Auth)
-
-## Key Caveats
-
-1. wtx cd prints a path — it does not change directory. Always use:
-   cd "$(wtx cd <name>)"
-2. For cloned projects, there is no .git at the project root (bare repo at .bare/).
-   For initialized projects, .git exists and the project root is the main worktree.
-3. Use --force with wtx remove and --yes with wtx prune to skip interactive confirmation.
-   wtx prune --force removes merged worktrees even when they have uncommitted changes.
-4. Use --dry-run to safely preview any destructive operation.
-5. The project root is identified by .worktree.yml — look for this file.
-6. Run git commands inside the worktree directory, not the project root.
-7. Worktree directories live at worktrees/<branch-name>/ under the project root.
+- `wtx status` shows every worktree's branch, dirty state, and setup state.
+- `wtx doctor --json` reports project health and wt-to-wtx migration readiness, and changes nothing. `wtx doctor --help` covers repairs.
+- `wtx repair` restores the per-worktree git config after a git or wtx upgrade. It is safe to re-run.
+- `wtx sync` fetches and pulls every clean worktree (`--rebase` to rebase).
