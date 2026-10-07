@@ -33,18 +33,18 @@ func TestApplyInclude(t *testing.T) {
 	writeTestFile(t, filepath.Join(src, ".env"), "SECRET=1")
 	writeTestFile(t, filepath.Join(src, "secrets", "key.txt"), "key")
 	writeTestFile(t, filepath.Join(src, "unlisted"), "nope")
-	writeTestFile(t, filepath.Join(wt, ".env"), "stale")
+	writeTestFile(t, filepath.Join(wt, ".env"), "edited-in-worktree")
 
 	include := &IncludeSource{Dir: src, Files: []string{".env", "secrets/key.txt", "gone.txt"}}
 	n, err := ApplyInclude(include, wt, false)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n != 2 {
-		t.Errorf("count = %d, want 2 (missing source files are skipped)", n)
+	if n != 1 {
+		t.Errorf("count = %d, want 1 (existing and missing files are skipped)", n)
 	}
-	if got := readTestFile(t, filepath.Join(wt, ".env")); got != "SECRET=1" {
-		t.Errorf(".env = %q, want overwritten with source", got)
+	if got := readTestFile(t, filepath.Join(wt, ".env")); got != "edited-in-worktree" {
+		t.Errorf(".env = %q, want existing worktree file left alone", got)
 	}
 	if got := readTestFile(t, filepath.Join(wt, "secrets", "key.txt")); got != "key" {
 		t.Errorf("secrets/key.txt = %q", got)
@@ -68,6 +68,16 @@ func TestApplyIncludeDryRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(wt, ".env")); !os.IsNotExist(err) {
 		t.Error("dry-run should not copy files")
+	}
+
+	// An existing destination file is not reported as a would-copy.
+	writeTestFile(t, filepath.Join(wt, ".env"), "edited")
+	n, err = ApplyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("count with existing dest = %d, want 0", n)
 	}
 }
 
