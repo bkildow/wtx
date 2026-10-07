@@ -87,7 +87,7 @@ func (s *inspection) planConfig(index int, file snapshot, key, value string, gua
 }
 
 func (s *inspection) plan(index int, r repair) {
-	if !within(s.root, resolved(r.file.path)) || !within(s.root, r.file.parent) {
+	if !s.managed(resolved(r.file.path)) || !s.managed(r.file.parent) {
 		s.report.Findings[index].Remedy += " Repair manually: target is outside the project."
 		return
 	}

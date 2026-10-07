@@ -1,0 +1,213 @@
+package doctor
+
+import (
+	"errors"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+
+	"golang.org/x/sys/unix"
+
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
+)
+
+// legacyWorktreeDir is the in-repo worktree directory written by wtx init
+// --in-repo (and by wtx init before ~/.wtx became the default).
+const legacyWorktreeDir = ".worktrees"
+
+// migrateHint names the opt-in migration for in-repo projects.
+const migrateHint = "wtx doctor --migrate-home (preview with --dry-run)"
+
+// homePaths checks that worktree_dir and shared_dir expand and that the
+// worktree directory exists (or can be created) and is writable. It also
+// records directories outside the root that hold managed files, so external
+// worktrees are not treated as foreign.
+func (s *inspection) homePaths() {
+	cfgPath := filepath.Join(s.root, config.ConfigFileName)
+	if err := project.ValidatePaths(s.root, s.cfg); err != nil {
+		s.add("home.paths", Fail, cfgPath, "Configured directory cannot be expanded: "+err.Error()+".", "Set HOME (or WTX_HOME for ~/.wtx paths), or edit worktree_dir and shared_dir in "+config.ConfigFileName+".")
+		return
+	}
+	wt := project.WorktreesPath(s.root, s.cfg)
+	for _, dir := range []string{wt, project.SharedPath(s.root, s.cfg), project.BinPath(s.root, s.cfg)} {
+		s.addManaged(dir)
+	}
+	info, err := os.Stat(wt)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		parent := existingAncestor(wt)
+		if unix.Access(parent, unix.W_OK) != nil {
+			s.add("home.paths", Fail, wt, "Worktree directory does not exist and "+parent+" is not writable.", "Create the directory or fix permissions, or change worktree_dir in "+config.ConfigFileName+".")
+			return
+		}
+		s.add("home.paths", OK, wt, "Worktree directory does not exist yet; wtx add creates it.", "")
+	case err != nil:
+		s.problem("home.paths", wt, err)
+	case !info.IsDir():
+		s.add("home.paths", Fail, wt, "Worktree directory path is not a directory.", "Move the file aside or change worktree_dir in "+config.ConfigFileName+".")
+	case unix.Access(wt, unix.W_OK) != nil:
+		s.add("home.paths", Fail, wt, "Worktree directory is not writable.", "Fix the directory permissions so wtx add can create worktrees.")
+	default:
+		s.add("home.paths", OK, wt, "Worktree directory exists and is writable.", "")
+	}
+}
+
+// addManaged records dir as managed when it lies outside the root. A
+// directory containing the root (e.g. worktree_dir: ~) is never recorded, so
+// it cannot widen the project to the whole home directory.
+func (s *inspection) addManaged(dir string) {
+	dir = ui.CanonicalPath(dir)
+	if within(s.root, dir) || within(dir, s.root) {
+		return
+	}
+	s.managedDirs = append(s.managedDirs, dir)
+}
+
+func existingAncestor(path string) string {
+	for {
+		if _, err := os.Stat(path); err == nil {
+			return path
+		}
+		parent := filepath.Dir(path)
+		if parent == path {
+			return path
+		}
+		path = parent
+	}
+}
+
+// homeProjectDirs returns the distinct ~/.wtx/<name> directories that the
+// configured worktree and shared directories live in.
+func (s *inspection) homeProjectDirs() []string {
+	home, err := project.WtxHome()
+	if err != nil {
+		return nil
+	}
+	home = ui.CanonicalPath(home)
+	var dirs []string
+	for _, dir := range []string{project.WorktreesPath(s.root, s.cfg), project.SharedPath(s.root, s.cfg)} {
+		dir = ui.CanonicalPath(dir)
+		if dir == home || !within(home, dir) {
+			continue
+		}
+		rel, err := filepath.Rel(home, dir)
+		if err != nil {
+			continue
+		}
+		d := filepath.Join(home, strings.SplitN(rel, string(filepath.Separator), 2)[0])
+		if !slices.Contains(dirs, d) {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
+}
+
+// homeMarker checks that each ~/.wtx/<name> directory this project uses
+// records this project as its owner.
+func (s *inspection) homeMarker() {
+	for _, dir := range s.homeProjectDirs() {
+		s.addManaged(dir)
+		path := filepath.Join(dir, project.MarkerFileName)
+		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			s.add("home.marker", OK, path, "Project directory does not exist yet; wtx creates it with the first worktree.", "")
+			continue
+		}
+		content, err := project.MarkerContent(s.root)
+		if err != nil {
+			s.problem("home.marker", path, err)
+			continue
+		}
+		m, err := project.ReadMarker(dir)
+		switch {
+		case errors.Is(err, os.ErrNotExist):
+			i := s.add("home.marker", Warn, path, "Ownership marker is missing; wtx uses it to detect name collisions and orphaned directories.", "Run wtx doctor --fix to record this project as the owner.")
+			s.planMarker(i, path, content)
+		case err != nil:
+			i := s.add("home.marker", Warn, path, "Ownership marker is unreadable: "+err.Error()+".", "Run wtx doctor --fix to rewrite it (the old file is backed up).")
+			s.planMarker(i, path, content)
+		case project.SamePath(m.Root, s.root):
+			s.add("home.marker", OK, path, "Ownership marker names this project.", "")
+		case config.Exists(m.Root):
+			s.add("home.marker", Warn, path, "Directory belongs to another wtx project: "+m.Root+".", "Point worktree_dir and shared_dir at a different ~/.wtx/<name> directory and move this project's files there; doctor never changes another project's directory.")
+		default:
+			i := s.add("home.marker", Warn, path, "Ownership marker names "+m.Root+", which is no longer a wtx project (moved repository?).", "Run wtx doctor --fix to record this project as the owner.")
+			s.planMarker(i, path, content)
+		}
+	}
+}
+
+func (s *inspection) planMarker(index int, path string, content []byte) {
+	file, err := takeSnapshot(path)
+	if err != nil {
+		s.problem("home.marker", path, err)
+		return
+	}
+	s.planContent(index, file, content, nil)
+}
+
+// homeOrphans reports ~/.wtx/<name> directories whose recorded owner no
+// longer exists or is no longer a wtx project. They are never deleted.
+func (s *inspection) homeOrphans() {
+	home, err := project.WtxHome()
+	if err != nil {
+		return
+	}
+	entries, err := os.ReadDir(home)
+	if errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	if err != nil {
+		s.problem("home.orphans", home, err)
+		return
+	}
+	found := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		dir := filepath.Join(home, entry.Name())
+		m, err := project.ReadMarker(dir)
+		if err != nil || project.SamePath(m.Root, s.root) || config.Exists(m.Root) {
+			continue // not a wtx directory, ours, or owned by a live project
+		}
+		found = true
+		i := s.add("home.orphans", Warn, dir, "Owning repository "+m.Root+" no longer exists or is no longer a wtx project.", "Review its worktrees and shared files, then delete the directory manually if unneeded; doctor never deletes it.")
+		s.report.Findings[i].Subject = m.Root
+	}
+	if !found {
+		s.add("home.orphans", OK, home, "No orphaned project directories.", "")
+	}
+}
+
+// homeLayout hints at the migration for in-repo projects and warns about
+// worktrees left in the legacy in-repo directory after worktree_dir moved.
+func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
+	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
+	initLayout := s.cfg.GitDir == ".git"
+	if initLayout && wtDir != s.root && within(s.root, wtDir) {
+		s.add("home.layout", OK, wtDir, "Worktrees live inside the repository (in-repo layout).", "Optional: "+migrateHint+" moves worktrees, shared files and scripts to ~/.wtx/<name>/.")
+		return
+	}
+	legacy := filepath.Join(s.root, legacyWorktreeDir)
+	leftovers := 0
+	for _, wt := range worktrees {
+		path := ui.CanonicalPath(wt.Path)
+		if wt.Bare || path == s.root || !within(legacy, path) {
+			continue
+		}
+		leftovers++
+		remedy := "Move it with git worktree move into the configured worktree directory."
+		if initLayout {
+			remedy = "Run " + migrateHint + " to move it."
+		}
+		i := s.add("home.layout", Warn, wt.Path, "Worktree is still in the in-repo "+legacyWorktreeDir+" directory, but worktree_dir points elsewhere.", remedy)
+		s.report.Findings[i].Subject = wt.Branch
+	}
+	if leftovers == 0 {
+		s.add("home.layout", OK, wtDir, "Worktrees live in the configured directory.", "")
+	}
+}

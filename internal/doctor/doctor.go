@@ -99,6 +99,9 @@ type inspection struct {
 	resolvedDirs map[string]string
 	seenBlobs    map[string]bool // tracked blob+path pairs already scanned
 	scanSkipped  int
+	// managedDirs are wtx-managed directories outside root (an expanded
+	// worktree_dir and the shared/bin parent, e.g. ~/.wtx/<name>), resolved.
+	managedDirs []string
 }
 
 // Run always returns a report, including discovery and operational failures.
@@ -194,9 +197,9 @@ func (s *inspection) problem(id, path string, err error) {
 
 // Checks skipped when a prerequisite stage fails, from innermost outward.
 var (
-	worktreeChecks = []string{"git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state"}
+	worktreeChecks = []string{"home.layout", "git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state"}
 	gitChecks      = append([]string{"git.worktrees", "git.exclude"}, worktreeChecks...)
-	configChecks   = append([]string{"scripts", "teardown", "disk", "migration.references", "claude.hooks"}, gitChecks...)
+	configChecks   = append([]string{"home.paths", "home.marker", "home.orphans", "scripts", "teardown", "disk", "migration.references", "claude.hooks"}, gitChecks...)
 )
 
 func (s *inspection) blocked(ids ...string) {
@@ -253,6 +256,9 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s.backups = filepath.Join(gitDir, backupDirName)
 	defer s.scanLimitations(s.root)
 	s.add("project.config", "ok", where, "Project configuration is readable.", "")
+	s.homePaths()
+	s.homeMarker()
+	s.homeOrphans()
 	s.scripts()
 	s.disk()
 	s.teardown(s.root)
@@ -274,6 +280,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.blocked(worktreeChecks...)
 		return s
 	}
+	s.homeLayout(worktrees)
 	s.compatibility(ctx, worktrees)
 	s.branches(ctx, worktrees)
 	facts := s.prefetch(ctx, worktrees)
@@ -333,6 +340,20 @@ func resolved(path string) string {
 		return p
 	}
 	return filepath.Clean(path)
+}
+
+// managed reports whether path lies in the project root or in a wtx-managed
+// directory outside it, such as an expanded ~/.wtx worktree_dir.
+func (s *inspection) managed(path string) bool {
+	if within(s.root, path) {
+		return true
+	}
+	for _, dir := range s.managedDirs {
+		if within(dir, path) {
+			return true
+		}
+	}
+	return false
 }
 
 func within(root, path string) bool {
