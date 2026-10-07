@@ -18,11 +18,13 @@ func TestStarterScripts(t *testing.T) {
 		want      string
 	}{
 		{"clone layout", "shared", "bin/refresh"},
-		{"init layout", ".worktrees/shared", ".worktrees/bin/refresh"},
+		{"in-repo layout", ".worktrees/shared", ".worktrees/bin/refresh"},
+		{"wtx home layout", "~/.wtx/myrepo/shared", "~/.wtx/myrepo/bin/refresh"},
+		{"absolute", "/srv/wtx/shared", "/srv/wtx/bin/refresh"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := StarterScripts("/p", &config.Config{SharedDir: tt.sharedDir})
+			got := StarterScripts(&config.Config{SharedDir: tt.sharedDir})
 			if got["refresh"] != tt.want {
 				t.Errorf("scripts = %v, want refresh=%q", got, tt.want)
 			}

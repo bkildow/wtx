@@ -94,7 +94,7 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	wtBinary, _ := cmd.Flags().GetString("binary")
 
 	// Write hooks to shared/symlink so all worktrees get a symlink via wtx apply.
-	sharedTarget := filepath.Join(projectRoot, cfg.SharedDir, "symlink")
+	sharedTarget := filepath.Join(project.SharedPath(projectRoot, cfg), "symlink")
 
 	if claude.IsHooksConfigured(sharedTarget) {
 		ui.Info("Claude Code hooks are already configured, updating...")
@@ -225,8 +225,7 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	worktreePath := hctx.payload.WorktreePath
 
 	// Derive branch name from the worktree path (everything after the worktrees dir).
-	worktreesDir := project.WorktreesPath(projectRoot, cfg)
-	branch, err := filepath.Rel(worktreesDir, worktreePath)
+	branch, err := branchFromWorktreePath(project.WorktreesPath(projectRoot, cfg), worktreePath)
 	if err != nil {
 		return fmt.Errorf("cannot determine branch from worktree path: %w", err)
 	}

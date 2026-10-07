@@ -44,6 +44,9 @@ func loadProject() (string, *config.Config, error) {
 	if err != nil {
 		return "", nil, err
 	}
+	if err := project.ValidatePaths(root, cfg); err != nil {
+		return "", nil, err
+	}
 
 	return root, cfg, nil
 }
@@ -86,6 +89,18 @@ func resolvePathBest(p string) string {
 		return resolved
 	}
 	return filepath.Clean(p)
+}
+
+// branchFromWorktreePath derives a branch name from a worktree's location
+// under worktreesDir. Both sides are canonicalized so an expanded "~" or
+// WTX_HOME path matches however the caller spelled the worktree path
+// (e.g. macOS /var vs /private/var).
+func branchFromWorktreePath(worktreesDir, worktreePath string) (string, error) {
+	rel, err := filepath.Rel(ui.CanonicalPath(worktreesDir), ui.CanonicalPath(worktreePath))
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 // resolveCurrentWorktree finds the managed worktree that contains the current

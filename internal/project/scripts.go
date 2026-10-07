@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -29,8 +28,9 @@ func ScriptNames(cfg *config.Config) []string {
 }
 
 // ResolveScript looks up a named script in cfg and returns its absolute path.
-// Relative paths are resolved against projectRoot. The file must exist and
-// be executable.
+// The path is expanded with ExpandPath ("~" and "~/.wtx" forms, absolute
+// as-is, relative against projectRoot). The file must exist and be
+// executable.
 func ResolveScript(cfg *config.Config, projectRoot, name string) (string, error) {
 	if len(cfg.Scripts) == 0 {
 		return "", ErrNoScripts
@@ -44,11 +44,10 @@ func ResolveScript(cfg *config.Config, projectRoot, name string) (string, error)
 		return "", fmt.Errorf("script %q has an empty path in .worktree.yml", name)
 	}
 
-	path := rel
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(projectRoot, path)
+	path, err := ExpandPath(projectRoot, rel)
+	if err != nil {
+		return "", fmt.Errorf("script %q: %w", name, err)
 	}
-	path = filepath.Clean(path)
 
 	info, err := os.Stat(path)
 	if err != nil {

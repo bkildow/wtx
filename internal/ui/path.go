@@ -15,14 +15,14 @@ func DisplayPath(root, path string) string {
 	if path == "" {
 		return ""
 	}
-	p := canonicalPath(path)
+	p := CanonicalPath(path)
 	if root != "" {
-		if rel, ok := relWithin(canonicalPath(root), p); ok {
+		if rel, ok := relWithin(CanonicalPath(root), p); ok {
 			return rel
 		}
 	}
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		if rel, ok := relWithin(canonicalPath(home), p); ok {
+		if rel, ok := relWithin(CanonicalPath(home), p); ok {
 			if rel == "." {
 				return "~"
 			}
@@ -41,10 +41,10 @@ func relWithin(base, path string) (string, bool) {
 	return rel, true
 }
 
-// canonicalPath resolves symlinks in the longest existing prefix of p and
-// re-appends the rest, so a missing worktree under a symlinked root still
-// compares equal to the resolved root.
-func canonicalPath(p string) string {
+// CanonicalPath returns p as an absolute path with symlinks resolved in its
+// longest existing prefix (the rest is re-appended), so a missing worktree
+// under a symlinked root still compares equal to the resolved root.
+func CanonicalPath(p string) string {
 	if abs, err := filepath.Abs(p); err == nil {
 		p = abs
 	}

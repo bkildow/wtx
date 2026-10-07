@@ -40,7 +40,7 @@ type Config struct {
 	Editor           string   `yaml:"editor,omitempty"`
 
 	// Scripts maps a name to an executable path (relative to the project
-	// root, or absolute) run via `wtx run <name>`.
+	// root, absolute, or ~/...) run via `wtx run <name>`.
 	Scripts map[string]string `yaml:"scripts,omitempty"`
 
 	// DiskWarn gates the low-disk-space warning. It is a pointer because the
@@ -149,14 +149,16 @@ func renderAnnotatedConfig(cfg *Config) string {
 		fmt.Fprintf(&b, "git_dir: %s\n", DefaultGitDir)
 	}
 
-	b.WriteString("\n# Directory name for worktrees (relative to project root)\n")
+	b.WriteString("\n# Directory for worktrees: relative to the project root, absolute, or ~/...\n")
+	b.WriteString("# (~/.wtx/... honors $WTX_HOME)\n")
 	if cfg != nil {
 		fmt.Fprintf(&b, "worktree_dir: %s\n", cfg.WorktreeDir)
 	} else {
 		fmt.Fprintf(&b, "worktree_dir: %s\n", DefaultWorktreeDir)
 	}
 
-	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories)\n")
+	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories); same path\n")
+	b.WriteString("# rules as worktree_dir. Scripts live in a bin/ directory next to it.\n")
 	if cfg != nil {
 		fmt.Fprintf(&b, "shared_dir: %s\n", cfg.SharedDir)
 	} else {
@@ -258,7 +260,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	}
 
 	b.WriteString("\n# Named scripts run via 'wtx run <name>' from any worktree\n")
-	b.WriteString("# Paths are executables resolved relative to the project root\n")
+	b.WriteString("# Paths are executables: relative to the project root, absolute, or ~/...\n")
 	if cfg != nil && len(cfg.Scripts) > 0 {
 		b.WriteString("scripts:\n")
 		names := make([]string, 0, len(cfg.Scripts))
