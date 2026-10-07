@@ -29,27 +29,6 @@ func TestParseNULList(t *testing.T) {
 	}
 }
 
-func TestIntersectPaths(t *testing.T) {
-	tests := []struct {
-		name string
-		a, b []string
-		want []string
-	}{
-		{"disjoint", []string{"a"}, []string{"b"}, nil},
-		{"overlap sorted", []string{"z", ".env", "build/x"}, []string{".env", "z"}, []string{".env", "z"}},
-		{"duplicates collapsed", []string{"a", "a"}, []string{"a"}, []string{"a"}},
-		{"nested repo dirs dropped", []string{".worktrees/feat/", ".env"}, []string{".worktrees/feat/", ".env"}, []string{".env"}},
-		{"empty b", []string{"a"}, nil, nil},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := intersectPaths(tt.a, tt.b); !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("intersectPaths(%v, %v) = %v, want %v", tt.a, tt.b, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestListWorktreeIncludesMissingFile(t *testing.T) {
 	got, err := ListWorktreeIncludes(context.Background(), t.TempDir())
 	if err != nil {

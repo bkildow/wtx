@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // ErrNotGitRepo is returned by CommonDir when dir is not inside a git
@@ -23,11 +27,14 @@ var ErrNotGitRepo = errors.New("not inside a git repository")
 // the repository before the git dir is known. Any failure to resolve is
 // reported as ErrNotGitRepo.
 func CommonDir(ctx context.Context, dir string) (string, error) {
+	out, err := revParse(ctx, dir, "--path-format=absolute", "--git-common-dir")
+	if err != nil {
+		return "", ErrNotGitRepo
+	}
 	// --path-format needs git >= 2.31. Older versions echo the unknown flag
 	// back as output instead of failing, so accept only a single absolute
 	// path and otherwise retry without it.
-	out, err := revParse(ctx, dir, "--path-format=absolute", "--git-common-dir")
-	if err != nil || strings.Contains(out, "\n") || !filepath.IsAbs(out) {
+	if strings.Contains(out, "\n") || !filepath.IsAbs(out) {
 		out, err = revParse(ctx, dir, "--git-common-dir")
 		if err != nil || out == "" || strings.Contains(out, "\n") {
 			return "", ErrNotGitRepo
@@ -40,14 +47,30 @@ func CommonDir(ctx context.Context, dir string) (string, error) {
 }
 
 func revParse(ctx context.Context, dir string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir, "rev-parse"}, args...)...)
-	cmd.Env = discoveryEnv()
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return "", err
+	// Not logged: FindRoot runs this for every command.
+	out, err := gitAt(ctx, dir, nil, false, append([]string{"rev-parse"}, args...)...)
+	return strings.TrimSpace(out), err
+}
+
+// gitAt runs git -C dir with discoveryEnv, so dir alone selects the
+// repository, and returns its raw stdout. When logged is true the command is
+// printed like Runner commands.
+func gitAt(ctx context.Context, dir string, stdin io.Reader, logged bool, args ...string) (string, error) {
+	fullArgs := append([]string{"-C", dir}, args...)
+	cmdStr := "git " + strings.Join(fullArgs, " ")
+	if logged {
+		ui.Command(cmdStr)
 	}
-	return strings.TrimSpace(stdout.String()), nil
+	cmd := exec.CommandContext(ctx, "git", fullArgs...)
+	cmd.Env = discoveryEnv()
+	cmd.Stdin = stdin
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
+	}
+	return stdout.String(), nil
 }
 
 // discoveryEnv strips variables that would override repository discovery

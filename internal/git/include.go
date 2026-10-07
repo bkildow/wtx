@@ -4,15 +4,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"sort"
 	"strings"
-
-	"github.com/bkildow/wtx/internal/ui"
 )
 
 // WorktreeIncludeFile is the gitignore-syntax file at the root of the main
@@ -63,30 +59,19 @@ func ListWorktreeIncludes(ctx context.Context, mainWorktree string) ([]string, e
 	if err != nil {
 		return nil, err
 	}
-
-	return intersectPaths(parseNULList(ignored), candidates), nil
+	// check-ignore echoes a subset of its (sorted) input in order, without
+	// the "/" entries for nested repositories that were left out above.
+	return parseNULList(ignored), nil
 }
 
 func gitInWorktree(ctx context.Context, dir string, stdin io.Reader, args ...string) (string, error) {
-	fullArgs := append([]string{"-C", dir}, args...)
-	cmdStr := "git " + strings.Join(fullArgs, " ")
-
-	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", fullArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	cmd.Stdin = stdin
-
-	if err := cmd.Run(); err != nil {
-		// check-ignore exits 1 when no path is ignored.
-		var exitErr *exec.ExitError
-		if args[0] == "check-ignore" && errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
-			return "", nil
-		}
-		return "", fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
+	out, err := gitAt(ctx, dir, stdin, true, args...)
+	// check-ignore exits 1 when no path is ignored.
+	var exitErr *exec.ExitError
+	if err != nil && args[0] == "check-ignore" && errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+		return "", nil
 	}
-	return stdout.String(), nil
+	return out, err
 }
 
 // parseNULList splits NUL-delimited git output (ls-files -z) into paths,
@@ -99,25 +84,4 @@ func parseNULList(output string) []string {
 		}
 	}
 	return paths
-}
-
-// intersectPaths returns the sorted paths present in both lists. Entries
-// ending in "/" are directories git refused to descend into (nested
-// repositories such as worktrees under the project root) and are dropped.
-func intersectPaths(a, b []string) []string {
-	inB := make(map[string]bool, len(b))
-	for _, p := range b {
-		inB[p] = true
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for _, p := range a {
-		if strings.HasSuffix(p, "/") || !inB[p] || seen[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(out, p)
-	}
-	sort.Strings(out)
-	return out
 }

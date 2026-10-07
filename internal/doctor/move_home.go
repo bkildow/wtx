@@ -252,8 +252,7 @@ func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) {
 				if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 					return err
 				}
-				_, err := runner.Run(ctx, "worktree", "move", src, dest)
-				return err
+				return runner.WorktreeMove(ctx, src, dest)
 			},
 			func() error { return movedCheck(src, filepath.Join(dest, ".git")) })
 	}
@@ -296,13 +295,7 @@ func (m *migration) planRepair() {
 		if len(present) == 0 {
 			return nil
 		}
-		args := []string{"worktree", "repair"}
-		// Keep relative links, as wtx add creates them, where Git supports it.
-		if v, err := runner.Version(ctx); err == nil && (v[0] > 2 || (v[0] == 2 && v[1] >= 48)) {
-			args = append(args, "--relative-paths")
-		}
-		_, err := runner.Run(ctx, append(args, present...)...)
-		return err
+		return runner.WorktreeRepair(ctx, present...)
 	}, nil)
 }
 
@@ -610,15 +603,8 @@ func removeEmptyDirs(dir string) error {
 // modules directory in the worktree's administrative directory, or a
 // populated gitlink recorded in .gitmodules.
 func hasSubmodules(worktree string) bool {
-	if data, err := os.ReadFile(filepath.Join(worktree, ".git")); err == nil {
-		if admin, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: "); ok {
-			if !filepath.IsAbs(admin) {
-				admin = filepath.Join(worktree, admin)
-			}
-			if isDir(filepath.Join(admin, "modules")) {
-				return true
-			}
-		}
+	if admin, err := git.WorktreeAdminDir(worktree); err == nil && isDir(filepath.Join(admin, "modules")) {
+		return true
 	}
 	data, err := os.ReadFile(filepath.Join(worktree, ".gitmodules"))
 	if err != nil {
