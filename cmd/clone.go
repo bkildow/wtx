@@ -146,6 +146,6 @@ func promptInitialWorktree(ctx context.Context, runner *git.Runner, projectRoot 
 		return err
 	}
 
-	ui.Success(fmt.Sprintf("Worktree created: %s/%s", cfg.WorktreeDir, branch))
+	ui.Success("Worktree created: " + ui.DisplayPath(projectRoot, wtPath))
 	return nil
 }

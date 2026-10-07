@@ -41,8 +41,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	ui.Heading("Worktree Status")
 
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT", "STATUS", "SETUP", "LAST COMMIT")
+	paths := ui.NewPathDisplay(projectRoot)
 	for _, wt := range filtered {
-		relPath := ui.DisplayPath(projectRoot, wt.Path)
+		relPath := paths.Path(wt.Path)
 
 		shortHead := wt.Head
 		if len(shortHead) > 7 {

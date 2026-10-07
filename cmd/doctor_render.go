@@ -115,12 +115,12 @@ func groupDoctorFindings(findings []doctor.Finding) []doctorGroup {
 
 type doctorRenderer struct {
 	w       io.Writer
-	root    string
+	paths   ui.PathDisplay // relative to the project root
 	verbose bool
 }
 
 func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
-	d := doctorRenderer{w: w, root: r.Root, verbose: verbose}
+	d := doctorRenderer{w: w, paths: ui.NewPathDisplay(r.Root), verbose: verbose}
 	groups := groupDoctorFindings(r.Findings)
 
 	var problems, passed []doctorGroup
@@ -300,7 +300,7 @@ func (d doctorRenderer) items(g doctorGroup, explain bool) []string {
 
 	var items []string
 	for _, e := range entries {
-		item := d.display(e.path)
+		item := d.paths.Path(e.path)
 		switch {
 		case len(e.lines) == 1:
 			item += fmt.Sprintf(":%d", e.lines[0])
@@ -327,7 +327,7 @@ func (d doctorRenderer) repairs(repairs []doctor.RepairOutcome) {
 	d.line(ui.StyleHeading.Render("Repairs"))
 	for _, r := range repairs {
 		_, check := lookupDoctorCheck(r.ID)
-		where := ui.StyleMuted.Render(" " + d.display(r.Path))
+		where := ui.StyleMuted.Render(" " + d.paths.Path(r.Path))
 		switch r.Status {
 		case doctor.Planned:
 			d.line(ui.StyleInfo.Render("  • would repair "+check.title) + where)
@@ -340,7 +340,7 @@ func (d doctorRenderer) repairs(repairs []doctor.RepairOutcome) {
 			d.line(ui.StyleMuted.Render("      " + r.Action))
 		}
 		if r.Backup != "" {
-			d.line(ui.StyleMuted.Render("      backup: " + d.display(r.Backup)))
+			d.line(ui.StyleMuted.Render("      backup: " + d.paths.Path(r.Backup)))
 		}
 		if r.Error != "" {
 			d.line(ui.StyleError.Render("      " + r.Error))
@@ -369,11 +369,6 @@ func (d doctorRenderer) nextSteps(r doctor.Report, problems []doctorGroup) {
 	for _, s := range steps {
 		d.line(ui.StyleInfo.Render(s))
 	}
-}
-
-// display shortens a path relative to the project root or home directory.
-func (d doctorRenderer) display(path string) string {
-	return ui.DisplayPath(d.root, path)
 }
 
 func distinct(findings []doctor.Finding, key func(doctor.Finding) string) []string {

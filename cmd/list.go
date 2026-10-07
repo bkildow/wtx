@@ -38,8 +38,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	ui.Heading("Worktrees")
 
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT")
+	paths := ui.NewPathDisplay(projectRoot)
 	for _, wt := range filtered {
-		relPath := ui.DisplayPath(projectRoot, wt.Path)
+		relPath := paths.Path(wt.Path)
 		shortHead := wt.Head
 		if len(shortHead) > 7 {
 			shortHead = shortHead[:7]

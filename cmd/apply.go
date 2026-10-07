@@ -46,7 +46,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	all, _ := cmd.Flags().GetBool("all")
 
 	if all {
-		include := resolveIncludeSource(ctx, projectRoot, cfg)
+		include := resolveIncludeSource(ctx, projectRoot, cfg, worktrees)
 		var totalResult project.ApplyResult
 		for _, wt := range filtered {
 			ui.Step("Applying to: " + wt.Branch)
@@ -73,7 +73,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, selected.Path, selected.Branch)
-	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, resolveIncludeSource(ctx, projectRoot, cfg))
+	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, resolveIncludeSource(ctx, projectRoot, cfg, worktrees))
 	if err != nil {
 		return err
 	}

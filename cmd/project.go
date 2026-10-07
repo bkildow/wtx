@@ -39,15 +39,25 @@ func loadProject() (string, *config.Config, error) {
 		return "", nil, err
 	}
 
-	cfg, err := config.Load(root)
+	cfg, err := loadProjectAt(root)
 	if err != nil {
 		return "", nil, err
 	}
-	if err := project.ValidatePaths(root, cfg); err != nil {
-		return "", nil, err
-	}
-
 	return root, cfg, nil
+}
+
+// loadProjectAt loads the config of the project at root and checks that its
+// paths expand. Every command entry point that loads a config goes through
+// it.
+func loadProjectAt(root string) (*config.Config, error) {
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, err
+	}
+	if err := project.ValidatePaths(root, cfg); err != nil {
+		return nil, err
+	}
+	return cfg, nil
 }
 
 // filterManagedWorktrees returns the worktrees wtx manages: every linked
@@ -82,12 +92,20 @@ func detectDefaultBranch(ctx context.Context, runner git.Git) string {
 	return branch
 }
 
-// branchFromWorktreePath derives a branch name from a worktree's location
-// under worktreesDir. Both sides are canonicalized so an expanded "~" or
-// WTX_HOME path matches however the caller spelled the worktree path
-// (e.g. macOS /var vs /private/var).
-func branchFromWorktreePath(worktreesDir, worktreePath string) (string, error) {
-	rel, err := filepath.Rel(ui.CanonicalPath(worktreesDir), ui.CanonicalPath(worktreePath))
+// branchFromWorktreePath returns the branch checked out at worktreePath
+// according to git (worktrees, from WorktreeList). When git has no entry with
+// a branch for that path, it derives the name from the worktree's location
+// under worktreesDir. Paths are canonicalized so an expanded "~" or WTX_HOME
+// path matches however the caller spelled it (e.g. macOS /var vs
+// /private/var).
+func branchFromWorktreePath(worktrees []git.WorktreeInfo, worktreesDir, worktreePath string) (string, error) {
+	path := ui.CanonicalPath(worktreePath)
+	for _, wt := range worktrees {
+		if !wt.Bare && wt.Branch != "" && ui.CanonicalPath(wt.Path) == path {
+			return wt.Branch, nil
+		}
+	}
+	rel, err := filepath.Rel(ui.CanonicalPath(worktreesDir), path)
 	if err != nil {
 		return "", err
 	}

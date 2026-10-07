@@ -210,8 +210,9 @@ func runPrune(cmd *cobra.Command, args []string) error {
 
 	ui.Step("Merged worktrees:")
 	t := ui.NewTable().Headers("BRANCH", "PATH", "MERGED", "STATUS")
+	paths := ui.NewPathDisplay(projectRoot)
 	for _, p := range pruneable {
-		relPath := ui.DisplayPath(projectRoot, p.worktree.Path)
+		relPath := paths.Path(p.worktree.Path)
 		t.Row(p.worktree.Branch, relPath, p.reason, p.status())
 	}
 	ui.PrintTable(t)

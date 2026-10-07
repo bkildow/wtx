@@ -19,17 +19,25 @@ func TestBranchFromWorktreePath(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	fromGit := []git.WorktreeInfo{
+		{Path: filepath.Join(link, "worktrees", "feat", "x"), Branch: "feature/x"},
+		{Path: filepath.Join(worktrees, "main"), Branch: ""}, // detached
+	}
+
 	tests := []struct {
 		name, dir, path, want string
+		worktrees             []git.WorktreeInfo
 	}{
-		{"same spelling", worktrees, filepath.Join(worktrees, "main"), "main"},
-		{"symlinked dir", filepath.Join(link, "worktrees"), filepath.Join(worktrees, "feat", "x"), "feat/x"},
-		{"symlinked path", worktrees, filepath.Join(link, "worktrees", "feat", "x"), "feat/x"},
-		{"missing worktree", filepath.Join(link, "worktrees"), filepath.Join(worktrees, "gone"), "gone"},
+		{"same spelling", worktrees, filepath.Join(worktrees, "main"), "main", nil},
+		{"git branch wins", worktrees, filepath.Join(worktrees, "feat", "x"), "feature/x", fromGit},
+		{"detached falls back to path", worktrees, filepath.Join(worktrees, "main"), "main", fromGit},
+		{"symlinked dir", filepath.Join(link, "worktrees"), filepath.Join(worktrees, "feat", "x"), "feat/x", nil},
+		{"symlinked path", worktrees, filepath.Join(link, "worktrees", "feat", "x"), "feat/x", nil},
+		{"missing worktree", filepath.Join(link, "worktrees"), filepath.Join(worktrees, "gone"), "gone", nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := branchFromWorktreePath(tt.dir, tt.path)
+			got, err := branchFromWorktreePath(tt.worktrees, tt.dir, tt.path)
 			if err != nil {
 				t.Fatal(err)
 			}

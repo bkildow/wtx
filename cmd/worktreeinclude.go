@@ -16,8 +16,10 @@ import (
 // .worktreeinclude selects. It returns nil when there is no main worktree,
 // no .worktreeinclude, or nothing matches. Failures are reported as warnings
 // because a missing include layer should not block creating a worktree.
-func resolveIncludeSource(ctx context.Context, projectRoot string, cfg *config.Config) *project.IncludeSource {
-	mainPath, err := mainWorktreeSource(ctx, projectRoot, cfg)
+// worktrees is the repository's worktree list when the caller already has
+// it; nil lists them when needed.
+func resolveIncludeSource(ctx context.Context, projectRoot string, cfg *config.Config, worktrees []git.WorktreeInfo) *project.IncludeSource {
+	mainPath, err := mainWorktreeSource(ctx, projectRoot, cfg, worktrees)
 	if err != nil {
 		ui.Warning("Could not locate main worktree for .worktreeinclude: " + err.Error())
 		return nil
@@ -45,21 +47,21 @@ func resolveIncludeSource(ctx context.Context, projectRoot string, cfg *config.C
 // mainWorktreeSource returns the worktree .worktreeinclude is read from: the
 // project root for wtx init projects (whose git dir is the checkout's .git),
 // or the worktree checked out on the main branch for clone/bare projects.
-func mainWorktreeSource(ctx context.Context, projectRoot string, cfg *config.Config) (string, error) {
+func mainWorktreeSource(ctx context.Context, projectRoot string, cfg *config.Config, worktrees []git.WorktreeInfo) (string, error) {
 	if cfg.IsCheckoutLayout() {
 		return projectRoot, nil
 	}
 
-	// Read-only lookup: a non-dry runner so --dry-run still finds the source.
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), false)
-	runner.BatchMode = true
-	worktrees, err := runner.WorktreeList(ctx)
-	if err != nil {
-		return "", err
+	if worktrees == nil {
+		// Read-only lookup: a non-dry runner so --dry-run still finds the source.
+		runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), false)
+		runner.BatchMode = true
+		var err error
+		if worktrees, err = runner.WorktreeList(ctx); err != nil {
+			return "", err
+		}
 	}
-	mainCfg := *cfg
-	mainCfg.MainBranch = cfg.MainBranchOrDefault()
-	return resolveMainWorktreePath(worktrees, filterManagedWorktrees(worktrees, projectRoot), &mainCfg), nil
+	return resolveMainWorktreePath(worktrees, filterManagedWorktrees(worktrees, projectRoot), cfg.MainBranchOrDefault()), nil
 }
 
 // dropManagedPaths removes files (relative to srcDir) that live inside wtx's

@@ -47,6 +47,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	}
 
 	inspected, repaired := 0, 0
+	paths := ui.NewPathDisplay(projectRoot)
 	for _, wt := range worktrees {
 		if wt.Bare {
 			continue
@@ -60,7 +61,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		if ok {
 			continue
 		}
-		ui.Step("Repairing worktree: " + ui.DisplayPath(projectRoot, wt.Path))
+		ui.Step("Repairing worktree: " + paths.Path(wt.Path))
 		if err := runner.SetWorktreeBareFalse(ctx, wt.Path); err != nil {
 			return err
 		}

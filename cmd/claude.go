@@ -186,14 +186,14 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	include := resolveIncludeSource(ctx, projectRoot, cfg)
+	include := resolveIncludeSource(ctx, projectRoot, cfg, nil)
 	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars, include)
 	if err != nil {
 		return fmt.Errorf("apply shared files failed: %w", err)
 	}
 
-	msg := fmt.Sprintf("Worktree created: %s/%s (%d included, %d copied, %d symlinked)",
-		cfg.WorktreeDir, branch, result.Included, result.Copied, result.Symlinked)
+	msg := fmt.Sprintf("Worktree created: %s (%d included, %d copied, %d symlinked)",
+		ui.DisplayPath(projectRoot, worktreePath), result.Included, result.Copied, result.Symlinked)
 
 	// Launch setup hooks in background if configured.
 	// runSetupBackground prints the worktree path to stdout on its own.
@@ -225,8 +225,14 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	projectRoot, cfg := hctx.projectRoot, hctx.cfg
 	worktreePath := hctx.payload.WorktreePath
 
-	// Derive branch name from the worktree path (everything after the worktrees dir).
-	branch, err := branchFromWorktreePath(project.WorktreesPath(projectRoot, cfg), worktreePath)
+	gitDir := project.GitDirPath(projectRoot, cfg)
+	runner := git.NewRunner(gitDir, false)
+	runner.BatchMode = true
+
+	// Ask git which branch the worktree has; fall back to the path below the
+	// worktrees dir. A listing error only loses the git lookup.
+	worktrees, _ := runner.WorktreeList(ctx)
+	branch, err := branchFromWorktreePath(worktrees, project.WorktreesPath(projectRoot, cfg), worktreePath)
 	if err != nil {
 		return fmt.Errorf("cannot determine branch from worktree path: %w", err)
 	}
@@ -241,10 +247,6 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	if err := project.RunParallelTeardownHooks(ctx, cfg, worktreePath, false); err != nil {
 		ui.Warning("Parallel teardown hooks failed: " + err.Error())
 	}
-
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, false)
-	runner.BatchMode = true
 
 	// Force remove — Claude agents may have uncommitted changes.
 	ui.Step("Removing worktree: " + branch)
@@ -297,7 +299,7 @@ func loadHookContext() (*hookContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(projectRoot)
+	cfg, err := loadProjectAt(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}

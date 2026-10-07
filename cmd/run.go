@@ -137,7 +137,7 @@ func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Co
 	sc := scriptContext{
 		dir:              cwd,
 		vars:             project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)},
-		mainWorktreePath: resolveMainWorktreePath(worktrees, filtered, cfg),
+		mainWorktreePath: resolveMainWorktreePath(worktrees, filtered, cfg.MainBranch),
 	}
 	if wt, ok := resolveCurrentWorktree(filtered); ok {
 		sc.dir = wt.Path
@@ -146,18 +146,19 @@ func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Co
 	return sc, nil
 }
 
-// resolveMainWorktreePath finds the worktree checked out on cfg.MainBranch.
-// For wtx init projects the main worktree is the project root itself, which
-// filterManagedWorktrees excludes, so fall back to the unfiltered list.
-func resolveMainWorktreePath(all, filtered []git.WorktreeInfo, cfg *config.Config) string {
-	if cfg.MainBranch == "" {
+// resolveMainWorktreePath finds the worktree checked out on branch (empty
+// for none). For wtx init projects the main worktree is the project root
+// itself, which filterManagedWorktrees excludes, so fall back to the
+// unfiltered list.
+func resolveMainWorktreePath(all, filtered []git.WorktreeInfo, branch string) string {
+	if branch == "" {
 		return ""
 	}
-	if wt, ok := findWorktreeByBranch(filtered, cfg.MainBranch); ok {
+	if wt, ok := findWorktreeByBranch(filtered, branch); ok {
 		return wt.Path
 	}
 	for _, wt := range all {
-		if !wt.Bare && wt.Branch == cfg.MainBranch {
+		if !wt.Bare && wt.Branch == branch {
 			return wt.Path
 		}
 	}
@@ -177,7 +178,7 @@ func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) (
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	cfg, err := config.Load(projectRoot)
+	cfg, err := loadProjectAt(projectRoot)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

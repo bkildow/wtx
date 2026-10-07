@@ -98,7 +98,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	worktreePath := filepath.Join(project.WorktreesPath(projectRoot, cfg), branch)
 
 	if _, err := os.Stat(worktreePath); err == nil {
-		return fmt.Errorf("worktree already exists: %s/%s", cfg.WorktreeDir, branch)
+		return fmt.Errorf("worktree already exists: %s", ui.DisplayPath(projectRoot, worktreePath))
 	}
 
 	hasRemote, err := runner.HasRemoteBranch(ctx, branch)
@@ -129,14 +129,14 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	include := resolveIncludeSource(ctx, projectRoot, cfg)
+	include := resolveIncludeSource(ctx, projectRoot, cfg, nil)
 	result, err := project.Apply(projectRoot, worktreePath, cfg, dry, &vars, include)
 	if err != nil {
 		return err
 	}
 
-	msg := fmt.Sprintf("Worktree created: %s/%s (%d included, %d copied, %d symlinked)",
-		cfg.WorktreeDir, branch, result.Included, result.Copied, result.Symlinked)
+	msg := fmt.Sprintf("Worktree created: %s (%d included, %d copied, %d symlinked)",
+		ui.DisplayPath(projectRoot, worktreePath), result.Included, result.Copied, result.Symlinked)
 
 	hasHooks := len(cfg.Setup) > 0 || len(cfg.ParallelSetup) > 0
 	skipSetup, _ := cmd.Flags().GetBool("skip-setup")
