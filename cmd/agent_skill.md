@@ -49,7 +49,7 @@ Initialized project (`wtx init` inside an existing repo), where the root is itse
       worktrees/
         feature/auth/
 
-`wtx init --in-repo` keeps the older layout with everything under `project/.worktrees/`.
+`wtx init --in-repo` puts worktrees, `shared/` and `bin/` under `project/.worktrees/` instead. Find a project's worktrees with `wtx list` or `wtx cd <name>` rather than assuming a path.
 
 Run git commands inside a worktree. In a cloned project the root has no `.git`, so git fails there.
 
@@ -79,6 +79,8 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 
 Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. After changing them, run `wtx apply --all` (or `wtx apply <name>`) to update existing worktrees.
 
+`.worktreeinclude` (gitignore syntax, committed at the repo root) lists ignored files such as `.env` to copy from the main checkout (the `main_branch` worktree in cloned projects). Only files that match and are gitignored are copied, and existing files are never overwritten. Order: `.worktreeinclude`, then `shared/copy/`, then `shared/symlink/`; later layers win. To give worktrees a local secret, add its pattern to `.worktreeinclude` rather than copying it by hand.
+
 Files ending in `.template` are copied with the suffix stripped and these variables substituted:
 
 - `${WORKTREE_ID}`: the branch lowercased with `/` replaced by `-` (`feature/Auth` → `feature-auth`)
@@ -89,7 +91,7 @@ Files ending in `.template` are copied with the suffix stripped and these variab
 
     version: 1
     git_dir: .bare            # .git for initialized projects
-    worktree_dir: worktrees
+    worktree_dir: worktrees   # relative, absolute, or ~/...; init uses ~/.wtx/<name>/worktrees
     main_branch: main         # protected from deletion; default base for new branches
     editor: cursor
     setup: ["npm install"]            # sequential, after creating a worktree
