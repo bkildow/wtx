@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/forge"
 	"github.com/bkildow/wtx/internal/git"
@@ -212,10 +211,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	ui.Step("Merged worktrees:")
 	t := ui.NewTable().Headers("BRANCH", "PATH", "MERGED", "STATUS")
 	for _, p := range pruneable {
-		relPath, err := filepath.Rel(projectRoot, p.worktree.Path)
-		if err != nil {
-			relPath = p.worktree.Path
-		}
+		relPath := ui.DisplayPath(projectRoot, p.worktree.Path)
 		t.Row(p.worktree.Branch, relPath, p.reason, p.status())
 	}
 	ui.PrintTable(t)

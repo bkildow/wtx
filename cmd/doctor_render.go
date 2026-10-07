@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -109,13 +107,11 @@ func groupDoctorFindings(findings []doctor.Finding) []doctorGroup {
 type doctorRenderer struct {
 	w       io.Writer
 	root    string
-	home    string
 	verbose bool
 }
 
 func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
-	home, _ := os.UserHomeDir()
-	d := doctorRenderer{w: w, root: r.Root, home: home, verbose: verbose}
+	d := doctorRenderer{w: w, root: r.Root, verbose: verbose}
 	groups := groupDoctorFindings(r.Findings)
 
 	var problems, passed []doctorGroup
@@ -164,7 +160,7 @@ func (d doctorRenderer) summary(r doctor.Report, problems, passed []doctorGroup)
 		title += " --user"
 	}
 	if r.Root != "" {
-		title += "  " + ui.StyleMuted.Render(doctorRenderer{home: d.home}.display(r.Root))
+		title += "  " + ui.StyleMuted.Render(ui.DisplayPath("", r.Root))
 	}
 	d.line(ui.StyleHeading.Render(title))
 
@@ -354,18 +350,7 @@ func (d doctorRenderer) nextSteps(r doctor.Report, problems []doctorGroup) {
 
 // display shortens a path relative to the project root or home directory.
 func (d doctorRenderer) display(path string) string {
-	if path == "" {
-		return ""
-	}
-	if d.root != "" {
-		if rel, err := filepath.Rel(d.root, path); err == nil && !strings.HasPrefix(rel, "..") {
-			return rel
-		}
-	}
-	if d.home != "" && (path == d.home || strings.HasPrefix(path, d.home+string(filepath.Separator))) {
-		return "~" + strings.TrimPrefix(path, d.home)
-	}
-	return path
+	return ui.DisplayPath(d.root, path)
 }
 
 func distinct(findings []doctor.Finding, key func(doctor.Finding) string) []string {

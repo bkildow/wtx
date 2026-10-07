@@ -3,8 +3,6 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"strings"
 
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
@@ -62,7 +60,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		if ok {
 			continue
 		}
-		ui.Step("Repairing worktree: " + displayPath(projectRoot, wt.Path))
+		ui.Step("Repairing worktree: " + ui.DisplayPath(projectRoot, wt.Path))
 		if err := runner.SetWorktreeBareFalse(ctx, wt.Path); err != nil {
 			return err
 		}
@@ -84,11 +82,4 @@ func worktreeBareOverrideOK(ctx context.Context, worktreePath string) (bool, err
 	// A missing file reads as unset.
 	value, err := git.ConfigBool(ctx, cfgPath, "core.bare")
 	return value == "false", err
-}
-
-func displayPath(projectRoot, p string) string {
-	if rel, err := filepath.Rel(projectRoot, p); err == nil && !strings.HasPrefix(rel, "..") {
-		return rel
-	}
-	return p
 }
