@@ -20,9 +20,14 @@ import (
 // this works from linked worktrees located anywhere on disk. If that
 // candidate holds a .worktree.yml it wins, which also keeps a committed
 // .worktree.yml inside a worktree from being mistaken for the root.
+// Next, a startDir inside ~/.wtx/<name>/ (outside any git worktree) maps to
+// the root recorded in that directory's marker (see RootFromMarker).
 // Otherwise FindRoot walks up from startDir looking for .worktree.yml.
 func FindRoot(startDir string) (string, error) {
 	if root, ok := rootFromGitCommonDir(startDir); ok {
+		return root, nil
+	}
+	if root, ok := RootFromMarker(startDir); ok {
 		return root, nil
 	}
 	return walkUpForConfig(startDir)
@@ -115,17 +120,22 @@ func GitDirPath(projectRoot string, cfg *config.Config) string {
 	return filepath.Join(projectRoot, cfg.GitDir)
 }
 
+// WorktreesPath is the absolute directory holding the project's worktrees.
+// See ExpandPath for how worktree_dir is resolved.
 func WorktreesPath(projectRoot string, cfg *config.Config) string {
-	return filepath.Join(projectRoot, cfg.WorktreeDir)
+	return mustExpand(projectRoot, cfg.WorktreeDir)
 }
 
+// SharedPath is the absolute shared directory (copy/ and symlink/). See
+// ExpandPath for how shared_dir is resolved.
 func SharedPath(projectRoot string, cfg *config.Config) string {
-	return filepath.Join(projectRoot, cfg.SharedDir)
+	return mustExpand(projectRoot, cfg.SharedDir)
 }
 
-// BinPath is the directory for project-level scripts run via `wt run`. It is
-// a sibling of the shared directory: bin/ for cloned projects and
-// .worktrees/bin/ for initialized ones.
+// BinPath is the directory for project-level scripts run via `wtx run`. It
+// is a sibling of the shared directory: bin/ for cloned projects,
+// ~/.wtx/<name>/bin/ for initialized ones and .worktrees/bin/ for in-repo
+// ones.
 func BinPath(projectRoot string, cfg *config.Config) string {
 	return filepath.Join(filepath.Dir(SharedPath(projectRoot, cfg)), "bin")
 }

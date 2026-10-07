@@ -1,4 +1,52 @@
+[!exec:git] skip 'git not available'
+
 # wtx init in a directory without .git should fail
 mkdir empty
 cd empty
 ! exec wtx init
+stderr 'no .git directory'
+
+# Two repos with the same directory name collide in ~/.wtx
+cd $WORK
+exec git init a/myrepo
+exec git init b/myrepo
+
+cd $WORK/a/myrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init
+exists $WTX_HOME/myrepo/project.yml
+
+cd $WORK/b/myrepo
+exec git commit --allow-empty -m 'initial'
+! exec wtx init
+stderr 'belongs to .*a/myrepo'
+stderr 'wtx init --name'
+! exists .worktree.yml
+
+# --name picks another directory
+exec wtx init --name myrepo-b
+exists $WTX_HOME/myrepo-b/worktrees
+exists $WTX_HOME/myrepo-b/project.yml
+grep 'worktree_dir: ~/.wtx/myrepo-b/worktrees' .worktree.yml
+grep 'root: .*b/myrepo' $WTX_HOME/myrepo-b/project.yml
+
+# Invalid names are rejected
+exec git init $WORK/c/repo
+cd $WORK/c/repo
+! exec wtx init --name ../escape
+stderr 'invalid project name'
+! exec wtx init --name ..
+stderr 'invalid project name'
+! exists .worktree.yml
+
+# A directory under ~/.wtx without a marker is not adopted
+mkdir $WTX_HOME/repo
+! exec wtx init
+stderr 'has no project.yml'
+stderr 'wtx init --name'
+
+# The same repo re-running init after losing its config reuses its directory
+cd $WORK/a/myrepo
+rm .worktree.yml
+exec wtx init
+stderr 'Initialized wtx project'

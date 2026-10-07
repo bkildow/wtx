@@ -19,7 +19,7 @@ func newRunCmd() *cobra.Command {
 		Short: "Run a named project script from .worktree.yml",
 		Long: `Runs a script configured under the "scripts" key of .worktree.yml.
 
-Script paths are resolved relative to the project root (absolute paths are
+Script paths are resolved relative to the project root (absolute and ~/ paths are
 allowed). The script runs with the current worktree as its working directory
 and receives these environment variables:
 

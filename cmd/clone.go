@@ -86,7 +86,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 	if err := project.WriteStarterScripts(projectRoot, &cfg, dry); err != nil {
 		return err
 	}
-	cfg.Scripts = project.StarterScripts(projectRoot, &cfg)
+	cfg.Scripts = project.StarterScripts(&cfg)
 
 	// Configure local git excludes for wtx-managed files
 	ui.Step("Configuring local git excludes")
