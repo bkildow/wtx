@@ -32,7 +32,7 @@ type IncludeSource struct {
 // seed at creation. It is a no-op when include is nil, empty, or the destination is the main
 // worktree itself.
 func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
-	if include == nil || len(include.Files) == 0 || samePath(include.Dir, worktreePath) {
+	if include == nil || len(include.Files) == 0 || SamePath(include.Dir, worktreePath) {
 		return 0, nil
 	}
 

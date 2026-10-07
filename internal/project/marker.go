@@ -100,7 +100,7 @@ func MarkerContent(root string) ([]byte, error) {
 // SamePath reports whether a and b name the same location once symlinks in
 // their existing prefixes are resolved.
 func SamePath(a, b string) bool {
-	return samePath(a, b)
+	return ui.CanonicalPath(a) == ui.CanonicalPath(b)
 }
 
 // CheckHomeDir reports whether dir can be used for the repository at root:
@@ -119,14 +119,10 @@ func CheckHomeDir(dir, root string) error {
 	if err != nil {
 		return fmt.Errorf("%w: %w", ErrHomeDirTaken, err)
 	}
-	if !samePath(m.Root, root) {
+	if !SamePath(m.Root, root) {
 		return fmt.Errorf("%w: %s belongs to %s", ErrHomeDirTaken, dir, m.Root)
 	}
 	return nil
-}
-
-func samePath(a, b string) bool {
-	return ui.CanonicalPath(a) == ui.CanonicalPath(b)
 }
 
 // RootFromMarker recognizes startDir inside a ~/.wtx/<name>/ directory (for
