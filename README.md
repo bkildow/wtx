@@ -56,12 +56,15 @@ wtx doctor --fix              # Apply safe repairs, then inspect again
 wtx doctor --json             # Structured report on stdout (schema_version: 1)
 wtx doctor --strict           # Warnings also produce exit code 1
 wtx doctor --user             # Inspect user settings, even outside a project
+wtx doctor --migrate-home     # Move an in-repo init project to ~/.wtx/<name>/
 ```
 
 Doctor checks Git compatibility, managed exclusions, setup state, existing Claude
 hooks, missing shared copies and managed links, worktree registrations, local
-orphaned branches, executable script targets, disk thresholds, and Compose
-projects without teardown hooks. It never runs project scripts or setup hooks,
+orphaned branches, executable script targets, disk thresholds, Compose
+projects without teardown hooks, the worktree directory and `~/.wtx/<name>/`
+ownership marker, in-repo worktree layouts, and orphaned `~/.wtx` directories
+whose project is gone (reported, never deleted). It never runs project scripts or setup hooks,
 fetches remotes, invokes Docker, deletes branches, or removes worktrees.
 Shared copies are checked for existence, including rendered `.template` names;
 different worktree-local contents are expected and are not treated as drift.
@@ -72,6 +75,17 @@ custom settings and hooks and adds no absent hooks. Absolute `wt` hook paths are
 changed only when their sibling `wtx` is executable; bare commands require `wtx`
 on PATH. Linked settings inside the project are deduplicated by resolved path;
 external targets require manual attention.
+
+`--migrate-home [--name <name>]` moves an `init --in-repo` project's worktrees,
+`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the ownership marker,
+retargets shared symlinks, runs `git worktree repair`, and rewrites
+`worktree_dir`, `shared_dir`, and `bin/` scripts in `.worktree.yml` with the
+literal `~` form (the previous file is backed up under the Git directory). Run
+it from the main checkout and preview it with `wtx --dry-run doctor
+--migrate-home`. Locked worktrees, worktrees with submodules or running setup,
+and Git-tracked shared files stay in place and are reported; re-running resumes
+a partial migration. It cannot be combined with `--fix`, and bare/clone
+projects are skipped. Afterwards `.worktrees/` can be dropped from `.gitignore`.
 
 Modified files receive unique `*.wtx-backup-*` backups under the Git directory's
 `wtx-doctor-backups/` (outside worktrees and `shared/`) without replacing previous
@@ -276,8 +290,8 @@ from inside `~/.wtx/<name>/` (through `project.yml`).
 the repository (`worktree_dir: .worktrees`, `shared_dir: .worktrees/shared`,
 scripts in `.worktrees/bin/`). Add `.worktrees/` to `.gitignore`, or commit
 `.worktrees/shared/` and ignore only the worktrees. `--name` cannot be combined
-with `--in-repo`. `wtx doctor` flags projects that keep worktrees inside the
-repository and offers to migrate them to `~/.wtx/<name>/`.
+with `--in-repo`. `wtx doctor` points in-repo projects at
+`wtx doctor --migrate-home`, which moves them to `~/.wtx/<name>/`.
 
 <a id="wt-config-init"></a>
 
