@@ -233,7 +233,7 @@ wtx --dry-run init            # Print every path it would create
 
 Run `wtx init` at the root of an existing checkout (a directory with a `.git`
 directory). The checkout becomes the main worktree. The only file added to the
-repository is `.worktree.yml`. Worktrees, shared files, and scripts are
+working tree is `.worktree.yml`. Worktrees, shared files, and scripts are
 machine-local and live in `~/.wtx/<name>/`:
 
 ```
@@ -589,7 +589,7 @@ file works on every machine.
 `.worktreeinclude` lists gitignored files to copy from the main checkout into
 each new worktree, such as `.env` files or local credentials. It uses gitignore
 syntax and lives at the root of the main worktree. Claude Code and Conductor
-read the same file. Commit it alongside `.worktree.yml`.
+read the same file. Commit it to the repository.
 
 ```gitignore
 # .worktreeinclude
