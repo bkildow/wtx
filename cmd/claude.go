@@ -119,7 +119,7 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	for _, wt := range filtered {
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
-		if _, err := project.Apply(projectRoot, wt.Path, cfg, false, &vars); err != nil {
+		if _, err := project.Apply(projectRoot, wt.Path, cfg, false, &vars, nil); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))
 		}
 	}
@@ -186,13 +186,14 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars)
+	include := resolveIncludeSource(ctx, projectRoot, cfg)
+	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars, include)
 	if err != nil {
 		return fmt.Errorf("apply shared files failed: %w", err)
 	}
 
-	msg := fmt.Sprintf("Worktree created: %s/%s (%d copied, %d symlinked)",
-		cfg.WorktreeDir, branch, result.Copied, result.Symlinked)
+	msg := fmt.Sprintf("Worktree created: %s/%s (%d included, %d copied, %d symlinked)",
+		cfg.WorktreeDir, branch, result.Included, result.Copied, result.Symlinked)
 
 	// Launch setup hooks in background if configured.
 	// runSetupBackground prints the worktree path to stdout on its own.

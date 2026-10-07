@@ -14,8 +14,82 @@ import (
 
 // ApplyResult holds counts of files processed during Apply.
 type ApplyResult struct {
+	Included  int // files copied from the main worktree via .worktreeinclude
 	Copied    int
 	Symlinked int
+}
+
+// IncludeSource is the main worktree and the files its .worktreeinclude
+// selects (paths relative to Dir), as listed by git.ListWorktreeIncludes.
+type IncludeSource struct {
+	Dir   string
+	Files []string
+}
+
+// ApplyInclude copies the .worktreeinclude-selected files from the main
+// worktree into worktreePath, overwriting existing files like ApplyCopy does.
+// It is a no-op when include is nil, empty, or the destination is the main
+// worktree itself.
+func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
+	if include == nil || len(include.Files) == 0 || samePath(include.Dir, worktreePath) {
+		return 0, nil
+	}
+
+	ui.Step("Copying .worktreeinclude files from " + include.Dir)
+
+	var count int
+	for _, rel := range include.Files {
+		src := filepath.Join(include.Dir, rel)
+		dest := filepath.Join(worktreePath, rel)
+
+		if dryRun {
+			ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", src, dest))
+			count++
+			continue
+		}
+
+		info, err := os.Lstat(src)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue // removed since git listed it
+			}
+			return count, err
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return count, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := copySymlink(src, dest); err != nil {
+				return count, err
+			}
+		} else if err := fscopy.CopyFile(src, dest); err != nil {
+			return count, err
+		}
+		ui.Info("  copied " + rel)
+		count++
+	}
+	return count, nil
+}
+
+// copySymlink recreates the symlink at src as dest, preserving its target.
+func copySymlink(src, dest string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	_ = os.Remove(dest)
+	return os.Symlink(target, dest)
+}
+
+func samePath(a, b string) bool {
+	return resolvePathOrClean(a) == resolvePathOrClean(b)
+}
+
+func resolvePathOrClean(p string) string {
+	if resolved, err := filepath.EvalSymlinks(p); err == nil {
+		return resolved
+	}
+	return filepath.Clean(p)
 }
 
 func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (int, error) {
@@ -285,7 +359,15 @@ func symlinkDirContents(srcDir, destDir, worktreePath string) (int, error) {
 	return count, nil
 }
 
-func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (ApplyResult, error) {
+// Apply layers files into a worktree in order: .worktreeinclude files from
+// the main worktree, then shared/copy, then shared/symlink. Later layers win,
+// so machine-local shared files override what the main worktree provides.
+// include may be nil to skip the .worktreeinclude layer.
+func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, include *IncludeSource) (ApplyResult, error) {
+	included, err := ApplyInclude(include, worktreePath, dryRun)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 	copied, err := ApplyCopy(projectRoot, worktreePath, cfg, dryRun, vars)
 	if err != nil {
 		return ApplyResult{}, err
@@ -294,7 +376,7 @@ func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, va
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	return ApplyResult{Copied: copied, Symlinked: symlinked}, nil
+	return ApplyResult{Included: included, Copied: copied, Symlinked: symlinked}, nil
 }
 
 // logCopyDir logs a top-level directory copy once, collapsing nested files.

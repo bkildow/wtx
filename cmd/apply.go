@@ -46,19 +46,21 @@ func runApply(cmd *cobra.Command, args []string) error {
 	all, _ := cmd.Flags().GetBool("all")
 
 	if all {
+		include := resolveIncludeSource(ctx, projectRoot, cfg)
 		var totalResult project.ApplyResult
 		for _, wt := range filtered {
 			ui.Step("Applying to: " + wt.Branch)
 			vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
-			result, err := project.Apply(projectRoot, wt.Path, cfg, dry, &vars)
+			result, err := project.Apply(projectRoot, wt.Path, cfg, dry, &vars, include)
 			if err != nil {
 				return err
 			}
+			totalResult.Included += result.Included
 			totalResult.Copied += result.Copied
 			totalResult.Symlinked += result.Symlinked
 		}
-		ui.Success(fmt.Sprintf("Applied shared files to %d worktree(s) (%d copied, %d symlinked)",
-			len(filtered), totalResult.Copied, totalResult.Symlinked))
+		ui.Success(fmt.Sprintf("Applied shared files to %d worktree(s) (%d included, %d copied, %d symlinked)",
+			len(filtered), totalResult.Included, totalResult.Copied, totalResult.Symlinked))
 		return nil
 	}
 
@@ -71,12 +73,12 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, selected.Path, selected.Branch)
-	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars)
+	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, resolveIncludeSource(ctx, projectRoot, cfg))
 	if err != nil {
 		return err
 	}
 
-	ui.Success(fmt.Sprintf("Applied shared files to: %s (%d copied, %d symlinked)",
-		selected.Branch, result.Copied, result.Symlinked))
+	ui.Success(fmt.Sprintf("Applied shared files to: %s (%d included, %d copied, %d symlinked)",
+		selected.Branch, result.Included, result.Copied, result.Symlinked))
 	return nil
 }
