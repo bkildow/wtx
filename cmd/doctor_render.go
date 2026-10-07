@@ -38,6 +38,7 @@ var doctorChecks = []doctorCheck{
 	{id: "home.paths", title: "Worktree directory"},
 	{id: "home.marker", title: "~/.wtx ownership marker"},
 	{id: "home.layout", title: "Worktree layout", hint: true},
+	{id: "home.migrate", title: "Move to ~/.wtx"},
 	{
 		id: "home.orphans", title: "Orphaned ~/.wtx directories",
 		about: "The repository that owned each directory is gone or no longer a wtx project.",
@@ -334,6 +335,9 @@ func (d doctorRenderer) repairs(repairs []doctor.RepairOutcome) {
 			d.line(ui.StyleSuccess.Render("  ✓ repaired "+check.title) + where)
 		case doctor.Failed:
 			d.line(ui.StyleError.Render("  ✗ could not repair "+check.title) + where)
+		}
+		if r.Action != "" {
+			d.line(ui.StyleMuted.Render("      " + r.Action))
 		}
 		if r.Backup != "" {
 			d.line(ui.StyleMuted.Render("      backup: " + d.display(r.Backup)))

@@ -46,6 +46,7 @@ type RepairOutcome struct {
 	ID     string       `json:"check_id"`
 	Path   string       `json:"path"`
 	Status RepairStatus `json:"status"`
+	Action string       `json:"action,omitempty"` // what an operation repair does, e.g. a move
 	Backup string       `json:"backup,omitempty"`
 	Error  string       `json:"error,omitempty"`
 }
@@ -82,6 +83,11 @@ type Options struct {
 	User     bool
 	Fix      bool
 	DryRun   bool
+	// MigrateHome plans and (unless DryRun) applies only the opt-in move of
+	// an in-repo init project to ~/.wtx/<HomeName>/ (HomeName defaults to
+	// the repository directory name).
+	MigrateHome bool
+	HomeName    string
 }
 
 type inspection struct {
@@ -107,14 +113,24 @@ type inspection struct {
 // Run always returns a report, including discovery and operational failures.
 func Run(ctx context.Context, opts Options) Report {
 	s := inspect(ctx, opts)
-	if !opts.Fix || opts.User {
+	if (!opts.Fix && !opts.MigrateHome) || opts.User {
 		s.report.finish()
 		return s.report
 	}
 	repairs := s.repairs
+	if opts.MigrateHome {
+		// The migration moves worktrees, so other repairs' targets would
+		// move underneath them; they run with a separate --fix.
+		repairs = nil
+		for _, r := range s.repairs {
+			if r.id == migrateID {
+				repairs = append(repairs, r)
+			}
+		}
+	}
 	outcomes := make([]RepairOutcome, len(repairs))
 	for i, change := range repairs {
-		outcomes[i] = RepairOutcome{ID: change.id, Path: change.file.path, Status: Planned}
+		outcomes[i] = RepairOutcome{ID: change.id, Path: change.file.path, Action: change.action, Status: Planned}
 	}
 	if !opts.DryRun {
 		for i, change := range repairs {
@@ -123,6 +139,10 @@ func Run(ctx context.Context, opts Options) Report {
 			if outcomes[i].Backup, err = change.apply(ctx); err != nil {
 				outcomes[i].Status, outcomes[i].Error = Failed, err.Error()
 			}
+		}
+		// The working directory may have moved with a worktree.
+		if s.root != "" {
+			opts.StartDir = s.root
 		}
 		s = inspect(ctx, opts)
 		s.recheck(ctx, repairs, outcomes)
@@ -171,7 +191,8 @@ func (r *Report) finish() {
 		if r.Repairs[i].ID != r.Repairs[j].ID {
 			return r.Repairs[i].ID < r.Repairs[j].ID
 		}
-		return r.Repairs[i].Path < r.Repairs[j].Path
+		// Migration steps are listed in the order they run.
+		return r.Repairs[i].ID != migrateID && r.Repairs[i].Path < r.Repairs[j].Path
 	})
 	r.Counts = Counts{}
 	for _, f := range r.Findings {
@@ -212,8 +233,8 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}, seenBlobs: map[string]bool{}}
 	if opts.User {
 		s.report.Scope = "user"
-		if opts.Fix {
-			s.add("user.repair", "fail", "", "--user --fix is not supported: dotfile changes are manual.", "Run wtx doctor --user and review the suggested replacements.")
+		if opts.Fix || opts.MigrateHome {
+			s.add("user.repair", "fail", "", "--user cannot be combined with --fix or --migrate-home: dotfile changes are manual.", "Run wtx doctor --user and review the suggested replacements.")
 		}
 		s.user()
 		return s
@@ -331,6 +352,9 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		}
 		s.claudeSettings(wt.Path)
 		s.scanTracked(wt.Path, f)
+	}
+	if opts.MigrateHome {
+		s.planMigration(ctx, worktrees, opts.HomeName)
 	}
 	return s
 }

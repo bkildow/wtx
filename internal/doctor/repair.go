@@ -74,6 +74,11 @@ type repair struct {
 	value    string
 	backups  string
 	validate func() error
+	// Operation repairs (run != nil) perform a filesystem or Git operation
+	// instead of replacing file; done verifies the result.
+	action string
+	run    func(ctx context.Context) error
+	done   func() error
 }
 
 // planContent schedules replacing file with data.
@@ -105,8 +110,10 @@ func (r repair) check() error {
 			return err
 		}
 	}
-	if err := r.file.unchanged(); err != nil {
-		return err
+	if r.run == nil {
+		if err := r.file.unchanged(); err != nil {
+			return err
+		}
 	}
 	if r.validate != nil {
 		return r.validate()
@@ -115,6 +122,12 @@ func (r repair) check() error {
 }
 
 func (r repair) verify(ctx context.Context) error {
+	if r.run != nil {
+		if r.done == nil {
+			return nil
+		}
+		return r.done()
+	}
 	if r.key != "" {
 		value, err := git.ConfigBool(ctx, r.file.path, r.key)
 		if err != nil {
@@ -138,6 +151,9 @@ func (r repair) verify(ctx context.Context) error {
 func (r repair) apply(ctx context.Context) (string, error) {
 	if err := r.check(); err != nil {
 		return "", err
+	}
+	if r.run != nil {
+		return "", r.run(ctx)
 	}
 	dir := filepath.Dir(r.file.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
