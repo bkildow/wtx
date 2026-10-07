@@ -64,7 +64,7 @@ func (s *inspection) settings(path string) {
 		return
 	}
 	s.seenSettings[actual] = true
-	if !within(s.root, actual) {
+	if !s.managed(actual) {
 		s.add("claude.hooks", "warn", path, "Settings resolve outside the project.", "Review legacy hook commands in the external settings manually.")
 		return
 	}

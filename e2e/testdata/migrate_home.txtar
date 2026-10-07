@@ -1,0 +1,68 @@
+[!exec:git] skip 'git not available'
+
+# An in-repo project with shared files and two worktrees, one dirty.
+exec git init -b main myrepo
+cd myrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init --in-repo
+cp $WORK/env .worktrees/shared/copy/.env
+cp $WORK/notes .worktrees/shared/symlink/notes.txt
+exec wtx add --skip-setup feature
+exec wtx add --skip-setup other
+cp $WORK/dirty .worktrees/feature/dirty.txt
+
+# doctor suggests the opt-in migration without failing --strict.
+exec wtx doctor --strict
+stderr 'Worktree layout'
+stderr 'migrate-home'
+
+# --migrate-home and --fix are separate runs.
+! exec wtx doctor --fix --migrate-home
+stderr 'none of the others can be'
+
+# Dry run lists every step and changes nothing.
+exec wtx --dry-run doctor --migrate-home
+stderr 'would repair Move to ~/.wtx'
+stderr 'git worktree move \.worktrees/feature'
+stderr 'git worktree move \.worktrees/other'
+stderr 'move \.worktrees/shared'
+stderr 'move \.worktrees/bin'
+stderr 'rewrite worktree_dir'
+exists .worktrees/feature/dirty.txt
+! exists $WTX_HOME/myrepo
+grep 'worktree_dir: .worktrees' .worktree.yml
+
+# Migrate.
+exec wtx doctor --migrate-home
+stderr 'repaired Move to ~/.wtx'
+! exists .worktrees
+exists $WTX_HOME/myrepo/project.yml
+cmp $WTX_HOME/myrepo/worktrees/feature/dirty.txt $WORK/dirty
+cmp $WTX_HOME/myrepo/worktrees/other/.env $WORK/env
+cmp $WTX_HOME/myrepo/worktrees/other/notes.txt $WORK/notes
+cmp $WTX_HOME/myrepo/shared/copy/.env $WORK/env
+exists $WTX_HOME/myrepo/bin/refresh
+grep 'worktree_dir: ~/.wtx/myrepo/worktrees' .worktree.yml
+grep 'shared_dir: ~/.wtx/myrepo/shared' .worktree.yml
+grep 'refresh: ~/.wtx/myrepo/bin/refresh' .worktree.yml
+exec git worktree list
+stdout 'wtx-home/myrepo/worktrees/feature'
+stdout 'wtx-home/myrepo/worktrees/other'
+
+# Everything still works from the new layout.
+exec wtx list
+stderr 'wtx-home/myrepo/worktrees/feature'
+exec wtx run refresh
+stderr 'not implemented'
+exec wtx doctor --strict
+
+# Re-running is a no-op.
+exec wtx doctor --migrate-home
+! stderr 'repaired'
+
+-- env --
+SECRET=1
+-- notes --
+shared notes
+-- dirty --
+uncommitted

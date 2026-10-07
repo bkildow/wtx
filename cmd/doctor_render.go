@@ -20,10 +20,11 @@ const doctorItemLimit = 5
 // replace per-finding text when findings in a group vary only by subject.
 // summarize hides the item list without --verbose (cleanup hints, not health
 // problems); note marks informational checks that only appear with --verbose
-// when they pass, since they verify nothing.
+// when they pass, since they verify nothing; hint shows a passing group's
+// remedy (an optional suggestion) without --verbose.
 type doctorCheck struct {
 	id, title, about, remedy string
-	summarize, note          bool
+	summarize, note, hint    bool
 }
 
 // doctorChecks lists checks in report order.
@@ -34,6 +35,14 @@ var doctorChecks = []doctorCheck{
 	{id: "git.compatibility", title: "Bare repository compatibility"},
 	{id: "git.exclude", title: "Git exclude file"},
 	{id: "git.worktrees", title: "Worktrees"},
+	{id: "home.paths", title: "Worktree directory"},
+	{id: "home.marker", title: "~/.wtx ownership marker"},
+	{id: "home.layout", title: "Worktree layout", hint: true},
+	{id: "home.migrate", title: "Move to ~/.wtx"},
+	{
+		id: "home.orphans", title: "Orphaned ~/.wtx directories",
+		about: "The repository that owned each directory is gone or no longer a wtx project.",
+	},
 	{
 		id: "git.branches", title: "Local branches with no worktree or remote",
 		about:     "Not checked out anywhere and no matching remote-tracking branch; often merged or abandoned work.",
@@ -122,10 +131,16 @@ func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
 			failing[g.check.id] = true
 		}
 	}
+	var hints []doctorGroup
 	for _, g := range groups {
-		if g.severity == doctor.OK && !failing[g.check.id] && !g.check.note {
-			passed = append(passed, g)
+		if g.severity != doctor.OK || failing[g.check.id] || g.check.note {
+			continue
 		}
+		if g.check.hint && slices.ContainsFunc(g.findings, func(f doctor.Finding) bool { return f.Remedy != "" }) {
+			hints = append(hints, g)
+			continue
+		}
+		passed = append(passed, g)
 	}
 
 	d.summary(r, problems, passed)
@@ -138,7 +153,12 @@ func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
 				d.group(g)
 			}
 		}
-	} else if len(passed) > 0 {
+	} else {
+		for _, g := range hints {
+			d.group(g)
+		}
+	}
+	if !verbose && len(passed) > 0 {
 		titles := make([]string, len(passed))
 		for i, g := range passed {
 			titles[i] = g.check.title
@@ -315,6 +335,9 @@ func (d doctorRenderer) repairs(repairs []doctor.RepairOutcome) {
 			d.line(ui.StyleSuccess.Render("  ✓ repaired "+check.title) + where)
 		case doctor.Failed:
 			d.line(ui.StyleError.Render("  ✗ could not repair "+check.title) + where)
+		}
+		if r.Action != "" {
+			d.line(ui.StyleMuted.Render("      " + r.Action))
 		}
 		if r.Backup != "" {
 			d.line(ui.StyleMuted.Render("      backup: " + d.display(r.Backup)))

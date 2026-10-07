@@ -81,12 +81,26 @@ func WriteMarker(dir, root string, dryRun bool) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := yaml.Marshal(Marker{Root: root})
+	content, err := MarkerContent(root)
 	if err != nil {
 		return err
 	}
-	content := "# Written by wtx init: the repository that owns this directory.\n" + string(data)
-	return os.WriteFile(path, []byte(content), 0o644)
+	return os.WriteFile(path, content, 0o644)
+}
+
+// MarkerContent returns the marker file content recording root as owner.
+func MarkerContent(root string) ([]byte, error) {
+	data, err := yaml.Marshal(Marker{Root: root})
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte("# Written by wtx: the repository that owns this directory.\n"), data...), nil
+}
+
+// SamePath reports whether a and b name the same location once symlinks in
+// their existing prefixes are resolved.
+func SamePath(a, b string) bool {
+	return samePath(a, b)
 }
 
 // CheckHomeDir reports whether dir can be used for the repository at root:
