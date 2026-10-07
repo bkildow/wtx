@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // backupDirName lives under the Git directory, which scans and apply skip.
@@ -92,7 +93,7 @@ func (s *inspection) planConfig(index int, file snapshot, key, value string, gua
 }
 
 func (s *inspection) plan(index int, r repair) {
-	if !s.managed(resolved(r.file.path)) || !s.managed(r.file.parent) {
+	if !s.managed(ui.CanonicalPath(r.file.path)) || !s.managed(r.file.parent) {
 		s.report.Findings[index].Remedy += " Repair manually: target is outside the project."
 		return
 	}

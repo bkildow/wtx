@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
@@ -188,9 +187,8 @@ func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) (
 // displayScriptPath shows scripts under the project root as a relative path
 // and everything else as-is.
 func displayScriptPath(projectRoot, scriptPath string) string {
-	rel, err := filepath.Rel(projectRoot, scriptPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return scriptPath
+	if rel, ok := ui.RelWithin(projectRoot, scriptPath); ok {
+		return rel
 	}
-	return rel
+	return scriptPath
 }

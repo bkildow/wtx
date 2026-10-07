@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 type Severity string
@@ -273,7 +273,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s.guards = append(s.guards, guard)
 	s.report.Root = s.root
 	gitDir := project.GitDirPath(s.root, s.cfg)
-	s.gitDir = resolved(gitDir)
+	s.gitDir = ui.CanonicalPath(gitDir)
 	s.backups = filepath.Join(gitDir, backupDirName)
 	defer s.scanLimitations(s.root)
 	s.add("project.config", "ok", where, "Project configuration is readable.", "")
@@ -346,7 +346,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		if f == nil {
 			continue // directory appeared after prefetch
 		}
-		if resolved(wt.Path) != s.root {
+		if ui.CanonicalPath(wt.Path) != s.root {
 			s.shared(wt.Path, f)
 			s.teardown(wt.Path)
 		}
@@ -359,28 +359,16 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	return s
 }
 
-func resolved(path string) string {
-	if p, err := filepath.EvalSymlinks(path); err == nil {
-		return p
-	}
-	return filepath.Clean(path)
-}
-
 // managed reports whether path lies in the project root or in a wtx-managed
 // directory outside it, such as an expanded ~/.wtx worktree_dir.
 func (s *inspection) managed(path string) bool {
-	if within(s.root, path) {
+	if ui.Within(s.root, path) {
 		return true
 	}
 	for _, dir := range s.managedDirs {
-		if within(dir, path) {
+		if ui.Within(dir, path) {
 			return true
 		}
 	}
 	return false
-}
-
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

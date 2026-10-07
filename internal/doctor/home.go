@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"golang.org/x/sys/unix"
 
@@ -61,7 +60,7 @@ func (s *inspection) homePaths() {
 // it cannot widen the project to the whole home directory.
 func (s *inspection) addManaged(dir string) {
 	dir = ui.CanonicalPath(dir)
-	if within(s.root, dir) || within(dir, s.root) {
+	if ui.Within(s.root, dir) || ui.Within(dir, s.root) {
 		return
 	}
 	s.managedDirs = append(s.managedDirs, dir)
@@ -83,23 +82,9 @@ func existingAncestor(path string) string {
 // homeProjectDirs returns the distinct ~/.wtx/<name> directories that the
 // configured worktree and shared directories live in.
 func (s *inspection) homeProjectDirs() []string {
-	home, err := project.WtxHome()
-	if err != nil {
-		return nil
-	}
-	home = ui.CanonicalPath(home)
 	var dirs []string
 	for _, dir := range []string{project.WorktreesPath(s.root, s.cfg), project.SharedPath(s.root, s.cfg)} {
-		dir = ui.CanonicalPath(dir)
-		if dir == home || !within(home, dir) {
-			continue
-		}
-		rel, err := filepath.Rel(home, dir)
-		if err != nil {
-			continue
-		}
-		d := filepath.Join(home, strings.SplitN(rel, string(filepath.Separator), 2)[0])
-		if !slices.Contains(dirs, d) {
+		if d, ok := project.HomeProjectDirOf(dir); ok && !slices.Contains(dirs, d) {
 			dirs = append(dirs, d)
 		}
 	}
@@ -188,7 +173,7 @@ func (s *inspection) homeOrphans() {
 func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
 	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
 	initLayout := s.cfg.GitDir == ".git"
-	if initLayout && wtDir != s.root && within(s.root, wtDir) {
+	if initLayout && wtDir != s.root && ui.Within(s.root, wtDir) {
 		s.add("home.layout", OK, wtDir, "Worktrees live inside the repository (in-repo layout).", "Optional: "+migrateHint+" moves worktrees, shared files and scripts to ~/.wtx/<name>/.")
 		return
 	}
@@ -196,7 +181,7 @@ func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
 	leftovers := 0
 	for _, wt := range worktrees {
 		path := ui.CanonicalPath(wt.Path)
-		if wt.Bare || path == s.root || !within(legacy, path) {
+		if wt.Bare || path == s.root || !ui.Within(legacy, path) {
 			continue
 		}
 		leftovers++

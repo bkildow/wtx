@@ -176,3 +176,35 @@ func TestBinPath(t *testing.T) {
 		})
 	}
 }
+
+func TestPreferLexicalAncestor(t *testing.T) {
+	tmp := t.TempDir() // on macOS a /var spelling of /private/var
+	root := filepath.Join(tmp, "proj")
+	deep := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(filepath.Join(deep, "c"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, "link")
+	if err := os.Symlink(deep, link); err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct{ name, start, want string }{
+		{"root itself", root, root},
+		{"below root", filepath.Join(deep, "c"), root},
+		{"outside root", tmp, canonical},
+		// The link adds depth, so stripping components cannot find the
+		// lexical ancestor; the root is returned as given.
+		{"depth-changing symlink", filepath.Join(link, "c"), canonical},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := preferLexicalAncestor(tt.start, canonical); got != tt.want {
+				t.Errorf("preferLexicalAncestor(%q) = %q, want %q", tt.start, got, tt.want)
+			}
+		})
+	}
+}

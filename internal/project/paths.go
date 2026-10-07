@@ -72,15 +72,46 @@ func ExpandPath(projectRoot, p string) (string, error) {
 	}
 }
 
-// mustExpand is ExpandPath for the string-returning path helpers. Callers
+// ExpandOrJoin is ExpandPath for the string-returning path helpers. Callers
 // are expected to have run ValidatePaths (loadProject does), so an error
 // here means the environment changed mid-run; fall back to joining onto the
 // root rather than returning an empty path.
-func mustExpand(projectRoot, p string) string {
+func ExpandOrJoin(projectRoot, p string) string {
 	if expanded, err := ExpandPath(projectRoot, p); err == nil {
 		return expanded
 	}
 	return filepath.Join(projectRoot, p)
+}
+
+// Layout holds the .worktree.yml spellings of a project's worktree, shared
+// and bin directories.
+type Layout struct {
+	WorktreeDir string
+	SharedDir   string
+	Bin         string
+}
+
+// HomeLayout is the layout of a project kept in ~/.wtx/<name>/, spelled with
+// a literal ~ so .worktree.yml stays portable.
+func HomeLayout(name string) Layout {
+	dir := wtxHomePrefix + "/" + name
+	return newLayout(dir+"/worktrees", dir+"/shared")
+}
+
+// InRepoLayout is the layout of a project kept in .worktrees/ inside the
+// repository (wtx init --in-repo).
+func InRepoLayout() Layout {
+	return newLayout(".worktrees", ".worktrees/shared")
+}
+
+func newLayout(worktreeDir, sharedDir string) Layout {
+	return Layout{WorktreeDir: worktreeDir, SharedDir: sharedDir, Bin: filepath.ToSlash(BinFor(sharedDir))}
+}
+
+// BinFor returns the bin directory for a shared directory: its sibling
+// named bin. It works on config spellings and expanded paths alike.
+func BinFor(sharedDir string) string {
+	return filepath.Join(filepath.Dir(sharedDir), "bin")
 }
 
 // ValidatePaths checks that the configured worktree and shared directories

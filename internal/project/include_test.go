@@ -36,7 +36,7 @@ func TestApplyInclude(t *testing.T) {
 	writeTestFile(t, filepath.Join(wt, ".env"), "edited-in-worktree")
 
 	include := &IncludeSource{Dir: src, Files: []string{".env", "secrets/key.txt", "gone.txt"}}
-	n, err := ApplyInclude(include, wt, false)
+	n, err := applyInclude(include, wt, false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestApplyIncludeDryRun(t *testing.T) {
 	wt := t.TempDir()
 	writeTestFile(t, filepath.Join(src, ".env"), "SECRET=1")
 
-	n, err := ApplyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	n, err := applyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestApplyIncludeDryRun(t *testing.T) {
 
 	// An existing destination file is not reported as a would-copy.
 	writeTestFile(t, filepath.Join(wt, ".env"), "edited")
-	n, err = ApplyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	n, err = applyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +96,7 @@ func TestApplyIncludeSkips(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n, err := ApplyInclude(tt.include, tt.dest, false)
+			n, err := applyInclude(tt.include, tt.dest, false)
 			if err != nil || n != 0 {
 				t.Errorf("ApplyInclude = (%d, %v), want (0, nil)", n, err)
 			}

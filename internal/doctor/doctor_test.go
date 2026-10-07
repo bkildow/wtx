@@ -16,6 +16,7 @@ import (
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func write(t *testing.T, path, content string, mode os.FileMode) {
@@ -42,7 +43,7 @@ func gitRun(t *testing.T, args ...string) {
 
 func fixture(t *testing.T, bare bool) (root, gitDir, worktree string) {
 	t.Helper()
-	root = resolved(t.TempDir())
+	root = ui.CanonicalPath(t.TempDir())
 	gitDir = filepath.Join(root, ".git")
 	worktree = root
 	if bare {
@@ -432,7 +433,7 @@ func TestScanBoundsAndUserDiscovery(t *testing.T) {
 	if bytes.Contains(data, []byte("SECRET_TOKEN")) {
 		t.Fatal("scan leaked source line")
 	}
-	home := resolved(t.TempDir())
+	home := ui.CanonicalPath(t.TempDir())
 	zdir := filepath.Join(home, "zsh")
 	xdg := filepath.Join(home, "config")
 	t.Setenv("HOME", home)

@@ -130,7 +130,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	// Resolve current worktree path for comparison
-	currentPath := resolvePathBest(cwd)
+	currentPath := ui.CanonicalPath(cwd)
 
 	// Optional PR awareness. A missing or unusable gh is the normal case, not
 	// an error: detection just falls back to the git-native checks.
@@ -156,7 +156,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if resolvePathBest(wt.Path) == currentPath {
+		if ui.CanonicalPath(wt.Path) == currentPath {
 			continue
 		}
 

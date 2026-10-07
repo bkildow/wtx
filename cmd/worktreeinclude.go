@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
@@ -45,7 +46,7 @@ func resolveIncludeSource(ctx context.Context, projectRoot string, cfg *config.C
 // project root for wtx init projects (whose git dir is the checkout's .git),
 // or the worktree checked out on the main branch for clone/bare projects.
 func mainWorktreeSource(ctx context.Context, projectRoot string, cfg *config.Config) (string, error) {
-	if filepath.Base(cfg.GitDir) == ".git" {
+	if cfg.IsCheckoutLayout() {
 		return projectRoot, nil
 	}
 
@@ -67,11 +68,10 @@ func mainWorktreeSource(ctx context.Context, projectRoot string, cfg *config.Con
 func dropManagedPaths(files []string, srcDir string, managedDirs []string) []string {
 	var prefixes []string
 	for _, dir := range managedDirs {
-		rel, err := filepath.Rel(srcDir, dir)
-		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			continue
+		// A managed directory that is srcDir itself would drop everything.
+		if rel, ok := ui.RelWithin(srcDir, dir); ok && rel != "." {
+			prefixes = append(prefixes, filepath.ToSlash(rel)+"/")
 		}
-		prefixes = append(prefixes, filepath.ToSlash(rel)+"/")
 	}
 	if len(prefixes) == 0 {
 		return files
@@ -79,14 +79,7 @@ func dropManagedPaths(files []string, srcDir string, managedDirs []string) []str
 
 	var kept []string
 	for _, f := range files {
-		managed := false
-		for _, p := range prefixes {
-			if strings.HasPrefix(f, p) {
-				managed = true
-				break
-			}
-		}
-		if !managed {
+		if !slices.ContainsFunc(prefixes, func(p string) bool { return strings.HasPrefix(f, p) }) {
 			kept = append(kept, f)
 		}
 	}

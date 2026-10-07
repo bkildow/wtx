@@ -11,6 +11,7 @@ import (
 
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // Per-worktree filesystem and Git reads dominate doctor's runtime on projects
@@ -92,7 +93,7 @@ func (s *inspection) listSharedCopies() sharedCopies {
 // prefetch gathers facts for every worktree concurrently, keyed by path.
 func (s *inspection) prefetch(ctx context.Context, worktrees []git.WorktreeInfo) map[string]*worktreeFacts {
 	copies := s.listSharedCopies()
-	symlinkRoot := resolved(filepath.Join(project.SharedPath(s.root, s.cfg), "symlink"))
+	symlinkRoot := ui.CanonicalPath(filepath.Join(project.SharedPath(s.root, s.cfg), "symlink"))
 	linkDirs := symlinkDirs(symlinkRoot)
 	facts := map[string]*worktreeFacts{}
 	var paths []string
@@ -115,7 +116,7 @@ func (s *inspection) prefetch(ctx context.Context, worktrees []git.WorktreeInfo)
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if resolved(path) != s.root {
+			if ui.CanonicalPath(path) != s.root {
 				f.copies = checkSharedCopies(path, copies)
 				f.dangling, f.danglingErrs = findDanglingLinks(path, symlinkRoot, linkDirs)
 			}
@@ -269,7 +270,7 @@ func findDanglingLinks(root, sharedRoot string, dirs []string) ([]string, collec
 			if !filepath.IsAbs(target) {
 				target = filepath.Join(dir, target)
 			}
-			if !within(sharedRoot, resolved(target)) {
+			if !ui.Within(sharedRoot, ui.CanonicalPath(target)) {
 				continue
 			}
 			if _, err := os.Stat(path); err == nil {

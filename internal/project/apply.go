@@ -26,12 +26,12 @@ type IncludeSource struct {
 	Files []string
 }
 
-// ApplyInclude copies the .worktreeinclude-selected files from the main
+// applyInclude copies the .worktreeinclude-selected files from the main
 // worktree into worktreePath. Files that already exist in the destination are
 // left alone (not counted), matching Claude Code and Conductor, which only
 // seed at creation. It is a no-op when include is nil, empty, or the destination is the main
 // worktree itself.
-func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
+func applyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
 	if include == nil || len(include.Files) == 0 || SamePath(include.Dir, worktreePath) {
 		return 0, nil
 	}
@@ -77,7 +77,7 @@ func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int
 			return count, err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			if err := copySymlink(src, dest); err != nil {
+			if err := fscopy.CopySymlink(src, dest); err != nil {
 				return count, err
 			}
 		} else if err := fscopy.CopyFile(src, dest); err != nil {
@@ -108,15 +108,6 @@ func hasSymlinkParent(root, rel string) bool {
 		}
 	}
 	return false
-}
-
-// copySymlink recreates the symlink at src as dest, preserving its target.
-func copySymlink(src, dest string) error {
-	target, err := os.Readlink(src)
-	if err != nil {
-		return err
-	}
-	return os.Symlink(target, dest)
 }
 
 func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (int, error) {
@@ -391,7 +382,7 @@ func symlinkDirContents(srcDir, destDir, worktreePath string) (int, error) {
 // so machine-local shared files override what the main worktree provides.
 // include may be nil to skip the .worktreeinclude layer.
 func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, include *IncludeSource) (ApplyResult, error) {
-	included, err := ApplyInclude(include, worktreePath, dryRun)
+	included, err := applyInclude(include, worktreePath, dryRun)
 	if err != nil {
 		return ApplyResult{}, err
 	}

@@ -9,8 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bkildow/wtx/internal/disk"
 	"gopkg.in/yaml.v3"
+
+	"github.com/bkildow/wtx/internal/disk"
 )
 
 const (
@@ -76,6 +77,13 @@ func (c *Config) DiskThreshold() *disk.Threshold {
 }
 
 // MainBranchOrDefault returns the configured main branch, falling back to DefaultMainBranch.
+// IsCheckoutLayout reports whether git_dir is a checkout's .git directory
+// (wtx init), so the project root is the main worktree, as opposed to a bare
+// repository (wtx clone).
+func (c *Config) IsCheckoutLayout() bool {
+	return filepath.Base(c.GitDir) == ".git"
+}
+
 func (c *Config) MainBranchOrDefault() string {
 	if c.MainBranch != "" {
 		return c.MainBranch

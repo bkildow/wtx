@@ -125,22 +125,46 @@ func CheckHomeDir(dir, root string) error {
 	return nil
 }
 
+// HomeProjectDirOf returns the ~/.wtx/<name> directory (canonical, honoring
+// WTX_HOME) that path lies in. The wtx home itself and paths outside it
+// report false.
+func HomeProjectDirOf(path string) (string, bool) {
+	home, err := WtxHome()
+	if err != nil {
+		return "", false
+	}
+	home = ui.CanonicalPath(home)
+	rel, ok := ui.RelWithin(home, ui.CanonicalPath(path))
+	if !ok || rel == "." {
+		return "", false
+	}
+	return filepath.Join(home, strings.SplitN(rel, string(filepath.Separator), 2)[0]), true
+}
+
+// SelectHomeDir picks the ~/.wtx/<name> directory for the repository at
+// root; name defaults to root's directory name. An empty dir means name is
+// invalid (or the wtx home cannot be determined). A non-empty dir with an
+// error means the directory is not available to root (see CheckHomeDir).
+func SelectHomeDir(root, name string) (dir string, err error) {
+	if name == "" {
+		name = filepath.Base(root)
+	}
+	if dir, err = HomeProjectDir(name); err != nil {
+		return "", err
+	}
+	return dir, CheckHomeDir(dir, root)
+}
+
 // RootFromMarker recognizes startDir inside a ~/.wtx/<name>/ directory (for
 // example its shared/ or bin/ folder) and returns the project root recorded
 // in that directory's marker. Only direct children of the wtx home are
 // considered, and the recorded root must still hold a .worktree.yml.
 func RootFromMarker(startDir string) (string, bool) {
-	home, err := WtxHome()
-	if err != nil {
+	dir, ok := HomeProjectDirOf(startDir)
+	if !ok {
 		return "", false
 	}
-	rel, err := filepath.Rel(ui.CanonicalPath(home), ui.CanonicalPath(startDir))
-	if err != nil || rel == "." || rel == ".." || filepath.IsAbs(rel) ||
-		strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	name := strings.SplitN(rel, string(filepath.Separator), 2)[0]
-	m, err := ReadMarker(filepath.Join(home, name))
+	m, err := ReadMarker(dir)
 	if err != nil || !config.Exists(m.Root) {
 		return "", false
 	}

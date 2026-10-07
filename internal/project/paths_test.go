@@ -133,3 +133,15 @@ func TestResolveScriptTilde(t *testing.T) {
 		t.Errorf("ResolveScript = %q, want %q", got, script)
 	}
 }
+
+func TestLayouts(t *testing.T) {
+	if got, want := HomeLayout("proj"), (Layout{"~/.wtx/proj/worktrees", "~/.wtx/proj/shared", "~/.wtx/proj/bin"}); got != want {
+		t.Errorf("HomeLayout = %+v, want %+v", got, want)
+	}
+	if got, want := InRepoLayout(), (Layout{".worktrees", ".worktrees/shared", ".worktrees/bin"}); got != want {
+		t.Errorf("InRepoLayout = %+v, want %+v", got, want)
+	}
+	if got := BinFor("/a/b/shared"); got != "/a/b/bin" {
+		t.Errorf("BinFor = %q", got)
+	}
+}

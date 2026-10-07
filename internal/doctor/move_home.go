@@ -60,7 +60,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		return
 	}
 	m := &migration{s: s}
-	inRepo := func(p string) bool { return p != s.root && within(s.root, p) }
+	inRepo := func(p string) bool { return p != s.root && ui.Within(s.root, p) }
 	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
 	shareDir := ui.CanonicalPath(project.SharedPath(s.root, s.cfg))
 	binDir := ui.CanonicalPath(project.BinPath(s.root, s.cfg))
@@ -76,7 +76,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	if inRepo(shareDir) {
 		m.oldShare, m.oldBin = shareDir, binDir
 	}
-	if m.oldShare != "" && (m.oldWT == "" || !within(m.oldWT, m.oldShare) || !within(m.oldWT, m.oldBin)) {
+	if m.oldShare != "" && (m.oldWT == "" || !ui.Within(m.oldWT, m.oldShare) || !ui.Within(m.oldWT, m.oldBin)) {
 		s.add(migrateID, Fail, cfgPath, "shared_dir is inside the repository but not under worktree_dir; wtx cannot tell which files are its own.", "Move the shared and bin directories manually and update shared_dir and scripts in "+config.ConfigFileName+".")
 		return
 	}
@@ -115,7 +115,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		s.add(migrateID, OK, m.homeDir, "Worktrees and shared files already live outside the repository.", "")
 		return
 	}
-	if cwd, err := os.Getwd(); err == nil && m.oldWT != "" && within(m.oldWT, ui.CanonicalPath(cwd)) {
+	if cwd, err := os.Getwd(); err == nil && m.oldWT != "" && ui.Within(m.oldWT, ui.CanonicalPath(cwd)) {
 		s.add(migrateID, Fail, cwd, "The current directory is inside "+m.oldWT+", which the migration moves.", "Run wtx doctor --migrate-home from the main checkout: "+s.root)
 		return
 	}
@@ -215,8 +215,8 @@ func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) {
 	}
 	for _, wt := range worktrees {
 		src := ui.CanonicalPath(wt.Path)
-		if wt.Bare || src == m.s.root || !within(m.oldWT, src) ||
-			(m.oldShare != "" && within(m.oldShare, src)) || (m.oldBin != "" && within(m.oldBin, src)) {
+		if wt.Bare || src == m.s.root || !ui.Within(m.oldWT, src) ||
+			(m.oldShare != "" && ui.Within(m.oldShare, src)) || (m.oldBin != "" && ui.Within(m.oldBin, src)) {
 			continue
 		}
 		rel, err := filepath.Rel(m.oldWT, src)
@@ -339,7 +339,7 @@ func (m *migration) planConfig(wt, shared, bin bool) {
 			if err != nil {
 				continue
 			}
-			if p = ui.CanonicalPath(p); within(m.oldBin, p) {
+			if p = ui.CanonicalPath(p); ui.Within(m.oldBin, p) {
 				rel, _ := filepath.Rel(m.oldBin, p)
 				want.Scripts[name] = prefix + "/bin/" + filepath.ToSlash(rel)
 			}

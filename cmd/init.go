@@ -67,24 +67,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 
 	// homeDir is ~/.wtx/<name> (expanded); empty for --in-repo.
 	var homeDir string
-	if inRepo {
-		cfg.WorktreeDir = ".worktrees"
-		cfg.SharedDir = ".worktrees/shared"
-	} else {
-		if name == "" {
-			name = filepath.Base(projectRoot)
-		}
-		homeDir, err = project.HomeProjectDir(name)
-		if err != nil {
+	layout := project.InRepoLayout()
+	if !inRepo {
+		homeDir, err = project.SelectHomeDir(projectRoot, name)
+		if homeDir == "" {
 			return fmt.Errorf("%w (or use --in-repo)", err)
 		}
-		if err := project.CheckHomeDir(homeDir, projectRoot); err != nil {
+		if err != nil {
 			return fmt.Errorf("%w\n  choose another directory with 'wtx init --name <name>'", err)
 		}
-		// Written with a literal ~ so .worktree.yml stays portable.
-		cfg.WorktreeDir = "~/.wtx/" + name + "/worktrees"
-		cfg.SharedDir = "~/.wtx/" + name + "/shared"
+		layout = project.HomeLayout(filepath.Base(homeDir))
 	}
+	cfg.WorktreeDir, cfg.SharedDir = layout.WorktreeDir, layout.SharedDir
 
 	// Detect the repository's default branch
 	gitDir := filepath.Join(projectRoot, cfg.GitDir)

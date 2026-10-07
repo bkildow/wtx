@@ -9,6 +9,7 @@ import (
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // homeFixture builds an init-layout project whose worktrees and shared files
@@ -16,8 +17,8 @@ import (
 // point at temporary directories.
 func homeFixture(t *testing.T) (root, wtxHome, worktree string) {
 	t.Helper()
-	t.Setenv("HOME", resolved(t.TempDir()))
-	wtxHome = resolved(t.TempDir())
+	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
+	wtxHome = ui.CanonicalPath(t.TempDir())
 	t.Setenv("WTX_HOME", wtxHome)
 	root, gitDir, _ := fixture(t, false)
 	cfg, err := config.Load(root)

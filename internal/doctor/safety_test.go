@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func TestGitVersionThresholds(t *testing.T) {
-	bin := resolved(t.TempDir())
+	bin := ui.CanonicalPath(t.TempDir())
 	t.Setenv("PATH", bin)
 	for _, tt := range []struct {
 		version  string
@@ -32,7 +33,7 @@ func TestPartialRepairWriteFailure(t *testing.T) {
 		t.Skip("permission failure requires non-root user")
 	}
 	root, gitDir, _ := fixture(t, false)
-	bin := resolved(t.TempDir())
+	bin := ui.CanonicalPath(t.TempDir())
 	write(t, filepath.Join(bin, "wtx"), "#!/bin/sh\nexit 99", 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	path := filepath.Join(root, ".claude", "settings.local.json")
@@ -96,7 +97,7 @@ func TestMissingExcludeParentAndNewFileGuard(t *testing.T) {
 
 func TestScanSkipsDirectoryLinksAndConfiguredDependencyPaths(t *testing.T) {
 	root, _, _ := fixture(t, false)
-	external := resolved(t.TempDir())
+	external := ui.CanonicalPath(t.TempDir())
 	write(t, filepath.Join(external, "secret.sh"), "wt status # do not scan", 0o600)
 	if err := os.Symlink(external, filepath.Join(root, "bin", "outside")); err != nil {
 		t.Fatal(err)
@@ -112,7 +113,7 @@ func TestScanSkipsDirectoryLinksAndConfiguredDependencyPaths(t *testing.T) {
 }
 
 func TestRepairRefusesRetargetedParentAndChecksVerification(t *testing.T) {
-	root := resolved(t.TempDir())
+	root := ui.CanonicalPath(t.TempDir())
 	for _, name := range []string{"one", "two"} {
 		write(t, filepath.Join(root, name, "data"), "before", 0o600)
 	}
@@ -161,7 +162,7 @@ func TestDiskDisableEnvironmentPrecedence(t *testing.T) {
 
 func TestScanIgnoresSkippedNamesAboveProject(t *testing.T) {
 	src, _, _ := fixture(t, false)
-	root := filepath.Join(resolved(t.TempDir()), "build", "proj")
+	root := filepath.Join(ui.CanonicalPath(t.TempDir()), "build", "proj")
 	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
 		t.Fatal(err)
 	}

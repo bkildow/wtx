@@ -8,11 +8,13 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func TestHookMigrationAndSettingsLinks(t *testing.T) {
 	root, gitDir, _ := fixture(t, false)
-	bin := resolved(t.TempDir())
+	bin := ui.CanonicalPath(t.TempDir())
 	write(t, filepath.Join(bin, "wtx"), "#!/bin/sh\nexit 99\n", 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	wt := filepath.Join(root, "worktrees", "feature")
@@ -99,7 +101,7 @@ func TestHookMigrationAndSettingsLinks(t *testing.T) {
 
 func TestHookExternalMalformedAndMissingExecutables(t *testing.T) {
 	root, _, _ := fixture(t, false)
-	external := filepath.Join(resolved(t.TempDir()), "settings.json")
+	external := filepath.Join(ui.CanonicalPath(t.TempDir()), "settings.json")
 	write(t, external, `{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`, 0o600)
 	path := filepath.Join(root, ".claude", "settings.local.json")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

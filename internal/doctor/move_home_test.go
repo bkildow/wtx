@@ -11,6 +11,7 @@ import (
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // inRepoFixture builds a wtx init --in-repo project: worktrees, shared files
@@ -18,8 +19,8 @@ import (
 // "feat/x" (nested) carrying managed shared symlinks.
 func inRepoFixture(t *testing.T) (root, gitDir, wtxHome string) {
 	t.Helper()
-	t.Setenv("HOME", resolved(t.TempDir()))
-	wtxHome = resolved(t.TempDir())
+	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
+	wtxHome = ui.CanonicalPath(t.TempDir())
 	t.Setenv("WTX_HOME", wtxHome)
 	root, gitDir, _ = fixture(t, false)
 	cfg, err := config.Load(root)
