@@ -33,25 +33,36 @@ const migrateID = "home.migrate"
 // partial failure pick up where the previous run stopped.
 type migration struct {
 	s        *inspection
-	finding  int
 	homeDir  string // ~/.wtx/<name>, expanded
-	name     string
 	oldWT    string // in-repo worktree directory, or ""
 	oldShare string // in-repo shared directory, or ""
-	oldBin   string // in-repo bin directory, or ""
 	newWT    string
 	newShare string
-	newBin   string
-	moved    []string // worktree destinations
 	steps    []repair
+}
+
+// oldBin is the in-repo bin directory (next to oldShare), or "".
+func (m *migration) oldBin() string {
+	if m.oldShare == "" {
+		return ""
+	}
+	return ui.CanonicalPath(project.BinFor(m.oldShare))
+}
+
+// inRepo reports whether p (canonical) lies strictly inside the repository.
+func (s *inspection) inRepo(p string) bool {
+	return p != s.root && ui.Within(s.root, p)
 }
 
 // planMigration plans moving an in-repo init project to ~/.wtx/<name>/.
 // Every step is an operation repair that re-checks its own preconditions, so
 // the plan is safe to apply after a partial failure and is a no-op once done.
+//
+// Steps are registered by step rather than inspection.plan: they target
+// directories and operations, not snapshotted files under managed parents.
 func (s *inspection) planMigration(ctx context.Context, worktrees []git.WorktreeInfo, name string) {
 	cfgPath := filepath.Join(s.root, config.ConfigFileName)
-	if s.cfg.GitDir != ".git" {
+	if !s.cfg.IsCheckoutLayout() {
 		s.add(migrateID, Warn, cfgPath, "--migrate-home applies only to projects set up with wtx init (git_dir: .git); this project keeps its layout.", "")
 		return
 	}
@@ -60,55 +71,52 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		return
 	}
 	m := &migration{s: s}
-	inRepo := func(p string) bool { return p != s.root && ui.Within(s.root, p) }
 	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
 	shareDir := ui.CanonicalPath(project.SharedPath(s.root, s.cfg))
-	binDir := ui.CanonicalPath(project.BinPath(s.root, s.cfg))
-	legacy := filepath.Join(s.root, legacyWorktreeDir)
+	moveWT, moveShare := s.inRepo(wtDir), s.inRepo(shareDir)
+	legacy := filepath.Join(s.root, project.InRepoLayout().WorktreeDir)
 
 	// Sources: the configured directories while they are in the repository,
 	// otherwise what an interrupted migration left in .worktrees/.
-	if inRepo(wtDir) {
+	if moveWT {
 		m.oldWT = wtDir
 	} else if isDir(legacy) {
 		m.oldWT = legacy
 	}
-	if inRepo(shareDir) {
-		m.oldShare, m.oldBin = shareDir, binDir
+	if moveShare {
+		m.oldShare = shareDir
 	}
-	if m.oldShare != "" && (m.oldWT == "" || !ui.Within(m.oldWT, m.oldShare) || !ui.Within(m.oldWT, m.oldBin)) {
+	oldBin := m.oldBin()
+	if m.oldShare != "" && (m.oldWT == "" || !ui.Within(m.oldWT, m.oldShare) || !ui.Within(m.oldWT, oldBin)) {
 		s.add(migrateID, Fail, cfgPath, "shared_dir is inside the repository but not under worktree_dir; wtx cannot tell which files are its own.", "Move the shared and bin directories manually and update shared_dir and scripts in "+config.ConfigFileName+".")
 		return
 	}
 
 	// Destination: the ~/.wtx/<name> directory the config already names
 	// (re-run), else --name or the repository directory name.
+	var err error
 	if dirs := s.homeProjectDirs(); len(dirs) > 0 {
 		m.homeDir = dirs[0]
+		err = project.CheckHomeDir(m.homeDir, s.root)
 	} else {
-		if name == "" {
-			name = filepath.Base(s.root)
-		}
-		dir, err := project.HomeProjectDir(name)
-		if err != nil {
+		var dir string
+		if dir, err = project.SelectHomeDir(s.root, name); dir == "" {
 			s.add(migrateID, Fail, cfgPath, err.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
 			return
 		}
 		m.homeDir = ui.CanonicalPath(dir)
 	}
-	m.name = filepath.Base(m.homeDir)
-	if err := project.CheckHomeDir(m.homeDir, s.root); err != nil {
+	if err != nil {
 		s.add(migrateID, Fail, m.homeDir, err.Error()+".", "Choose another directory name with wtx doctor --migrate-home --name <name>.")
 		return
 	}
-	m.newWT, m.newShare = filepath.Join(m.homeDir, "worktrees"), filepath.Join(m.homeDir, "shared")
-	if !inRepo(wtDir) {
-		m.newWT = wtDir
+	m.newWT, m.newShare = wtDir, shareDir
+	if moveWT {
+		m.newWT = filepath.Join(m.homeDir, "worktrees")
 	}
-	if !inRepo(shareDir) {
-		m.newShare = shareDir
+	if moveShare {
+		m.newShare = filepath.Join(m.homeDir, "shared")
 	}
-	m.newBin = filepath.Join(filepath.Dir(m.newShare), "bin")
 	s.addManaged(m.homeDir)
 
 	if m.oldWT == "" && m.oldShare == "" {
@@ -123,32 +131,33 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	if from == "" {
 		from = filepath.Dir(m.oldShare)
 	}
-	m.finding = s.add(migrateID, Warn, m.homeDir, "Worktrees, shared files and scripts move from "+ui.DisplayPath(s.root, from)+" to "+ui.DisplayPath("", m.homeDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
+	finding := s.add(migrateID, Warn, m.homeDir, "Worktrees, shared files and scripts move from "+s.paths.Path(from)+" to "+ui.DisplayPath("", m.homeDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
 
 	m.planMarker()
 	keepShare := m.planDir(ctx, "shared", m.oldShare, m.newShare)
 	// bin/ is resolved as a sibling of shared_dir, so it stays wherever shared/ stays.
 	keepBin := keepShare
-	if keepShare && m.oldBin != "" && exists(m.oldBin) {
-		m.skip(m.oldBin, "bin", "The bin directory stays next to the shared directory, which stays in the repository.", "Untrack the shared files and rerun wtx doctor --migrate-home to move both.")
+	if keepShare && oldBin != "" && exists(oldBin) {
+		s.addSubject(migrateID, oldBin, "bin", "The bin directory stays next to the shared directory, which stays in the repository.", "Untrack the shared files and rerun wtx doctor --migrate-home to move both.")
 	} else if !keepShare {
-		keepBin = m.planDir(ctx, "bin", m.oldBin, m.newBin)
+		keepBin = m.planDir(ctx, "bin", oldBin, project.BinFor(m.newShare))
 	}
-	m.planWorktrees(worktrees)
+	moved := m.planWorktrees(worktrees)
 	if m.oldShare != "" && !keepShare {
 		m.planRelink()
 	}
-	if len(m.moved) > 0 {
-		m.planRepair()
+	if len(moved) > 0 {
+		m.planRepair(moved)
 	}
 	if m.oldWT != "" && !keepShare && !keepBin {
 		m.planCleanup()
 	}
-	if len(m.steps) > 0 || inRepo(wtDir) || (inRepo(shareDir) && !keepShare) {
-		m.planConfig(inRepo(wtDir), inRepo(shareDir) && !keepShare, m.oldBin != "" && !keepBin)
+	moveShare = moveShare && !keepShare
+	if len(m.steps) > 0 || moveWT || moveShare {
+		m.planConfig(moveWT, moveShare, oldBin != "" && !keepBin)
 	}
 	if len(m.steps) > 0 {
-		s.report.Findings[m.finding].Repairable = true
+		s.report.Findings[finding].Repairable = true
 	}
 }
 
@@ -159,25 +168,20 @@ func (m *migration) step(target, action string, run func(context.Context) error,
 	m.steps = append(m.steps, r)
 }
 
-func (m *migration) skip(path, subject, explanation, remedy string) {
-	i := m.s.add(migrateID, Warn, path, explanation, remedy)
-	m.s.report.Findings[i].Subject = subject
-}
-
 func (m *migration) planMarker() {
 	if mk, err := project.ReadMarker(m.homeDir); err == nil && project.SamePath(mk.Root, m.s.root) {
 		return
 	}
-	root := m.s.root
-	m.step(filepath.Join(m.homeDir, project.MarkerFileName), "write ownership marker",
+	root, homeDir := m.s.root, m.homeDir
+	m.step(filepath.Join(homeDir, project.MarkerFileName), "write ownership marker",
 		func(context.Context) error {
-			if err := project.CheckHomeDir(m.homeDir, root); err != nil {
+			if err := project.CheckHomeDir(homeDir, root); err != nil {
 				return err
 			}
-			return project.WriteMarker(m.homeDir, root, false)
+			return project.WriteMarker(homeDir, root, false)
 		},
 		func() error {
-			mk, err := project.ReadMarker(m.homeDir)
+			mk, err := project.ReadMarker(homeDir)
 			if err == nil && !project.SamePath(mk.Root, root) {
 				err = fmt.Errorf("marker names %s", mk.Root)
 			}
@@ -196,27 +200,30 @@ func (m *migration) planDir(ctx context.Context, label, from, to string) (keep b
 		m.s.problem(migrateID, from, err)
 		return true
 	} else if out != "" {
-		m.skip(from, label, "The "+label+" directory contains files tracked by Git; it stays in the repository.", "Keep it, or untrack it and rerun wtx doctor --migrate-home to move it.")
+		m.s.addSubject(migrateID, from, label, "The "+label+" directory contains files tracked by Git; it stays in the repository.", "Keep it, or untrack it and rerun wtx doctor --migrate-home to move it.")
 		return true
 	}
 	if !emptyOrMissing(to) {
-		m.skip(to, label, "Destination "+label+" directory already exists and is not empty.", "Merge "+from+" into it manually, then rerun wtx doctor --migrate-home.")
+		m.s.addSubject(migrateID, to, label, "Destination "+label+" directory already exists and is not empty.", "Merge "+from+" into it manually, then rerun wtx doctor --migrate-home.")
 		return true
 	}
-	m.step(to, "move "+m.s.display(from)+" → "+ui.DisplayPath("", to),
+	m.step(to, "move "+m.s.paths.Path(from)+" → "+ui.DisplayPath("", to),
 		func(context.Context) error { return moveDir(from, to) },
 		func() error { return movedCheck(from, to) })
 	return false
 }
 
-func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) {
+// planWorktrees plans moving the linked worktrees under oldWT and returns
+// their destinations.
+func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) (moved []string) {
 	if m.oldWT == "" {
-		return
+		return nil
 	}
+	oldBin := m.oldBin()
 	for _, wt := range worktrees {
 		src := ui.CanonicalPath(wt.Path)
 		if wt.Bare || src == m.s.root || !ui.Within(m.oldWT, src) ||
-			(m.oldShare != "" && ui.Within(m.oldShare, src)) || (m.oldBin != "" && ui.Within(m.oldBin, src)) {
+			(m.oldShare != "" && ui.Within(m.oldShare, src)) || (oldBin != "" && ui.Within(oldBin, src)) {
 			continue
 		}
 		rel, err := filepath.Rel(m.oldWT, src)
@@ -227,24 +234,24 @@ func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) {
 		dest := filepath.Join(m.newWT, rel)
 		switch {
 		case wt.Locked:
-			m.skip(wt.Path, wt.Branch, "Worktree is locked; it was not moved.", fmt.Sprintf("Unlock it with git worktree unlock %q, then rerun wtx doctor --migrate-home.", wt.Path))
+			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Worktree is locked; it was not moved.", fmt.Sprintf("Unlock it with git worktree unlock %q, then rerun wtx doctor --migrate-home.", wt.Path))
 			continue
 		case wt.Prunable || !isDir(src):
-			m.skip(wt.Path, wt.Branch, "Worktree directory is missing or prunable; it was not moved.", "Review git worktree prune --dry-run, then rerun wtx doctor --migrate-home.")
+			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Worktree directory is missing or prunable; it was not moved.", "Review git worktree prune --dry-run, then rerun wtx doctor --migrate-home.")
 			continue
 		case hasSubmodules(src):
-			m.skip(wt.Path, wt.Branch, "Worktree has submodules, which git worktree move cannot move; it was not moved.", "Remove it with wtx remove and recreate it with wtx add, or move it manually.")
+			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Worktree has submodules, which git worktree move cannot move; it was not moved.", "Remove it with wtx remove and recreate it with wtx add, or move it manually.")
 			continue
 		case setupRunning(src):
-			m.skip(wt.Path, wt.Branch, "Setup is still running in this worktree; it was not moved.", "Wait for setup to finish, then rerun wtx doctor --migrate-home.")
+			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Setup is still running in this worktree; it was not moved.", "Wait for setup to finish, then rerun wtx doctor --migrate-home.")
 			continue
 		case exists(dest):
-			m.skip(dest, wt.Branch, "Destination already exists; the worktree was not moved.", "Move or remove "+dest+", then rerun wtx doctor --migrate-home.")
+			m.s.addSubject(migrateID, dest, wt.Branch, "Destination already exists; the worktree was not moved.", "Move or remove "+dest+", then rerun wtx doctor --migrate-home.")
 			continue
 		}
-		m.moved = append(m.moved, dest)
+		moved = append(moved, dest)
 		runner := m.s.runner
-		m.step(dest, "git worktree move "+m.s.display(src)+" → "+ui.DisplayPath("", dest),
+		m.step(dest, "git worktree move "+m.s.paths.Path(src)+" → "+ui.DisplayPath("", dest),
 			func(ctx context.Context) error {
 				if !isDir(src) {
 					return fmt.Errorf("worktree is no longer at %s", src)
@@ -256,6 +263,7 @@ func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) {
 			},
 			func() error { return movedCheck(src, filepath.Join(dest, ".git")) })
 	}
+	return moved
 }
 
 // planRelink retargets managed symlinks in every linked worktree from the
@@ -283,8 +291,8 @@ func (m *migration) planRelink() {
 		}, nil)
 }
 
-func (m *migration) planRepair() {
-	runner, moved := m.s.runner, m.moved
+func (m *migration) planRepair(moved []string) {
+	runner := m.s.runner
 	m.step(m.newWT, "git worktree repair", func(ctx context.Context) error {
 		var present []string
 		for _, p := range moved {
@@ -301,7 +309,7 @@ func (m *migration) planRepair() {
 
 func (m *migration) planCleanup() {
 	dir := m.oldWT
-	m.step(dir, "remove "+m.s.display(dir)+" if empty", func(context.Context) error {
+	m.step(dir, "remove "+m.s.paths.Path(dir)+" if empty", func(context.Context) error {
 		return removeEmptyDirs(dir)
 	}, nil)
 }
@@ -317,24 +325,21 @@ func (m *migration) planConfig(wt, shared, bin bool) {
 		m.s.problem(migrateID, path, err)
 		return
 	}
-	prefix := "~/.wtx/" + m.name
+	layout := project.HomeLayout(filepath.Base(m.homeDir))
 	want := *m.s.cfg
 	want.Scripts = maps.Clone(m.s.cfg.Scripts)
 	if wt {
-		want.WorktreeDir = prefix + "/worktrees"
+		want.WorktreeDir = layout.WorktreeDir
 	}
 	if shared {
-		want.SharedDir = prefix + "/shared"
+		want.SharedDir = layout.SharedDir
 	}
 	if bin {
+		oldBin := m.oldBin()
 		for name, value := range want.Scripts {
-			p, err := project.ExpandPath(m.s.root, value)
-			if err != nil {
-				continue
-			}
-			if p = ui.CanonicalPath(p); ui.Within(m.oldBin, p) {
-				rel, _ := filepath.Rel(m.oldBin, p)
-				want.Scripts[name] = prefix + "/bin/" + filepath.ToSlash(rel)
+			p := ui.CanonicalPath(project.ExpandOrJoin(m.s.root, value))
+			if rel, ok := ui.RelWithin(oldBin, p); ok {
+				want.Scripts[name] = layout.Bin + "/" + filepath.ToSlash(rel)
 			}
 		}
 	}
@@ -406,26 +411,10 @@ func rewriteConfig(data []byte, have, want *config.Config) ([]byte, error) {
 	if err := yaml.Unmarshal(out, &got); err != nil {
 		return nil, err
 	}
-	if got.WorktreeDir != want.WorktreeDir || got.SharedDir != want.SharedDir || !sameMap(got.Scripts, want.Scripts) {
+	if got.WorktreeDir != want.WorktreeDir || got.SharedDir != want.SharedDir || !maps.Equal(got.Scripts, want.Scripts) {
 		return nil, errors.New("unrecognized layout (flow-style or multi-line values)")
 	}
 	return out, nil
-}
-
-func sameMap(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if bv, ok := b[k]; !ok || bv != v {
-			return false
-		}
-	}
-	return true
-}
-
-func (s *inspection) display(path string) string {
-	return ui.DisplayPath(s.root, path)
 }
 
 func exists(path string) bool {
@@ -504,11 +493,7 @@ func copyTree(from, to string) error {
 		case entry.IsDir():
 			return os.MkdirAll(dest, info.Mode().Perm())
 		case entry.Type()&os.ModeSymlink != 0:
-			target, err := os.Readlink(path)
-			if err != nil {
-				return err
-			}
-			return os.Symlink(target, dest)
+			return fscopy.CopySymlink(path, dest)
 		default:
 			return fscopy.CopyFile(path, dest)
 		}
@@ -519,6 +504,7 @@ func copyTree(from, to string) error {
 // newRoot/<rel>, walking only the mirror of newRoot. Other links are left
 // alone.
 func relink(newRoot, oldRoot, worktree string) error {
+	oldRoot = ui.CanonicalPath(oldRoot)
 	return filepath.WalkDir(newRoot, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -548,7 +534,7 @@ func relink(newRoot, oldRoot, worktree string) error {
 			return nil
 		}
 		target, err := os.Readlink(link)
-		if err == nil && ui.CanonicalPath(target) == ui.CanonicalPath(filepath.Join(oldRoot, rel)) {
+		if err == nil && ui.CanonicalPath(target) == filepath.Join(oldRoot, rel) {
 			if err := os.Remove(link); err != nil {
 				return err
 			}

@@ -108,6 +108,7 @@ type inspection struct {
 	// managedDirs are wtx-managed directories outside root (an expanded
 	// worktree_dir and the shared/bin parent, e.g. ~/.wtx/<name>), resolved.
 	managedDirs []string
+	paths       ui.PathDisplay // displays paths relative to root
 }
 
 // Run always returns a report, including discovery and operational failures.
@@ -212,6 +213,14 @@ func (s *inspection) add(id string, severity Severity, path, explanation, remedy
 	return len(s.report.Findings) - 1
 }
 
+// addSubject adds a warning about subject (e.g. a branch), for findings whose
+// path is shared with other findings.
+func (s *inspection) addSubject(id, path, subject, explanation, remedy string) int {
+	i := s.add(id, Warn, path, explanation, remedy)
+	s.report.Findings[i].Subject = subject
+	return i
+}
+
 func (s *inspection) problem(id, path string, err error) {
 	s.add(id, "fail", path, "Inspection failed: "+err.Error(), "Correct the file or access permissions and rerun wtx doctor.")
 }
@@ -272,6 +281,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	}
 	s.guards = append(s.guards, guard)
 	s.report.Root = s.root
+	s.paths = ui.NewPathDisplay(s.root)
 	gitDir := project.GitDirPath(s.root, s.cfg)
 	s.gitDir = ui.CanonicalPath(gitDir)
 	s.backups = filepath.Join(gitDir, backupDirName)

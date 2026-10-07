@@ -14,10 +14,6 @@ import (
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-// legacyWorktreeDir is the in-repo worktree directory written by wtx init
-// --in-repo (and by wtx init before ~/.wtx became the default).
-const legacyWorktreeDir = ".worktrees"
-
 // migrateHint names the opt-in migration for in-repo projects.
 const migrateHint = "wtx doctor --migrate-home (preview with --dry-run)"
 
@@ -160,8 +156,7 @@ func (s *inspection) homeOrphans() {
 			continue // not a wtx directory, ours, or owned by a live project
 		}
 		found = true
-		i := s.add("home.orphans", Warn, dir, "Owning repository "+m.Root+" no longer exists or is no longer a wtx project.", "Review its worktrees and shared files, then delete the directory manually if unneeded; doctor never deletes it.")
-		s.report.Findings[i].Subject = m.Root
+		s.addSubject("home.orphans", dir, m.Root, "Owning repository "+m.Root+" no longer exists or is no longer a wtx project.", "Review its worktrees and shared files, then delete the directory manually if unneeded; doctor never deletes it.")
 	}
 	if !found {
 		s.add("home.orphans", OK, home, "No orphaned project directories.", "")
@@ -172,12 +167,15 @@ func (s *inspection) homeOrphans() {
 // worktrees left in the legacy in-repo directory after worktree_dir moved.
 func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
 	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
-	initLayout := s.cfg.GitDir == ".git"
-	if initLayout && wtDir != s.root && ui.Within(s.root, wtDir) {
+	initLayout := s.cfg.IsCheckoutLayout()
+	if initLayout && s.inRepo(wtDir) {
 		s.add("home.layout", OK, wtDir, "Worktrees live inside the repository (in-repo layout).", "Optional: "+migrateHint+" moves worktrees, shared files and scripts to ~/.wtx/<name>/.")
 		return
 	}
-	legacy := filepath.Join(s.root, legacyWorktreeDir)
+	// The in-repo directory written by wtx init --in-repo (and by wtx init
+	// before ~/.wtx became the default).
+	legacyDir := project.InRepoLayout().WorktreeDir
+	legacy := filepath.Join(s.root, legacyDir)
 	leftovers := 0
 	for _, wt := range worktrees {
 		path := ui.CanonicalPath(wt.Path)
@@ -189,8 +187,7 @@ func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
 		if initLayout {
 			remedy = "Run " + migrateHint + " to move it."
 		}
-		i := s.add("home.layout", Warn, wt.Path, "Worktree is still in the in-repo "+legacyWorktreeDir+" directory, but worktree_dir points elsewhere.", remedy)
-		s.report.Findings[i].Subject = wt.Branch
+		s.addSubject("home.layout", wt.Path, wt.Branch, "Worktree is still in the in-repo "+legacyDir+" directory, but worktree_dir points elsewhere.", remedy)
 	}
 	if leftovers == 0 {
 		s.add("home.layout", OK, wtDir, "Worktrees live in the configured directory.", "")

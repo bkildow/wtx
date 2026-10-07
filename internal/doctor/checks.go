@@ -180,8 +180,7 @@ func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo)
 	}
 	for _, ref := range refs {
 		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok && !used[branch] {
-			i := s.add("git.branches", "warn", s.runner.GitDir, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
-			s.report.Findings[i].Subject = branch
+			s.addSubject("git.branches", s.runner.GitDir, branch, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
 		}
 	}
 }
