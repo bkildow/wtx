@@ -27,8 +27,9 @@ type IncludeSource struct {
 }
 
 // ApplyInclude copies the .worktreeinclude-selected files from the main
-// worktree into worktreePath, overwriting existing files like ApplyCopy does.
-// It is a no-op when include is nil, empty, or the destination is the main
+// worktree into worktreePath. Files that already exist in the destination are
+// left alone (not counted), matching Claude Code and Conductor, which only
+// seed at creation. It is a no-op when include is nil, empty, or the destination is the main
 // worktree itself.
 func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
 	if include == nil || len(include.Files) == 0 || samePath(include.Dir, worktreePath) {
@@ -41,6 +42,12 @@ func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int
 	for _, rel := range include.Files {
 		src := filepath.Join(include.Dir, rel)
 		dest := filepath.Join(worktreePath, rel)
+
+		// Seed only: never replace a file the worktree already has, so a
+		// re-run of wtx apply keeps a worktree's own edits.
+		if _, err := os.Lstat(dest); err == nil {
+			continue
+		}
 
 		if dryRun {
 			ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", src, dest))
@@ -77,7 +84,6 @@ func copySymlink(src, dest string) error {
 	if err != nil {
 		return err
 	}
-	_ = os.Remove(dest)
 	return os.Symlink(target, dest)
 }
 

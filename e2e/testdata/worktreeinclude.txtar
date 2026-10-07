@@ -38,11 +38,21 @@ cmp .worktrees/feature/.env.local $WORK/override
 cmp .worktrees/feature/.env.example $WORK/envexample
 cmp .worktrees/feature/secrets/tracked.txt $WORK/envexample
 
-# wtx apply re-copies from the main worktree.
+# Re-running wtx apply leaves a worktree's edited .env alone; shared/copy
+# still applies after and wins.
+cp $WORK/edited .worktrees/feature/.env
+exec wtx --dry-run apply feature
+! stderr 'myrepo/\.env -> '
+exec wtx apply feature
+stderr '0 included'
+cmp .worktrees/feature/.env $WORK/edited
+cmp .worktrees/feature/.env.local $WORK/override
+
+# A file missing from the worktree is seeded again.
 rm .worktrees/feature/.env
 exec wtx apply feature
-stderr '3 included'
-exists .worktrees/feature/.env
+stderr '1 included'
+cmp .worktrees/feature/.env $WORK/secret
 
 # --- clone/bare layout: the main-branch worktree is the source ---
 cd $WORK
@@ -71,6 +81,8 @@ secrets/
 EXAMPLE=1
 -- secret --
 SECRET=1
+-- edited --
+EDITED_IN_WORKTREE=1
 -- override --
 OVERRIDE=1
 -- barecfg --
