@@ -36,16 +36,20 @@ Cloned project (`wtx clone <url>`), a bare repo with no `.git` at the root:
         main/
         feature/auth/
 
-Initialized project (`wtx init` inside an existing repo), where the root is itself the main worktree:
+Initialized project (`wtx init` inside an existing repo), where the root is itself the main worktree and everything else lives in `~/.wtx/<name>/` (`$WTX_HOME/<name>/` when set):
 
     project/
       .git/
-      .worktree.yml
-      .worktrees/
-        bin/refresh
-        shared/copy/
-        shared/symlink/
+      .worktree.yml       # worktree_dir: ~/.wtx/project/worktrees
+    ~/.wtx/project/
+      project.yml         # marker: root of the owning repo
+      bin/refresh
+      shared/copy/
+      shared/symlink/
+      worktrees/
         feature/auth/
+
+`wtx init --in-repo` keeps the older layout with everything under `project/.worktrees/`.
 
 Run git commands inside a worktree. In a cloned project the root has no `.git`, so git fails there.
 

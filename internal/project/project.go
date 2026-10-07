@@ -20,9 +20,14 @@ import (
 // this works from linked worktrees located anywhere on disk. If that
 // candidate holds a .worktree.yml it wins, which also keeps a committed
 // .worktree.yml inside a worktree from being mistaken for the root.
+// Next, a startDir inside ~/.wtx/<name>/ (outside any git worktree) maps to
+// the root recorded in that directory's marker (see RootFromMarker).
 // Otherwise FindRoot walks up from startDir looking for .worktree.yml.
 func FindRoot(startDir string) (string, error) {
 	if root, ok := rootFromGitCommonDir(startDir); ok {
+		return root, nil
+	}
+	if root, ok := RootFromMarker(startDir); ok {
 		return root, nil
 	}
 	return walkUpForConfig(startDir)

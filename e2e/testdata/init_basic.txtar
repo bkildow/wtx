@@ -5,23 +5,60 @@ exec git init myrepo
 cd myrepo
 exec git commit --allow-empty -m 'initial'
 
-# wtx init should create scaffold
+# --dry-run prints every path it would create and writes nothing
+exec wtx --dry-run init
+stderr 'mkdir -p .*/\.wtx-home/myrepo$'
+stderr 'write .*/\.wtx-home/myrepo/project\.yml'
+stderr 'mkdir -p .*/\.wtx-home/myrepo/shared/copy'
+stderr 'mkdir -p .*/\.wtx-home/myrepo/shared/symlink'
+stderr 'mkdir -p .*/\.wtx-home/myrepo/worktrees'
+stderr 'mkdir -p .*/\.wtx-home/myrepo/bin'
+stderr 'write .*/\.wtx-home/myrepo/bin/refresh'
+stderr 'write .*/myrepo/\.worktree\.yml'
+! exists .worktree.yml
+! exists $WTX_HOME/myrepo
+
+# wtx init keeps worktrees and shared files under WTX_HOME (~/.wtx)
 exec wtx init
 stderr 'Initialized wtx project'
+stderr 'Worktrees: .*\.wtx-home/myrepo/worktrees'
+stderr '\.worktreeinclude'
+! stderr '\.gitignore'
 
-# Verify scaffold was created
+# The repo only gains .worktree.yml
 exists .worktree.yml
-exists .worktrees/shared/copy
-exists .worktrees/shared/symlink
-exists .worktrees
-exists .worktrees/bin/refresh
+! exists .worktrees
+exists $WTX_HOME/myrepo/shared/copy
+exists $WTX_HOME/myrepo/shared/symlink
+exists $WTX_HOME/myrepo/worktrees
+exists $WTX_HOME/myrepo/bin/refresh
+exists $WTX_HOME/myrepo/project.yml
+grep 'root: .*myrepo' $WTX_HOME/myrepo/project.yml
 
-# Config should have correct values
+# Config keeps the literal ~ form
 grep 'version: 1' .worktree.yml
-grep 'worktree_dir: .worktrees' .worktree.yml
-grep 'shared_dir: .worktrees/shared' .worktree.yml
-grep 'refresh: .worktrees/bin/refresh' .worktree.yml
+grep 'worktree_dir: ~/.wtx/myrepo/worktrees' .worktree.yml
+grep 'shared_dir: ~/.wtx/myrepo/shared' .worktree.yml
+grep 'refresh: ~/.wtx/myrepo/bin/refresh' .worktree.yml
+! grep 'wtx-home' .worktree.yml
 
 # The starter refresh script is a runnable no-op.
 exec wtx run refresh
 stderr 'not implemented'
+
+# Re-running init is refused
+! exec wtx init
+stderr 'already a wtx project'
+
+# Worktrees are created under WTX_HOME
+exec wtx add --skip-setup feature
+exists $WTX_HOME/myrepo/worktrees/feature/.git
+exec wtx list
+stderr 'feature'
+stderr '\.wtx-home/myrepo/worktrees/feature'
+! stderr '~'
+
+# Commands run from the shared dir find the project via the marker
+cd $WTX_HOME/myrepo/shared
+exec wtx root
+stdout 'myrepo$'

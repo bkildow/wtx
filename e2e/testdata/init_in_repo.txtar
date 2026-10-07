@@ -1,0 +1,33 @@
+[!exec:git] skip 'git not available'
+
+# Set up a normal git repo (git identity from setupEnv env vars)
+exec git init myrepo
+cd myrepo
+exec git commit --allow-empty -m 'initial'
+
+# --name is meaningless with --in-repo
+! exec wtx init --in-repo --name other
+stderr 'cannot be used with --in-repo'
+
+# wtx init --in-repo keeps the .worktrees/ layout inside the repo
+exec wtx init --in-repo
+stderr 'Initialized wtx project'
+stderr '\.gitignore'
+
+exists .worktree.yml
+exists .worktrees/shared/copy
+exists .worktrees/shared/symlink
+exists .worktrees
+exists .worktrees/bin/refresh
+! exists $WTX_HOME/myrepo
+
+grep 'version: 1' .worktree.yml
+grep 'worktree_dir: .worktrees' .worktree.yml
+grep 'shared_dir: .worktrees/shared' .worktree.yml
+grep 'refresh: .worktrees/bin/refresh' .worktree.yml
+
+exec wtx run refresh
+stderr 'not implemented'
+
+exec wtx add --skip-setup feature
+exists .worktrees/feature/.git

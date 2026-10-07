@@ -307,7 +307,8 @@ through the transition. Prefer `WTX_*` in new scripts.
 A non-zero exit from the script is reported as an error.
 
 **Starter refresh script.** `wtx clone` and `wtx init` create `bin/refresh`
-(`.worktrees/bin/refresh` for `wtx init`) and register it as `scripts.refresh`.
+(`~/.wtx/<name>/bin/refresh` for `wtx init`, `.worktrees/bin/refresh` for
+`wtx init --in-repo`) and register it as `scripts.refresh`.
 It is a no-op that prints a message, but its comments lay out the typical
 shape of an environment refresh: work in the main worktree via
 `WTX_MAIN_WORKTREE_PATH`, start services, pull, refresh data, capture a
