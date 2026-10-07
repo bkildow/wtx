@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,23 +37,37 @@ func ListWorktreeIncludes(ctx context.Context, mainWorktree string) ([]string, e
 		return nil, err
 	}
 
-	ignored, err := lsFilesInWorktree(ctx, mainWorktree,
-		"ls-files", "-z", "--others", "--ignored", "--exclude-standard")
-	if err != nil {
-		return nil, err
-	}
 	// Without --exclude-standard, "ignored" here means "matched by
 	// .worktreeinclude"; .gitignore is not consulted for this set.
-	matched, err := lsFilesInWorktree(ctx, mainWorktree,
+	matched, err := gitInWorktree(ctx, mainWorktree, nil,
 		"ls-files", "-z", "--others", "--ignored", "--exclude-from="+includeFile)
 	if err != nil {
 		return nil, err
 	}
+	candidates := parseNULList(matched)
+	if len(candidates) == 0 {
+		return nil, nil
+	}
 
-	return intersectPaths(parseNULList(ignored), parseNULList(matched)), nil
+	// Keep only the candidates .gitignore also ignores. Asking check-ignore
+	// about the few matched paths avoids listing every ignored file (e.g. all
+	// of node_modules) in the main worktree.
+	var stdin bytes.Buffer
+	for _, p := range candidates {
+		if !strings.HasSuffix(p, "/") {
+			stdin.WriteString(p)
+			stdin.WriteByte(0)
+		}
+	}
+	ignored, err := gitInWorktree(ctx, mainWorktree, &stdin, "check-ignore", "-z", "--stdin")
+	if err != nil {
+		return nil, err
+	}
+
+	return intersectPaths(parseNULList(ignored), candidates), nil
 }
 
-func lsFilesInWorktree(ctx context.Context, dir string, args ...string) (string, error) {
+func gitInWorktree(ctx context.Context, dir string, stdin io.Reader, args ...string) (string, error) {
 	fullArgs := append([]string{"-C", dir}, args...)
 	cmdStr := "git " + strings.Join(fullArgs, " ")
 
@@ -61,8 +76,14 @@ func lsFilesInWorktree(ctx context.Context, dir string, args ...string) (string,
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
+	cmd.Stdin = stdin
 
 	if err := cmd.Run(); err != nil {
+		// check-ignore exits 1 when no path is ignored.
+		var exitErr *exec.ExitError
+		if args[0] == "check-ignore" && errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			return "", nil
+		}
 		return "", fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
 	}
 	return stdout.String(), nil

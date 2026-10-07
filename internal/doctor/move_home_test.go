@@ -247,6 +247,9 @@ func TestMigrateHomeRefusals(t *testing.T) {
 		if !exists(filepath.Join(root, ".worktrees", "shared", "copy", ".env")) || exists(filepath.Join(wtxHome, "proj", "shared")) {
 			t.Fatal("tracked shared directory moved")
 		}
+		if exists(filepath.Join(wtxHome, "proj", "bin")) {
+			t.Fatal("bin moved away from the shared directory it is resolved against")
+		}
 		cfg, err := config.Load(root)
 		if err != nil {
 			t.Fatal(err)

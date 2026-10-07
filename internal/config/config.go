@@ -144,7 +144,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 
 	b.WriteString("\n# Path to the git directory (.bare for cloned projects, .git for initialized)\n")
 	if cfg != nil {
-		fmt.Fprintf(&b, "git_dir: %s\n", cfg.GitDir)
+		fmt.Fprintf(&b, "git_dir: %s\n", YAMLQuote(cfg.GitDir))
 	} else {
 		fmt.Fprintf(&b, "git_dir: %s\n", DefaultGitDir)
 	}
@@ -152,7 +152,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	b.WriteString("\n# Directory for worktrees: relative to the project root, absolute, or ~/...\n")
 	b.WriteString("# (~/.wtx/... honors $WTX_HOME)\n")
 	if cfg != nil {
-		fmt.Fprintf(&b, "worktree_dir: %s\n", cfg.WorktreeDir)
+		fmt.Fprintf(&b, "worktree_dir: %s\n", YAMLQuote(cfg.WorktreeDir))
 	} else {
 		fmt.Fprintf(&b, "worktree_dir: %s\n", DefaultWorktreeDir)
 	}
@@ -160,7 +160,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories); same path\n")
 	b.WriteString("# rules as worktree_dir. Scripts live in a bin/ directory next to it.\n")
 	if cfg != nil {
-		fmt.Fprintf(&b, "shared_dir: %s\n", cfg.SharedDir)
+		fmt.Fprintf(&b, "shared_dir: %s\n", YAMLQuote(cfg.SharedDir))
 	} else {
 		fmt.Fprintf(&b, "shared_dir: %s\n", DefaultSharedDir)
 	}
@@ -214,7 +214,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.Setup) > 0 {
 		b.WriteString("setup:\n")
 		for _, s := range cfg.Setup {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(s))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(s))
 		}
 	} else {
 		b.WriteString("# setup:\n")
@@ -227,7 +227,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.ParallelSetup) > 0 {
 		b.WriteString("parallel_setup:\n")
 		for _, s := range cfg.ParallelSetup {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(s))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(s))
 		}
 	} else {
 		b.WriteString("# parallel_setup:\n")
@@ -239,7 +239,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.Teardown) > 0 {
 		b.WriteString("teardown:\n")
 		for _, t := range cfg.Teardown {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(t))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(t))
 		}
 	} else {
 		b.WriteString("# teardown:\n")
@@ -251,7 +251,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.ParallelTeardown) > 0 {
 		b.WriteString("parallel_teardown:\n")
 		for _, t := range cfg.ParallelTeardown {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(t))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(t))
 		}
 	} else {
 		b.WriteString("# parallel_teardown:\n")
@@ -269,7 +269,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			fmt.Fprintf(&b, "  %s: %s\n", yamlQuote(name), yamlQuote(cfg.Scripts[name]))
+			fmt.Fprintf(&b, "  %s: %s\n", YAMLQuote(name), YAMLQuote(cfg.Scripts[name]))
 		}
 	} else {
 		b.WriteString("# scripts:\n")
@@ -280,10 +280,10 @@ func renderAnnotatedConfig(cfg *Config) string {
 	return b.String()
 }
 
-// yamlQuote wraps a string in double quotes if it contains characters
+// YAMLQuote wraps a string in double quotes if it contains characters
 // that need quoting in YAML, otherwise returns it bare.
-func yamlQuote(s string) string {
-	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$\n") || s == "" {
+func YAMLQuote(s string) string {
+	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$\n\t") || s == "" || strings.TrimSpace(s) != s {
 		return fmt.Sprintf("%q", s)
 	}
 	return s

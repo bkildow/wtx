@@ -21,7 +21,7 @@ const StarterScriptName = "refresh"
 // is spelled like cfg.SharedDir (relative, "~" or absolute), so the config
 // never records an expanded home directory.
 func StarterScripts(cfg *config.Config) map[string]string {
-	bin := path.Join(path.Dir(filepath.ToSlash(cfg.SharedDir)), "bin", StarterScriptName)
+	bin := path.Join(path.Dir(path.Clean(filepath.ToSlash(cfg.SharedDir))), "bin", StarterScriptName)
 	return map[string]string{StarterScriptName: bin}
 }
 

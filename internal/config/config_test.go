@@ -472,9 +472,9 @@ func TestYamlQuote(t *testing.T) {
 		{"", `""`},
 	}
 	for _, tt := range tests {
-		got := yamlQuote(tt.input)
+		got := YAMLQuote(tt.input)
 		if got != tt.want {
-			t.Errorf("yamlQuote(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("YAMLQuote(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }

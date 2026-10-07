@@ -48,6 +48,11 @@ func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int
 		if _, err := os.Lstat(dest); err == nil {
 			continue
 		}
+		// A parent that is a symlink (e.g. a directory linked from
+		// shared/symlink) would make the copy land outside the worktree.
+		if hasSymlinkParent(worktreePath, rel) {
+			continue
+		}
 
 		if dryRun {
 			ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", src, dest))
@@ -61,6 +66,12 @@ func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int
 				continue // removed since git listed it
 			}
 			return count, err
+		}
+		// Sockets, FIFOs and devices cannot be copied; skip rather than
+		// failing the whole apply after the worktree already exists.
+		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			ui.Warning("  skipped " + rel + ": not a regular file")
+			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 			return count, err
@@ -76,6 +87,27 @@ func ApplyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int
 		count++
 	}
 	return count, nil
+}
+
+// hasSymlinkParent reports whether any existing directory component of rel
+// (below root) is a symlink.
+func hasSymlinkParent(root, rel string) bool {
+	dir := root
+	parts := strings.Split(filepath.ToSlash(filepath.Dir(rel)), "/")
+	for _, part := range parts {
+		if part == "." || part == "" {
+			continue
+		}
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return false
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // copySymlink recreates the symlink at src as dest, preserving its target.

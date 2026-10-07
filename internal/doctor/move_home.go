@@ -127,7 +127,13 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 
 	m.planMarker()
 	keepShare := m.planDir(ctx, "shared", m.oldShare, m.newShare)
-	keepBin := m.planDir(ctx, "bin", m.oldBin, m.newBin)
+	// bin/ is resolved as a sibling of shared_dir, so it stays wherever shared/ stays.
+	keepBin := keepShare
+	if keepShare && m.oldBin != "" && exists(m.oldBin) {
+		m.skip(m.oldBin, "bin", "The bin directory stays next to the shared directory, which stays in the repository.", "Untrack the shared files and rerun wtx doctor --migrate-home to move both.")
+	} else if !keepShare {
+		keepBin = m.planDir(ctx, "bin", m.oldBin, m.newBin)
+	}
 	m.planWorktrees(worktrees)
 	if m.oldShare != "" && !keepShare {
 		m.planRelink()
@@ -381,9 +387,9 @@ func rewriteConfig(data []byte, have, want *config.Config) ([]byte, error) {
 			inScripts = k[1] == "scripts"
 			switch {
 			case k[1] == "worktree_dir" && have.WorktreeDir != want.WorktreeDir:
-				lines[i] = "worktree_dir: " + quote(want.WorktreeDir)
+				lines[i] = "worktree_dir: " + config.YAMLQuote(want.WorktreeDir)
 			case k[1] == "shared_dir" && have.SharedDir != want.SharedDir:
-				lines[i] = "shared_dir: " + quote(want.SharedDir)
+				lines[i] = "shared_dir: " + config.YAMLQuote(want.SharedDir)
 			}
 			continue
 		}
@@ -399,7 +405,7 @@ func rewriteConfig(data []byte, have, want *config.Config) ([]byte, error) {
 			continue
 		}
 		if v, ok := want.Scripts[name]; ok && v != have.Scripts[name] {
-			lines[i] = e[1] + e[2] + ": " + quote(v)
+			lines[i] = e[1] + e[2] + ": " + config.YAMLQuote(v)
 		}
 	}
 	out := []byte(strings.Join(lines, "\n"))
@@ -411,13 +417,6 @@ func rewriteConfig(data []byte, have, want *config.Config) ([]byte, error) {
 		return nil, errors.New("unrecognized layout (flow-style or multi-line values)")
 	}
 	return out, nil
-}
-
-func quote(s string) string {
-	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$ \t") {
-		return fmt.Sprintf("%q", s)
-	}
-	return s
 }
 
 func sameMap(a, b map[string]string) bool {
@@ -487,6 +486,8 @@ func moveDir(from, to string) error {
 		return err
 	}
 	if err := copyTree(from, to); err != nil {
+		// Drop the partial copy so a rerun does not see a non-empty destination.
+		_ = os.RemoveAll(to)
 		return fmt.Errorf("copy %s to %s: %w (the source is unchanged)", from, to, err)
 	}
 	return os.RemoveAll(from)
@@ -581,6 +582,12 @@ func removeEmptyDirs(dir string) error {
 			return err
 		}
 		if entry.IsDir() {
+			// Never descend into a worktree that stayed put (locked, with
+			// submodules, or whose move failed): its empty directories are
+			// the user's, not leftovers of the migration.
+			if path != dir && exists(filepath.Join(path, ".git")) {
+				return filepath.SkipDir
+			}
 			dirs = append(dirs, path)
 		}
 		return nil

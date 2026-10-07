@@ -22,9 +22,9 @@ func (s *inspection) scripts() {
 		return
 	}
 	for _, name := range project.ScriptNames(s.cfg) {
-		path := s.cfg.Scripts[name]
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(s.root, path)
+		path, err := project.ExpandPath(s.root, s.cfg.Scripts[name])
+		if err != nil {
+			path = filepath.Join(s.root, s.cfg.Scripts[name])
 		}
 		if _, err := project.ResolveScript(s.cfg, s.root, name); err != nil {
 			s.problem("scripts", path, err)
