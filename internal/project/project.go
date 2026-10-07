@@ -2,16 +2,67 @@
 package project
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/ui"
 )
 
+// FindRoot locates the wtx project root for startDir.
+//
+// It first asks git for the repository's common dir: its parent is the
+// project root for both the bare (.bare/) and normal (.git/) layouts, and
+// this works from linked worktrees located anywhere on disk. If that
+// candidate holds a .worktree.yml it wins, which also keeps a committed
+// .worktree.yml inside a worktree from being mistaken for the root.
+// Otherwise FindRoot walks up from startDir looking for .worktree.yml.
 func FindRoot(startDir string) (string, error) {
+	if root, ok := rootFromGitCommonDir(startDir); ok {
+		return root, nil
+	}
+	return walkUpForConfig(startDir)
+}
+
+func rootFromGitCommonDir(startDir string) (string, bool) {
+	commonDir, err := git.CommonDir(context.Background(), startDir)
+	if err != nil {
+		return "", false
+	}
+	candidate := filepath.Dir(commonDir)
+	if !config.Exists(candidate) {
+		return "", false
+	}
+	return preferLexicalAncestor(startDir, candidate), true
+}
+
+// preferLexicalAncestor returns the ancestor of startDir (as the caller
+// spelled it) that resolves to the same directory as root, so the result
+// stays consistent with the caller's paths (e.g. /var vs /private/var on
+// macOS). If root is not an ancestor of startDir, root is returned as is.
+func preferLexicalAncestor(startDir, root string) string {
+	want, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return root
+	}
+	dir := filepath.Clean(startDir)
+	for {
+		if got, err := filepath.EvalSymlinks(dir); err == nil && got == want {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return root
+		}
+		dir = parent
+	}
+}
+
+func walkUpForConfig(startDir string) (string, error) {
 	dir := startDir
 	for {
 		if config.Exists(dir) {
