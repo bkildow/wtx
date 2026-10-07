@@ -48,10 +48,11 @@ func loadProject() (string, *config.Config, error) {
 	return root, cfg, nil
 }
 
-// filterManagedWorktrees returns only worktrees that wtx manages — those
-// created under the worktrees directory. This excludes bare entries (from
-// wtx clone setups) and the main working tree at the project root (from
-// wtx init setups).
+// filterManagedWorktrees returns the worktrees wtx manages: every linked
+// worktree of the repository, wherever it lives on disk (including ones
+// outside the project root or created by other tools). It excludes only bare
+// entries (from wtx clone setups) and the main working tree at the project
+// root (from wtx init setups).
 func filterManagedWorktrees(worktrees []git.WorktreeInfo, projectRoot string) []git.WorktreeInfo {
 	absRoot := resolvePathBest(projectRoot)
 	var filtered []git.WorktreeInfo

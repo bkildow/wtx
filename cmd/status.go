@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"path/filepath"
-
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
@@ -44,10 +42,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT", "STATUS", "SETUP", "LAST COMMIT")
 	for _, wt := range filtered {
-		relPath, err := filepath.Rel(projectRoot, wt.Path)
-		if err != nil {
-			relPath = wt.Path
-		}
+		relPath := ui.DisplayPath(projectRoot, wt.Path)
 
 		shortHead := wt.Head
 		if len(shortHead) > 7 {
