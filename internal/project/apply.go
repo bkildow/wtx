@@ -87,17 +87,6 @@ func copySymlink(src, dest string) error {
 	return os.Symlink(target, dest)
 }
 
-func samePath(a, b string) bool {
-	return resolvePathOrClean(a) == resolvePathOrClean(b)
-}
-
-func resolvePathOrClean(p string) string {
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
-	}
-	return filepath.Clean(p)
-}
-
 func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (int, error) {
 	copyDir := filepath.Join(SharedPath(projectRoot, cfg), "copy")
 

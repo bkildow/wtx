@@ -20,39 +20,39 @@ cp $WORK/secret .env
 cp $WORK/secret secrets/key.txt
 cp $WORK/secret build/out.txt
 # shared/copy overrides .worktreeinclude for the same path.
-cp $WORK/override .worktrees/shared/copy/.env.local
+cp $WORK/override $WTX_HOME/myrepo/shared/copy/.env.local
 cp $WORK/secret .env.local
 
 # Dry-run lists the would-copy paths without touching disk.
 exec wtx --dry-run add --skip-setup feature
 stderr 'copy .*\.env -> .*feature/\.env'
-! exists .worktrees/feature
+! exists $WTX_HOME/myrepo/worktrees/feature
 
 exec wtx add --skip-setup feature
 stderr '3 included'
-cmp .worktrees/feature/.env $WORK/secret
-cmp .worktrees/feature/secrets/key.txt $WORK/secret
-cmp .worktrees/feature/.env.local $WORK/override
-! exists .worktrees/feature/build/out.txt
+cmp $WTX_HOME/myrepo/worktrees/feature/.env $WORK/secret
+cmp $WTX_HOME/myrepo/worktrees/feature/secrets/key.txt $WORK/secret
+cmp $WTX_HOME/myrepo/worktrees/feature/.env.local $WORK/override
+! exists $WTX_HOME/myrepo/worktrees/feature/build/out.txt
 # Tracked files come from git, not from the main checkout.
-cmp .worktrees/feature/.env.example $WORK/envexample
-cmp .worktrees/feature/secrets/tracked.txt $WORK/envexample
+cmp $WTX_HOME/myrepo/worktrees/feature/.env.example $WORK/envexample
+cmp $WTX_HOME/myrepo/worktrees/feature/secrets/tracked.txt $WORK/envexample
 
 # Re-running wtx apply leaves a worktree's edited .env alone; shared/copy
 # still applies after and wins.
-cp $WORK/edited .worktrees/feature/.env
+cp $WORK/edited $WTX_HOME/myrepo/worktrees/feature/.env
 exec wtx --dry-run apply feature
 ! stderr 'myrepo/\.env -> '
 exec wtx apply feature
 stderr '0 included'
-cmp .worktrees/feature/.env $WORK/edited
-cmp .worktrees/feature/.env.local $WORK/override
+cmp $WTX_HOME/myrepo/worktrees/feature/.env $WORK/edited
+cmp $WTX_HOME/myrepo/worktrees/feature/.env.local $WORK/override
 
 # A file missing from the worktree is seeded again.
-rm .worktrees/feature/.env
+rm $WTX_HOME/myrepo/worktrees/feature/.env
 exec wtx apply feature
 stderr '1 included'
-cmp .worktrees/feature/.env $WORK/secret
+cmp $WTX_HOME/myrepo/worktrees/feature/.env $WORK/secret
 
 # --- clone/bare layout: the main-branch worktree is the source ---
 cd $WORK
