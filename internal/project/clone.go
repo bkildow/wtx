@@ -48,13 +48,13 @@ func (n CloneName) Describe() string {
 // the Clone dir an In-repo layout would migrate to.
 func ReadCloneName(ctx context.Context, runner *git.Runner, root string) (CloneName, error) {
 	if value, ok, err := runner.LocalConfig(ctx, NameConfigKey); err == nil && ok {
-		if err := ValidateProjectName(value); err != nil {
+		if err := ValidateCloneName(value); err != nil {
 			return CloneName{}, fmt.Errorf("git config %s: %w", NameConfigKey, err)
 		}
 		return CloneName{Name: value, Source: NameFromGitConfig}, nil
 	}
 	name := filepath.Base(root)
-	if err := ValidateProjectName(name); err != nil {
+	if err := ValidateCloneName(name); err != nil {
 		return CloneName{}, err
 	}
 	return CloneName{Name: name, Source: NameFromDirectory}, nil
@@ -76,9 +76,9 @@ func ApplyHomeConfigPaths(cfg *config.Config, name string) {
 // run wtx init.
 var ErrCloneNotSetUp = errors.New("this clone is not set up for wtx")
 
-// cloneDirOf returns the Clone dir that a resolved cfg uses for its
+// configuredCloneDir returns the Clone dir that a resolved cfg uses for its
 // per-clone defaults, or false when it has none.
-func cloneDirOf(root string, cfg *config.Config) (string, bool) {
+func configuredCloneDir(root string, cfg *config.Config) (string, bool) {
 	if !cfg.HomeDefaults() {
 		return "", false
 	}
@@ -86,5 +86,5 @@ func cloneDirOf(root string, cfg *config.Config) (string, bool) {
 	if !cfg.WorktreeDirSet() {
 		path = WorktreesPath(root, cfg)
 	}
-	return HomeProjectDirOf(path)
+	return CloneDirOf(path)
 }

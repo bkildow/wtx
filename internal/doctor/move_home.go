@@ -33,12 +33,12 @@ const migrateID = "home.migrate"
 // partial failure pick up where the previous run stopped.
 type migration struct {
 	s        *inspection
-	homeDir  string // ~/.wtx/<name>, expanded
+	cloneDir string // ~/.wtx/<name>, expanded
 	oldWT    string // in-repo worktree directory, or ""
 	oldShare string // in-repo shared directory, or ""
 	newWT    string
 	newShare string
-	name     string // wtx.name to record, or "" when the config already resolves to homeDir
+	name     string // wtx.name to record, or "" when the config already resolves to cloneDir
 	steps    []repair
 }
 
@@ -97,13 +97,13 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	// Destination: the ~/.wtx/<name> directory the config already names
 	// (re-run), else --name or the repository directory name.
 	var err error
-	if dirs := s.homeProjectDirs(); len(dirs) > 0 {
-		m.homeDir = dirs[0]
-		err = project.CheckHomeDir(m.homeDir, s.root)
+	if dirs := s.cloneDirs(); len(dirs) > 0 {
+		m.cloneDir = dirs[0]
+		err = project.CheckCloneDir(m.cloneDir, s.root)
 		if moveWT || moveShare {
 			// The moved directory's key is dropped from the config and then
-			// resolves per clone through wtx.name, which must name homeDir.
-			m.name = filepath.Base(m.homeDir)
+			// resolves per clone through wtx.name, which must name cloneDir.
+			m.name = filepath.Base(m.cloneDir)
 		}
 	} else {
 		if name == "" {
@@ -116,28 +116,28 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 			name = clone.Name
 		}
 		var dir string
-		if dir, err = project.SelectHomeDir(s.root, name); dir == "" {
+		if dir, err = project.SelectCloneDir(s.root, name); dir == "" {
 			s.add(migrateID, Fail, cfgPath, err.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
 			return
 		}
-		m.homeDir = ui.CanonicalPath(dir)
+		m.cloneDir = ui.CanonicalPath(dir)
 		m.name = name
 	}
 	if err != nil {
-		s.add(migrateID, Fail, m.homeDir, err.Error()+".", "Choose another directory name with wtx doctor --migrate-home --name <name>.")
+		s.add(migrateID, Fail, m.cloneDir, err.Error()+".", "Choose another directory name with wtx doctor --migrate-home --name <name>.")
 		return
 	}
 	m.newWT, m.newShare = wtDir, shareDir
 	if moveWT {
-		m.newWT = filepath.Join(m.homeDir, "worktrees")
+		m.newWT = filepath.Join(m.cloneDir, "worktrees")
 	}
 	if moveShare {
-		m.newShare = filepath.Join(m.homeDir, "shared")
+		m.newShare = filepath.Join(m.cloneDir, "shared")
 	}
-	s.addManaged(m.homeDir)
+	s.addManaged(m.cloneDir)
 
 	if m.oldWT == "" && m.oldShare == "" {
-		s.add(migrateID, OK, m.homeDir, "Worktrees and shared files already live outside the repository.", "")
+		s.add(migrateID, OK, m.cloneDir, "Worktrees and shared files already live outside the repository.", "")
 		return
 	}
 	if cwd, err := os.Getwd(); err == nil && m.oldWT != "" && ui.Within(m.oldWT, ui.CanonicalPath(cwd)) {
@@ -148,7 +148,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	if from == "" {
 		from = filepath.Dir(m.oldShare)
 	}
-	finding := s.add(migrateID, Warn, m.homeDir, "Worktrees, shared files and scripts move from "+s.paths.Path(from)+" to "+ui.DisplayPath("", m.homeDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
+	finding := s.add(migrateID, Warn, m.cloneDir, "Worktrees, shared files and scripts move from "+s.paths.Path(from)+" to "+ui.DisplayPath("", m.cloneDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
 
 	m.planMarker()
 	m.planName(ctx)
@@ -187,19 +187,19 @@ func (m *migration) step(target, action string, run func(context.Context) error,
 }
 
 func (m *migration) planMarker() {
-	if mk, err := project.ReadMarker(m.homeDir); err == nil && project.SamePath(mk.Root, m.s.root) {
+	if mk, err := project.ReadMarker(m.cloneDir); err == nil && project.SamePath(mk.Root, m.s.root) {
 		return
 	}
-	root, homeDir := m.s.root, m.homeDir
-	m.step(filepath.Join(homeDir, project.MarkerFileName), "write ownership marker",
+	root, cloneDir := m.s.root, m.cloneDir
+	m.step(filepath.Join(cloneDir, project.MarkerFileName), "write ownership marker",
 		func(context.Context) error {
-			if err := project.CheckHomeDir(homeDir, root); err != nil {
+			if err := project.CheckCloneDir(cloneDir, root); err != nil {
 				return err
 			}
-			return project.WriteMarker(homeDir, root, false)
+			return project.WriteMarker(cloneDir, root, false)
 		},
 		func() error {
-			mk, err := project.ReadMarker(homeDir)
+			mk, err := project.ReadMarker(cloneDir)
 			if err == nil && !project.SamePath(mk.Root, root) {
 				err = fmt.Errorf("marker names %s", mk.Root)
 			}
@@ -209,7 +209,7 @@ func (m *migration) planMarker() {
 
 // planName records the clone's name in local git config (wtx.name) unless
 // it already holds it, so the per-clone defaults the rewritten config relies
-// on resolve to homeDir.
+// on resolve to cloneDir.
 func (m *migration) planName(ctx context.Context) {
 	if m.name == "" {
 		return
@@ -372,7 +372,7 @@ func (m *migration) planConfig(wt, shared, bin bool) {
 		m.s.problem(migrateID, path, err)
 		return
 	}
-	layout := project.HomeConfigPaths(filepath.Base(m.homeDir))
+	layout := project.HomeConfigPaths(filepath.Base(m.cloneDir))
 	want := *m.s.cfg
 	want.Scripts = maps.Clone(m.s.cfg.Scripts)
 	if wt {

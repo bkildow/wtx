@@ -74,12 +74,12 @@ func existingAncestor(path string) string {
 	}
 }
 
-// homeProjectDirs returns the distinct ~/.wtx/<name> directories that the
+// cloneDirs returns the distinct ~/.wtx/<name> directories that the
 // configured worktree and shared directories live in.
-func (s *inspection) homeProjectDirs() []string {
+func (s *inspection) cloneDirs() []string {
 	var dirs []string
 	for _, dir := range []string{s.clone.WorktreesDir(), s.clone.SharedDir()} {
-		if d, ok := project.HomeProjectDirOf(dir); ok && !slices.Contains(dirs, d) {
+		if d, ok := project.CloneDirOf(dir); ok && !slices.Contains(dirs, d) {
 			dirs = append(dirs, d)
 		}
 	}
@@ -90,7 +90,7 @@ func (s *inspection) homeProjectDirs() []string {
 // records this project as its owner.
 func (s *inspection) homeMarker() {
 	cloneDir, perClone := s.clone.CloneDir()
-	for _, dir := range s.homeProjectDirs() {
+	for _, dir := range s.cloneDirs() {
 		s.addManaged(dir)
 		path := filepath.Join(dir, project.MarkerFileName)
 		// For per-clone defaults, say where <name> came from.

@@ -7,30 +7,30 @@ import (
 	"testing"
 )
 
-func TestValidateProjectName(t *testing.T) {
+func TestValidateCloneName(t *testing.T) {
 	for _, name := range []string{"myrepo", "my-repo.v2", ".hidden"} {
-		if err := ValidateProjectName(name); err != nil {
-			t.Errorf("ValidateProjectName(%q) = %v, want nil", name, err)
+		if err := ValidateCloneName(name); err != nil {
+			t.Errorf("ValidateCloneName(%q) = %v, want nil", name, err)
 		}
 	}
 	for _, name := range []string{"", ".", "..", "a/b", `a\b`, "../x"} {
-		if err := ValidateProjectName(name); err == nil {
-			t.Errorf("ValidateProjectName(%q) = nil, want error", name)
+		if err := ValidateCloneName(name); err == nil {
+			t.Errorf("ValidateCloneName(%q) = nil, want error", name)
 		}
 	}
 }
 
-func TestHomeProjectDir(t *testing.T) {
+func TestCloneDirFor(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv(WtxHomeEnv, home)
-	got, err := HomeProjectDir("myrepo")
+	got, err := CloneDirFor("myrepo")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if want := filepath.Join(home, "myrepo"); got != want {
-		t.Errorf("HomeProjectDir = %q, want %q", got, want)
+		t.Errorf("CloneDirFor = %q, want %q", got, want)
 	}
-	if _, err := HomeProjectDir(".."); err == nil {
+	if _, err := CloneDirFor(".."); err == nil {
 		t.Error("expected error for ..")
 	}
 }
@@ -41,8 +41,8 @@ func TestMarkerRoundTripAndCheck(t *testing.T) {
 	other := t.TempDir()
 
 	// Missing dir is free.
-	if err := CheckHomeDir(dir, root); err != nil {
-		t.Fatalf("CheckHomeDir(missing) = %v", err)
+	if err := CheckCloneDir(dir, root); err != nil {
+		t.Fatalf("CheckCloneDir(missing) = %v", err)
 	}
 
 	// Dry run writes nothing.
@@ -64,17 +64,17 @@ func TestMarkerRoundTripAndCheck(t *testing.T) {
 		t.Errorf("marker root = %q, want %q", m.Root, root)
 	}
 
-	if err := CheckHomeDir(dir, root); err != nil {
-		t.Errorf("CheckHomeDir(same root) = %v", err)
+	if err := CheckCloneDir(dir, root); err != nil {
+		t.Errorf("CheckCloneDir(same root) = %v", err)
 	}
-	if err := CheckHomeDir(dir, other); !errors.Is(err, ErrHomeDirTaken) {
-		t.Errorf("CheckHomeDir(other root) = %v, want ErrHomeDirTaken", err)
+	if err := CheckCloneDir(dir, other); !errors.Is(err, ErrCloneDirTaken) {
+		t.Errorf("CheckCloneDir(other root) = %v, want ErrCloneDirTaken", err)
 	}
 
 	// An existing directory without a marker is never adopted.
 	bare := t.TempDir()
-	if err := CheckHomeDir(bare, root); !errors.Is(err, ErrHomeDirTaken) {
-		t.Errorf("CheckHomeDir(no marker) = %v, want ErrHomeDirTaken", err)
+	if err := CheckCloneDir(bare, root); !errors.Is(err, ErrCloneDirTaken) {
+		t.Errorf("CheckCloneDir(no marker) = %v, want ErrCloneDirTaken", err)
 	}
 }
 
@@ -88,7 +88,7 @@ func TestCheckHomeDirSymlinkedRoot(t *testing.T) {
 	if err := WriteMarker(dir, link, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := CheckHomeDir(dir, realRoot); err != nil {
+	if err := CheckCloneDir(dir, realRoot); err != nil {
 		t.Errorf("symlinked spelling of the same root rejected: %v", err)
 	}
 }

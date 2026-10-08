@@ -111,7 +111,7 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	c.worktrees = WorktreesPath(root, &resolved)
 	c.shared = SharedPath(root, &resolved)
 	c.bin = BinFor(c.shared)
-	c.cloneDir, _ = cloneDirOf(root, &resolved)
+	c.cloneDir, _ = configuredCloneDir(root, &resolved)
 
 	switch {
 	case !resolved.IsCheckoutLayout():
