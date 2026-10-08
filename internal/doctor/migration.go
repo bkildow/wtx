@@ -14,7 +14,6 @@ import (
 
 	"github.com/bkildow/wtx/internal/claude"
 	"github.com/bkildow/wtx/internal/config"
-	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 )
 
@@ -140,10 +139,10 @@ func (s *inspection) scanProject() {
 		s.scanFile(path, scopeProject)
 	}
 	s.scanDir(filepath.Join(s.root, "bin"), false)
-	if bin := project.BinPath(s.root, s.cfg); bin != filepath.Join(s.root, "bin") {
+	if bin := s.clone.BinDir(); bin != filepath.Join(s.root, "bin") {
 		s.scanDir(bin, false)
 	}
-	s.scanDir(project.SharedPath(s.root, s.cfg), true)
+	s.scanDir(s.clone.SharedDir(), true)
 }
 
 func (s *inspection) scanDir(root string, settings bool) {

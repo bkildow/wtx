@@ -56,7 +56,7 @@ type sharedCopies struct {
 }
 
 func (s *inspection) listSharedCopies() sharedCopies {
-	copyDir := filepath.Join(project.SharedPath(s.root, s.cfg), "copy")
+	copyDir := filepath.Join(s.clone.SharedDir(), "copy")
 	var out sharedCopies
 	err := filepath.WalkDir(copyDir, func(path string, entry fs.DirEntry, err error) error {
 		if os.IsNotExist(err) && path == copyDir {
@@ -93,7 +93,7 @@ func (s *inspection) listSharedCopies() sharedCopies {
 // prefetch gathers facts for every worktree concurrently, keyed by path.
 func (s *inspection) prefetch(ctx context.Context, worktrees []git.WorktreeInfo) map[string]*worktreeFacts {
 	copies := s.listSharedCopies()
-	symlinkRoot := ui.CanonicalPath(filepath.Join(project.SharedPath(s.root, s.cfg), "symlink"))
+	symlinkRoot := ui.CanonicalPath(filepath.Join(s.clone.SharedDir(), "symlink"))
 	linkDirs := symlinkDirs(symlinkRoot)
 	facts := map[string]*worktreeFacts{}
 	var paths []string

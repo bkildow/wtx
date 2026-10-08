@@ -220,8 +220,29 @@ func TestHomePathsUnexpandable(t *testing.T) {
 	}
 	t.Setenv("HOME", "")
 	r := Run(context.Background(), Options{StartDir: root})
-	if f := finding(r, "home.paths", ""); f == nil || f.Severity != Fail {
+	if f := finding(r, "project.config", ""); f == nil || f.Severity != OK {
+		t.Fatalf("the configuration itself is readable: %+v", f)
+	}
+	f := finding(r, "home.paths", filepath.Join(root, config.ConfigFileName))
+	if f == nil || f.Severity != Fail || !strings.Contains(f.Explanation, "cannot be expanded") || !strings.Contains(f.Remedy, "WTX_HOME") {
 		t.Fatalf("unexpandable worktree_dir: %+v", f)
+	}
+}
+
+// A per-clone default path (~/.wtx/<name>) that cannot be expanded is a
+// home.paths failure too, not an unreadable configuration.
+func TestHomePathsUnexpandableCloneDir(t *testing.T) {
+	root, _, _ := fixture(t, false)
+	write(t, filepath.Join(root, config.ConfigFileName), "version: 1\ngit_dir: .git\n", 0o644)
+	t.Setenv("HOME", "")
+	t.Setenv("WTX_HOME", "")
+	r := Run(context.Background(), Options{StartDir: root})
+	if f := finding(r, "project.config", ""); f == nil || f.Severity != OK {
+		t.Fatalf("the configuration itself is readable: %+v", f)
+	}
+	f := finding(r, "home.paths", filepath.Join(root, config.ConfigFileName))
+	if f == nil || f.Severity != Fail || !strings.Contains(f.Explanation, "cannot be expanded") {
+		t.Fatalf("unexpandable per-clone default: %+v", f)
 	}
 }
 

@@ -63,18 +63,14 @@ func (s *inspection) inRepo(p string) bool {
 // directories and operations, not snapshotted files under managed parents.
 func (s *inspection) planMigration(ctx context.Context, worktrees []git.WorktreeInfo, name string) {
 	cfgPath := filepath.Join(s.root, config.ConfigFileName)
-	if !s.cfg.IsCheckoutLayout() {
+	if s.clone.Layout() == project.BareLayout {
 		s.add(migrateID, Warn, cfgPath, "--migrate-home applies only to projects set up with wtx init (git_dir: .git); this project keeps its layout.", "")
 		return
 	}
-	if err := project.ValidatePaths(s.root, s.cfg); err != nil {
-		s.problem(migrateID, cfgPath, err)
-		return
-	}
 	m := &migration{s: s}
-	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
-	shareDir := ui.CanonicalPath(project.SharedPath(s.root, s.cfg))
-	moveWT, moveShare := s.inRepo(wtDir), s.inRepo(shareDir)
+	wtDir := ui.CanonicalPath(s.clone.WorktreesDir())
+	shareDir := ui.CanonicalPath(s.clone.SharedDir())
+	moveWT, moveShare := s.clone.Layout() == project.InRepoLayout, s.inRepo(shareDir)
 	legacy := filepath.Join(s.root, project.InRepoConfigPaths().WorktreeDir)
 
 	// Sources: the configured directories while they are in the repository,

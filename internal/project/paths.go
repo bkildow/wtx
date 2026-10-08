@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -114,15 +115,30 @@ func BinFor(sharedDir string) string {
 	return filepath.Join(filepath.Dir(sharedDir), "bin")
 }
 
+// ErrPathExpansion matches the errors of ValidatePaths (and so of Resolve
+// and Open) for a configured directory that cannot be expanded.
+var ErrPathExpansion = errors.New("configured directory cannot be expanded")
+
+// pathExpansionError is a ValidatePaths error: its message names the config
+// key and value, and it matches both ErrPathExpansion and the cause.
+type pathExpansionError struct {
+	msg   string
+	cause error
+}
+
+func (e *pathExpansionError) Error() string   { return e.msg }
+func (e *pathExpansionError) Unwrap() []error { return []error{ErrPathExpansion, e.cause} }
+
 // ValidatePaths checks that the configured worktree and shared directories
-// can be expanded (e.g. a "~" path needs a home directory or WTX_HOME).
+// can be expanded (e.g. a "~" path needs a home directory or WTX_HOME). Its
+// errors match ErrPathExpansion.
 func ValidatePaths(projectRoot string, cfg *config.Config) error {
 	for _, field := range []struct{ key, value string }{
 		{"worktree_dir", cfg.WorktreeDir},
 		{"shared_dir", cfg.SharedDir},
 	} {
 		if _, err := ExpandPath(projectRoot, field.value); err != nil {
-			return fmt.Errorf("%s %q: %w", field.key, field.value, err)
+			return &pathExpansionError{msg: fmt.Sprintf("%s %q: %v", field.key, field.value, err), cause: err}
 		}
 	}
 	return nil
