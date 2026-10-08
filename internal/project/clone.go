@@ -48,6 +48,11 @@ func (n CloneName) Describe() string {
 func ReadCloneName(ctx context.Context, root string, cfg *config.Config) (CloneName, error) {
 	runner := git.NewRunner(GitDirPath(root, cfg), false)
 	runner.Quiet = true
+	return readCloneName(ctx, runner, root)
+}
+
+// readCloneName is ReadCloneName reading wtx.name through runner.
+func readCloneName(ctx context.Context, runner *git.Runner, root string) (CloneName, error) {
 	if value, ok, err := runner.LocalConfig(ctx, NameConfigKey); err == nil && ok {
 		if err := ValidateProjectName(value); err != nil {
 			return CloneName{}, fmt.Errorf("git config %s: %w", NameConfigKey, err)
@@ -61,14 +66,14 @@ func ReadCloneName(ctx context.Context, root string, cfg *config.Config) (CloneN
 	return CloneName{Name: name, Source: NameFromDirectory}, nil
 }
 
-// ApplyHomeLayout fills the worktree_dir and shared_dir that cfg leaves
-// unset with their HomeLayout(name) spellings. Explicit values are kept.
-func ApplyHomeLayout(cfg *config.Config, name string) {
-	layout := HomeLayout(name)
-	if !cfg.WorktreeDirSet {
+// ApplyHomeConfigPaths fills the worktree_dir and shared_dir that cfg leaves
+// unset with their HomeConfigPaths(name) spellings. Explicit values are kept.
+func ApplyHomeConfigPaths(cfg *config.Config, name string) {
+	layout := HomeConfigPaths(name)
+	if !cfg.WorktreeDirSet() {
 		cfg.WorktreeDir = layout.WorktreeDir
 	}
-	if !cfg.SharedDirSet {
+	if !cfg.SharedDirSet() {
 		cfg.SharedDir = layout.SharedDir
 	}
 }
@@ -86,7 +91,7 @@ func ResolveLayout(ctx context.Context, root string, cfg *config.Config) (name C
 	if err != nil {
 		return CloneName{}, false, err
 	}
-	ApplyHomeLayout(cfg, name.Name)
+	ApplyHomeConfigPaths(cfg, name.Name)
 	return name, true, nil
 }
 
@@ -117,7 +122,7 @@ func CloneHomeDir(root string, cfg *config.Config) (string, bool) {
 		return "", false
 	}
 	path := SharedPath(root, cfg)
-	if !cfg.WorktreeDirSet {
+	if !cfg.WorktreeDirSet() {
 		path = WorktreesPath(root, cfg)
 	}
 	return HomeProjectDirOf(path)

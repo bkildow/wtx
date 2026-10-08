@@ -75,7 +75,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
 	shareDir := ui.CanonicalPath(project.SharedPath(s.root, s.cfg))
 	moveWT, moveShare := s.inRepo(wtDir), s.inRepo(shareDir)
-	legacy := filepath.Join(s.root, project.InRepoLayout().WorktreeDir)
+	legacy := filepath.Join(s.root, project.InRepoConfigPaths().WorktreeDir)
 
 	// Sources: the configured directories while they are in the repository,
 	// otherwise what an interrupted migration left in .worktrees/.
@@ -86,7 +86,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	}
 	if moveShare {
 		m.oldShare = shareDir
-	} else if legacyShare := filepath.Join(s.root, project.InRepoLayout().SharedDir); m.oldWT == legacy && isDir(legacyShare) {
+	} else if legacyShare := filepath.Join(s.root, project.InRepoConfigPaths().SharedDir); m.oldWT == legacy && isDir(legacyShare) {
 		// The config moved on without this clone's in-repo files (e.g. a
 		// teammate pulled a migrated .worktree.yml): move them along with
 		// the worktrees instead of leaving them behind.
@@ -376,14 +376,14 @@ func (m *migration) planConfig(wt, shared, bin bool) {
 		m.s.problem(migrateID, path, err)
 		return
 	}
-	layout := project.HomeLayout(filepath.Base(m.homeDir))
+	layout := project.HomeConfigPaths(filepath.Base(m.homeDir))
 	want := *m.s.cfg
 	want.Scripts = maps.Clone(m.s.cfg.Scripts)
 	if wt {
-		want.WorktreeDirSet = false
+		want.SetWorktreeDir("")
 	}
 	if shared {
-		want.SharedDirSet = false
+		want.SetSharedDir("")
 	}
 	if bin {
 		oldBin := m.oldBin()
@@ -444,9 +444,9 @@ func rewriteConfig(data []byte, want *config.Config) ([]byte, error) {
 		if k := topLevelKey.FindStringSubmatch(line); k != nil {
 			inScripts = k[1] == "scripts"
 			switch {
-			case k[1] == "worktree_dir" && !want.WorktreeDirSet:
+			case k[1] == "worktree_dir" && !want.WorktreeDirSet():
 				continue
-			case k[1] == "shared_dir" && !want.SharedDirSet:
+			case k[1] == "shared_dir" && !want.SharedDirSet():
 				continue
 			case inScripts && strings.TrimSpace(strings.SplitN(k[2], "#", 2)[0]) == "":
 				scriptsHeader = len(out)
@@ -485,8 +485,8 @@ func rewriteConfig(data []byte, want *config.Config) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if got.WorktreeDirSet != want.WorktreeDirSet || got.SharedDirSet != want.SharedDirSet ||
-		(want.WorktreeDirSet && got.WorktreeDir != want.WorktreeDir) || (want.SharedDirSet && got.SharedDir != want.SharedDir) ||
+	if got.WorktreeDirSet() != want.WorktreeDirSet() || got.SharedDirSet() != want.SharedDirSet() ||
+		(want.WorktreeDirSet() && got.WorktreeDir != want.WorktreeDir) || (want.SharedDirSet() && got.SharedDir != want.SharedDir) ||
 		!maps.Equal(got.Scripts, want.Scripts) {
 		return nil, errors.New("unrecognized layout (flow-style or multi-line values)")
 	}

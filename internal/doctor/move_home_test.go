@@ -229,7 +229,8 @@ func TestMigrateHomeLeftoverClone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.WorktreeDirSet, cfg.SharedDirSet = false, false
+	cfg.SetWorktreeDir("")
+	cfg.SetSharedDir("")
 	cfg.Scripts = map[string]string{"check": "bin/check"}
 	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
 		t.Fatal(err)
@@ -316,7 +317,7 @@ func TestMigrateHomeRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.WorktreeDirSet || cfg.WorktreeDir != "~/.wtx/proj/worktrees" || cfg.SharedDir != ".worktrees/shared" {
+		if cfg.WorktreeDirSet() || cfg.WorktreeDir != "~/.wtx/proj/worktrees" || cfg.SharedDir != ".worktrees/shared" {
 			t.Fatalf("config: %+v", cfg)
 		}
 	})
@@ -360,7 +361,8 @@ func TestRewriteConfigPreservesLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want.WorktreeDirSet, want.SharedDirSet = false, false
+	want.SetWorktreeDir("")
+	want.SetSharedDir("")
 	want.Scripts = map[string]string{"seed": "~/.wtx/p/bin/seed.sh", "odd name": "bin/x"}
 	out, err := rewriteConfig(data, want)
 	if err != nil {
