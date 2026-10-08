@@ -51,7 +51,14 @@ cp $WORK/fail.sh bin/fail
 chmod 755 bin/fail
 ! exec wtx run fail
 
+# Without a scripts entry, executables in bin/ (next to shared/) run by name.
 cp $WORK/no-scripts.yml .worktree.yml
+exec wtx run probe
+stderr 'Running probe: bin/probe'
+! exec wtx run noexec
+stderr 'unknown script "noexec" \(available: fail, probe\)'
+
+rm bin
 exec wtx run probe
 stderr 'No scripts configured'
 

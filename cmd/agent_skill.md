@@ -36,16 +36,22 @@ Cloned project (`wtx clone <url>`), a bare repo with no `.git` at the root:
         main/
         feature/auth/
 
-Initialized project (`wtx init` inside an existing repo), where the root is itself the main worktree:
+Initialized project (`wtx init` inside an existing repo), where the root is itself the main worktree and everything else lives in `~/.wtx/<name>/` (`$WTX_HOME/<name>/` when set):
 
     project/
-      .git/
-      .worktree.yml
-      .worktrees/
-        bin/refresh
-        shared/copy/
-        shared/symlink/
+      .git/               # local config: wtx.name = project
+      .worktree.yml       # no worktree_dir/shared_dir: they default per clone
+    ~/.wtx/project/
+      project.yml         # marker: root of the owning repo
+      bin/refresh
+      shared/copy/
+      shared/symlink/
+      worktrees/
         feature/auth/
+
+`<name>` is the clone's `git config wtx.name`, else the repo directory name. Each clone runs `wtx init` once to set up its `~/.wtx/<name>/`; in a clone whose committed `.worktree.yml` omits `worktree_dir`/`shared_dir`, `wtx init` only does that and leaves the config alone. If `wtx add` says the clone is not set up, run `wtx init`; if it says the directory belongs to another repo, run `wtx init --name <other>`. Explicit `worktree_dir`/`shared_dir` values override the per-clone default.
+
+`wtx init --in-repo` puts worktrees, `shared/` and `bin/` under `project/.worktrees/` instead. Find a project's worktrees with `wtx list` or `wtx cd <name>` rather than assuming a path.
 
 Run git commands inside a worktree. In a cloned project the root has no `.git`, so git fails there.
 
@@ -67,13 +73,15 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 
 ## Project scripts
 
-`wtx run <name> [args...]` runs `scripts.<name>` from `.worktree.yml` in the current worktree. Every argument after the name goes to the script, so wtx flags go first: `wtx run --dry-run refresh`.
+`wtx run <name> [args...]` runs `scripts.<name>` from `.worktree.yml`, else the executable `<name>` in the project's `bin/` (next to `shared/`), in the current worktree. Every argument after the name goes to the script, so wtx flags go first: `wtx run --dry-run refresh`.
 
 `bin/refresh` is a generated stub. When asked to set up an environment refresh, read it and implement its commented steps for this project's stack. `wtx run --help` lists the `WTX_*` environment variables scripts receive.
 
 ## Shared files and templates
 
 Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. After changing them, run `wtx apply --all` (or `wtx apply <name>`) to update existing worktrees.
+
+`.worktreeinclude` (gitignore syntax, committed at the repo root) lists ignored files such as `.env` to copy from the main checkout (the `main_branch` worktree in cloned projects). Only files that match and are gitignored are copied, and existing files are never overwritten. Order: `.worktreeinclude`, then `shared/copy/`, then `shared/symlink/`; later layers win. To give worktrees a local secret, add its pattern to `.worktreeinclude` rather than copying it by hand.
 
 Files ending in `.template` are copied with the suffix stripped and these variables substituted:
 
@@ -85,7 +93,7 @@ Files ending in `.template` are copied with the suffix stripped and these variab
 
     version: 1
     git_dir: .bare            # .git for initialized projects
-    worktree_dir: worktrees
+    worktree_dir: worktrees   # relative, absolute, or ~/...; omitted with git_dir: .git → ~/.wtx/<name>/worktrees
     main_branch: main         # protected from deletion; default base for new branches
     editor: cursor
     setup: ["npm install"]            # sequential, after creating a worktree
@@ -93,7 +101,7 @@ Files ending in `.template` are copied with the suffix stripped and these variab
     teardown: ["docker compose down"]     # sequential, before removing a worktree
     parallel_teardown: ["make clean"]     # concurrent, after teardown
     background_setup: false
-    scripts:
+    scripts:                  # optional: bin/ executables also run by name
       refresh: bin/refresh    # relative to the project root
 
 `wtx config init --update` rewrites the file with documentation comments and keeps existing values.
@@ -102,5 +110,6 @@ Files ending in `.template` are copied with the suffix stripped and these variab
 
 - `wtx status` shows every worktree's branch, dirty state, and setup state.
 - `wtx doctor --json` reports project health and wt-to-wtx migration readiness, and changes nothing. `wtx doctor --help` covers repairs.
+- `wtx doctor --migrate-home` moves an in-repo (`init --in-repo`) project to `~/.wtx/<name>/`. Only run it when the user asks; preview with `wtx --dry-run doctor --migrate-home`.
 - `wtx repair` restores the per-worktree git config after a git or wtx upgrade. It is safe to re-run.
 - `wtx sync` fetches and pulls every clean worktree (`--rebase` to rebase).

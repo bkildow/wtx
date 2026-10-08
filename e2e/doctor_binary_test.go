@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/doctor"
+	"github.com/bkildow/wtx/internal/project"
 )
 
 func TestDoctorRealBinaries(t *testing.T) {
@@ -27,6 +28,9 @@ func TestDoctorRealBinaries(t *testing.T) {
 		}
 	}
 	root := t.TempDir()
+	// Keep ~/.wtx state out of the real home directory.
+	wtxHome := t.TempDir()
+	t.Setenv("WTX_HOME", wtxHome)
 	for _, args := range [][]string{{"init", "-b", "main", root}, {"-C", root, "commit", "--allow-empty", "-m", "initial"}} {
 		c := exec.Command("git", args...)
 		c.Env = gitEnv()
@@ -36,17 +40,18 @@ func TestDoctorRealBinaries(t *testing.T) {
 	}
 	c := exec.Command(filepath.Join(bin, "wtx"), "init")
 	c.Dir = root
-	c.Env = append(gitEnv(), "WTX_NO_DISK_WARN=1")
+	c.Env = append(gitEnv(), "WTX_NO_DISK_WARN=1", "WTX_HOME="+wtxHome)
 	if out, err := c.CombinedOutput(); err != nil {
 		t.Fatalf("wtx init: %v: %s", err, out)
 	}
 	// Replace the starter's documented legacy fallback examples with a current
 	// script, so this fixture is also clean under the candidate scan.
-	cfg, err := config.Load(root)
+	cfg, err := project.LoadConfig(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, cfg.Scripts["refresh"]), []byte("#!/bin/sh\nexit 99\n"), 0o750); err != nil {
+	refresh := filepath.Join(project.BinPath(root, cfg), project.StarterScriptName)
+	if err := os.WriteFile(refresh, []byte("#!/bin/sh\nexit 99\n"), 0o750); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"wtx", "wt"} {
@@ -54,7 +59,7 @@ func TestDoctorRealBinaries(t *testing.T) {
 			t.Helper()
 			c := exec.Command(filepath.Join(bin, name), args...)
 			c.Dir = dir
-			c.Env = append(gitEnv(), "WTX_NO_DISK_WARN=1", "WTX_THEME=definitely-invalid", "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			c.Env = append(gitEnv(), "WTX_NO_DISK_WARN=1", "WTX_HOME="+wtxHome, "WTX_THEME=definitely-invalid", "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 			var stdout, stderr bytes.Buffer
 			c.Stdout = &stdout
 			c.Stderr = &stderr

@@ -8,6 +8,46 @@ import (
 	"github.com/bkildow/wtx/internal/git"
 )
 
+func TestBranchFromWorktreePath(t *testing.T) {
+	realDir := t.TempDir()
+	worktrees := filepath.Join(realDir, "worktrees")
+	if err := os.MkdirAll(filepath.Join(worktrees, "feat", "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(realDir, link); err != nil {
+		t.Fatal(err)
+	}
+
+	fromGit := []git.WorktreeInfo{
+		{Path: filepath.Join(link, "worktrees", "feat", "x"), Branch: "feature/x"},
+		{Path: filepath.Join(worktrees, "main"), Branch: ""}, // detached
+	}
+
+	tests := []struct {
+		name, dir, path, want string
+		worktrees             []git.WorktreeInfo
+	}{
+		{"same spelling", worktrees, filepath.Join(worktrees, "main"), "main", nil},
+		{"git branch wins", worktrees, filepath.Join(worktrees, "feat", "x"), "feature/x", fromGit},
+		{"detached falls back to path", worktrees, filepath.Join(worktrees, "main"), "main", fromGit},
+		{"symlinked dir", filepath.Join(link, "worktrees"), filepath.Join(worktrees, "feat", "x"), "feat/x", nil},
+		{"symlinked path", worktrees, filepath.Join(link, "worktrees", "feat", "x"), "feat/x", nil},
+		{"missing worktree", filepath.Join(link, "worktrees"), filepath.Join(worktrees, "gone"), "gone", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := branchFromWorktreePath(tt.worktrees, tt.dir, tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("branch = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFilterManagedWorktrees(t *testing.T) {
 	tests := []struct {
 		name        string

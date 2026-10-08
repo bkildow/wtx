@@ -379,6 +379,23 @@ func (r *Runner) WorktreeRemove(ctx context.Context, path string, force bool) er
 	return err
 }
 
+// WorktreeMove moves a linked worktree from src to dest.
+func (r *Runner) WorktreeMove(ctx context.Context, src, dest string) error {
+	_, err := r.Run(ctx, "worktree", "move", src, dest)
+	return err
+}
+
+// WorktreeRepair repairs the links of the worktrees at paths, keeping them
+// relative (as WorktreeAdd creates them) where git supports it.
+func (r *Runner) WorktreeRepair(ctx context.Context, paths ...string) error {
+	args := []string{"worktree", "repair"}
+	if v, err := r.Version(ctx); err == nil && supportsRelativePaths(v) {
+		args = append(args, "--relative-paths")
+	}
+	_, err := r.Run(ctx, append(args, paths...)...)
+	return err
+}
+
 func (r *Runner) WorktreeList(ctx context.Context) ([]WorktreeInfo, error) {
 	output, err := r.Query(ctx, "worktree", "list", "--porcelain")
 	if err != nil {
@@ -832,4 +849,26 @@ func parseBehindCount(output string) int {
 		return 0
 	}
 	return n
+}
+
+// LocalConfig reads key from the repository's own config file (the common
+// directory's config, shared by all linked worktrees). An unset key reports
+// ok == false without an error.
+func (r *Runner) LocalConfig(ctx context.Context, key string) (value string, ok bool, err error) {
+	out, err := r.Query(ctx, "config", "--local", "--get", key)
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return out, true, nil
+}
+
+// SetLocalConfig writes key to the repository's own config file. Under
+// --dry-run it only prints the command.
+func (r *Runner) SetLocalConfig(ctx context.Context, key, value string) error {
+	_, err := r.Run(ctx, "config", "--local", key, value)
+	return err
 }

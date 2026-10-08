@@ -91,10 +91,16 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// The hooks go into shared/symlink; never create it under a ~/.wtx/<name>
+	// this clone has not set up.
+	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+		return err
+	}
+
 	wtBinary, _ := cmd.Flags().GetString("binary")
 
 	// Write hooks to shared/symlink so all worktrees get a symlink via wtx apply.
-	sharedTarget := filepath.Join(projectRoot, cfg.SharedDir, "symlink")
+	sharedTarget := filepath.Join(project.SharedPath(projectRoot, cfg), "symlink")
 
 	if claude.IsHooksConfigured(sharedTarget) {
 		ui.Info("Claude Code hooks are already configured, updating...")
@@ -119,7 +125,7 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	for _, wt := range filtered {
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
-		if _, err := project.Apply(projectRoot, wt.Path, cfg, false, &vars); err != nil {
+		if _, err := project.Apply(projectRoot, wt.Path, cfg, false, &vars, nil); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))
 		}
 	}
@@ -138,6 +144,9 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	}
 
 	projectRoot, cfg := hctx.projectRoot, hctx.cfg
+	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+		return err
+	}
 	gitDir := project.GitDirPath(projectRoot, cfg)
 	runner := git.NewRunner(gitDir, false)
 	runner.BatchMode = true
@@ -186,13 +195,14 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars)
+	include := resolveIncludeSource(ctx, projectRoot, cfg, nil)
+	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars, include)
 	if err != nil {
 		return fmt.Errorf("apply shared files failed: %w", err)
 	}
 
-	msg := fmt.Sprintf("Worktree created: %s/%s (%d copied, %d symlinked)",
-		cfg.WorktreeDir, branch, result.Copied, result.Symlinked)
+	msg := fmt.Sprintf("Worktree created: %s (%d included, %d copied, %d symlinked)",
+		ui.DisplayPath(projectRoot, worktreePath), result.Included, result.Copied, result.Symlinked)
 
 	// Launch setup hooks in background if configured.
 	// runSetupBackground prints the worktree path to stdout on its own.
@@ -224,9 +234,14 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	projectRoot, cfg := hctx.projectRoot, hctx.cfg
 	worktreePath := hctx.payload.WorktreePath
 
-	// Derive branch name from the worktree path (everything after the worktrees dir).
-	worktreesDir := project.WorktreesPath(projectRoot, cfg)
-	branch, err := filepath.Rel(worktreesDir, worktreePath)
+	gitDir := project.GitDirPath(projectRoot, cfg)
+	runner := git.NewRunner(gitDir, false)
+	runner.BatchMode = true
+
+	// Ask git which branch the worktree has; fall back to the path below the
+	// worktrees dir. A listing error only loses the git lookup.
+	worktrees, _ := runner.WorktreeList(ctx)
+	branch, err := branchFromWorktreePath(worktrees, project.WorktreesPath(projectRoot, cfg), worktreePath)
 	if err != nil {
 		return fmt.Errorf("cannot determine branch from worktree path: %w", err)
 	}
@@ -241,10 +256,6 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	if err := project.RunParallelTeardownHooks(ctx, cfg, worktreePath, false); err != nil {
 		ui.Warning("Parallel teardown hooks failed: " + err.Error())
 	}
-
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, false)
-	runner.BatchMode = true
 
 	// Force remove — Claude agents may have uncommitted changes.
 	ui.Step("Removing worktree: " + branch)
@@ -297,7 +308,7 @@ func loadHookContext() (*hookContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := config.Load(projectRoot)
+	cfg, err := loadProjectAt(projectRoot)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}

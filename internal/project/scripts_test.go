@@ -82,6 +82,44 @@ func TestResolveScriptNoScripts(t *testing.T) {
 	}
 }
 
+func TestResolveScriptBinFallback(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{SharedDir: "shared", Scripts: map[string]string{"seed": "tools/seed"}}
+	bin := BinPath(root, cfg)
+	writeScript(t, filepath.Join(bin, "refresh"), "exit 0\n", 0o755)
+	writeScript(t, filepath.Join(bin, "seed"), "exit 0\n", 0o755)
+	writeScript(t, filepath.Join(root, "tools", "seed"), "exit 0\n", 0o755)
+	writeScript(t, filepath.Join(bin, "notes"), "", 0o644)
+	writeScript(t, filepath.Join(bin, ".hidden"), "exit 0\n", 0o755)
+	if err := os.MkdirAll(filepath.Join(bin, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := ResolveScript(cfg, root, "refresh")
+	if err != nil || got != filepath.Join(bin, "refresh") {
+		t.Errorf("bin fallback: got %q, %v", got, err)
+	}
+	// A scripts entry wins over a bin file of the same name.
+	got, err = ResolveScript(cfg, root, "seed")
+	if err != nil || got != filepath.Join(root, "tools", "seed") {
+		t.Errorf("configured entry: got %q, %v", got, err)
+	}
+	for _, name := range []string{"notes", ".hidden", "subdir", "../bin/refresh"} {
+		if _, err := ResolveScript(cfg, root, name); err == nil || !strings.Contains(err.Error(), "unknown script") {
+			t.Errorf("%s: err = %v, want unknown script", name, err)
+		}
+	}
+	if names := strings.Join(AvailableScriptNames(root, cfg), ","); names != "refresh,seed" {
+		t.Errorf("AvailableScriptNames = %s", names)
+	}
+
+	// Without a scripts entry the bin directory alone provides scripts.
+	cfg.Scripts = nil
+	if _, err := ResolveScript(cfg, root, "refresh"); err != nil {
+		t.Errorf("bin only: %v", err)
+	}
+}
+
 func TestScriptNamesSorted(t *testing.T) {
 	cfg := &config.Config{Scripts: map[string]string{"zeta": "z", "alpha": "a", "mid": "m"}}
 	got := ScriptNames(cfg)

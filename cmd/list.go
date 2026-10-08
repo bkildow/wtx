@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"path/filepath"
-
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
@@ -40,11 +38,9 @@ func runList(cmd *cobra.Command, args []string) error {
 	ui.Heading("Worktrees")
 
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT")
+	paths := ui.NewPathDisplay(projectRoot)
 	for _, wt := range filtered {
-		relPath, err := filepath.Rel(projectRoot, wt.Path)
-		if err != nil {
-			relPath = wt.Path
-		}
+		relPath := paths.Path(wt.Path)
 		shortHead := wt.Head
 		if len(shortHead) > 7 {
 			shortHead = shortHead[:7]

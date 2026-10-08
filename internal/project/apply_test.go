@@ -265,7 +265,7 @@ func TestApply(t *testing.T) {
 	}
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	if _, err := Apply(root, wt, cfg, false, nil); err != nil {
+	if _, err := Apply(root, wt, cfg, false, nil, nil); err != nil {
 		t.Fatalf("Apply error: %v", err)
 	}
 

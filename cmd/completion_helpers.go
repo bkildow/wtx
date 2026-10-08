@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 
-	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/spf13/cobra"
@@ -68,7 +67,7 @@ func completionRunner() (*git.Runner, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
-	cfg, err := config.Load(projectRoot)
+	cfg, err := loadProjectAt(projectRoot)
 	if err != nil {
 		return nil, "", err
 	}

@@ -18,10 +18,12 @@ var ErrReported = errors.New("already reported")
 var ErrDoctorUnhealthy = fmt.Errorf("doctor found unsuccessful checks or repairs: %w", ErrReported)
 
 func newDoctorCmd() *cobra.Command {
-	var fix, user, structured, strict bool
+	var fix, user, structured, strict, migrateHome bool
+	var name string
 	cmd := &cobra.Command{
 		Use: "doctor", Short: "Check project health and migration readiness",
-		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings must migrate before v0.12; commands and script exports before v1.0. Output groups related findings; --verbose lists every finding, including passing checks.",
+		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings must migrate before v0.12; commands and script exports before v1.0. Output groups related findings; --verbose lists every finding, including passing checks.\n\n" +
+			"--migrate-home moves a project created with wtx init --in-repo (.worktrees/ inside the repository) to ~/.wtx/<name>/: worktrees (git worktree move), shared/ and bin/, an ownership marker and git config wtx.name; it removes worktree_dir, shared_dir and the bin/ scripts entries from .worktree.yml (backed up first) so the paths resolve per clone. Locked worktrees, worktrees with submodules and Git-tracked shared files stay put and are reported. Preview with --dry-run; rerunning resumes an interrupted migration.",
 		Args: cobra.NoArgs,
 		// Avoid theme/progress diagnostics in JSON mode, including --verbose.
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
@@ -31,7 +33,10 @@ func newDoctorCmd() *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			report := doctor.Run(cmd.Context(), doctor.Options{User: user, Fix: fix, DryRun: IsDryRun()})
+			if cmd.Flags().Changed("name") && !migrateHome {
+				return errors.New("--name requires --migrate-home")
+			}
+			report := doctor.Run(cmd.Context(), doctor.Options{User: user, Fix: fix, DryRun: IsDryRun(), MigrateHome: migrateHome, HomeName: name})
 			if structured {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
 				encoder.SetIndent("", "  ")
@@ -51,5 +56,8 @@ func newDoctorCmd() *cobra.Command {
 	cmd.Flags().BoolVar(&user, "user", false, "Check user configuration only (manual repairs)")
 	cmd.Flags().BoolVar(&structured, "json", false, "Write a structured report to stdout")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Exit unsuccessfully for warnings as well as failures")
+	cmd.Flags().BoolVar(&migrateHome, "migrate-home", false, "Move an in-repo init project's worktrees, shared files and scripts to ~/.wtx/<name>/")
+	cmd.Flags().StringVar(&name, "name", "", "Directory name under ~/.wtx for --migrate-home (default: wtx.name, else the repository directory name)")
+	cmd.MarkFlagsMutuallyExclusive("fix", "migrate-home")
 	return cmd
 }

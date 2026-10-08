@@ -16,6 +16,8 @@ func TestSetupLegacyMigration(t *testing.T) {
 	for _, mode := range []string{"dry", "run", "live"} {
 		t.Run(mode, func(t *testing.T) {
 			root := t.TempDir()
+			// Keep any ~/.wtx state out of the real home directory.
+			t.Setenv("WTX_HOME", t.TempDir())
 			runGit := func(args ...string) {
 				t.Helper()
 				out, err := exec.Command("git", args...).CombinedOutput()
@@ -27,7 +29,7 @@ func TestSetupLegacyMigration(t *testing.T) {
 			runGit("-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-m", "initial")
 			worktree := filepath.Join(root, "worktrees", "feature")
 			runGit("-C", root, "worktree", "add", "-b", "feature", worktree)
-			if err := os.WriteFile(filepath.Join(root, ".worktree.yml"), []byte("git_dir: .git\nsetup:\n  - 'true'\n"), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(root, ".worktree.yml"), []byte("git_dir: .git\nworktree_dir: worktrees\nshared_dir: shared\nsetup:\n  - 'true'\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			exclude := filepath.Join(root, ".git", "info", "exclude")

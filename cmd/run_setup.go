@@ -9,7 +9,6 @@ import (
 	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
-	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/charmbracelet/colorprofile"
@@ -40,7 +39,7 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	cfg, err := config.Load(projectRoot)
+	cfg, err := loadProjectAt(projectRoot)
 	if err != nil {
 		return err
 	}

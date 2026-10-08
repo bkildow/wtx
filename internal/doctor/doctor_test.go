@@ -16,6 +16,7 @@ import (
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 func write(t *testing.T, path, content string, mode os.FileMode) {
@@ -42,7 +43,7 @@ func gitRun(t *testing.T, args ...string) {
 
 func fixture(t *testing.T, bare bool) (root, gitDir, worktree string) {
 	t.Helper()
-	root = resolved(t.TempDir())
+	root = ui.CanonicalPath(t.TempDir())
 	gitDir = filepath.Join(root, ".git")
 	worktree = root
 	if bare {
@@ -432,7 +433,7 @@ func TestScanBoundsAndUserDiscovery(t *testing.T) {
 	if bytes.Contains(data, []byte("SECRET_TOKEN")) {
 		t.Fatal("scan leaked source line")
 	}
-	home := resolved(t.TempDir())
+	home := ui.CanonicalPath(t.TempDir())
 	zdir := filepath.Join(home, "zsh")
 	xdg := filepath.Join(home, "config")
 	t.Setenv("HOME", home)
@@ -465,6 +466,19 @@ func TestOperationalReportsAndStrict(t *testing.T) {
 	}
 	root, _, _ := fixture(t, false)
 	write(t, filepath.Join(root, ".worktree.yml"), "scripts: {}\ndisk_warn: false\ngit_dir: .git\n", 0o600)
+	// The omitted paths resolve per clone; a clone that has not run wtx
+	// init is flagged until its ~/.wtx/<name> exists.
+	r = Run(context.Background(), Options{StartDir: root})
+	if r.Unsuccessful(false) || !r.Unsuccessful(true) {
+		t.Fatalf("clone without wtx init must fail strict only: %+v", r)
+	}
+	homeDir, err := project.HomeProjectDir(filepath.Base(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := project.WriteMarker(homeDir, root, false); err != nil {
+		t.Fatal(err)
+	}
 	r = Run(context.Background(), Options{StartDir: root})
 	if r.Unsuccessful(false) || r.Unsuccessful(true) {
 		t.Fatalf("healthy project must pass strict: %+v", r)

@@ -12,13 +12,23 @@ import (
 
 // WorktreeConfigPath resolves the administrative config of a worktree.
 func WorktreeConfigPath(worktreePath string) (string, error) {
+	admin, err := WorktreeAdminDir(worktreePath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(admin, "config.worktree"), nil
+}
+
+// WorktreeAdminDir resolves a worktree's administrative directory: its .git
+// directory, or the directory a linked worktree's .git file points at.
+func WorktreeAdminDir(worktreePath string) (string, error) {
 	path := filepath.Join(worktreePath, ".git")
 	info, err := os.Stat(path)
 	if err != nil {
 		return "", err
 	}
 	if info.IsDir() {
-		return filepath.Join(path, "config.worktree"), nil
+		return path, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -32,7 +42,7 @@ func WorktreeConfigPath(worktreePath string) (string, error) {
 	if !filepath.IsAbs(value) {
 		value = filepath.Join(worktreePath, value)
 	}
-	return filepath.Join(value, "config.worktree"), nil
+	return value, nil
 }
 
 // SetConfigFile uses Git's parser and lock/rename protocol. Doctor calls it on

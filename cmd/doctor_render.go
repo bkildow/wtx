@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
@@ -22,10 +20,11 @@ const doctorItemLimit = 5
 // replace per-finding text when findings in a group vary only by subject.
 // summarize hides the item list without --verbose (cleanup hints, not health
 // problems); note marks informational checks that only appear with --verbose
-// when they pass, since they verify nothing.
+// when they pass, since they verify nothing; hint shows a passing group's
+// remedy (an optional suggestion) without --verbose.
 type doctorCheck struct {
 	id, title, about, remedy string
-	summarize, note          bool
+	summarize, note, hint    bool
 }
 
 // doctorChecks lists checks in report order.
@@ -36,6 +35,14 @@ var doctorChecks = []doctorCheck{
 	{id: "git.compatibility", title: "Bare repository compatibility"},
 	{id: "git.exclude", title: "Git exclude file"},
 	{id: "git.worktrees", title: "Worktrees"},
+	{id: "home.paths", title: "Worktree directory"},
+	{id: "home.marker", title: "~/.wtx ownership marker"},
+	{id: "home.layout", title: "Worktree layout", hint: true},
+	{id: "home.migrate", title: "Move to ~/.wtx"},
+	{
+		id: "home.orphans", title: "Orphaned ~/.wtx directories",
+		about: "The repository that owned each directory is gone or no longer a wtx project.",
+	},
 	{
 		id: "git.branches", title: "Local branches with no worktree or remote",
 		about:     "Not checked out anywhere and no matching remote-tracking branch; often merged or abandoned work.",
@@ -108,14 +115,12 @@ func groupDoctorFindings(findings []doctor.Finding) []doctorGroup {
 
 type doctorRenderer struct {
 	w       io.Writer
-	root    string
-	home    string
+	paths   ui.PathDisplay // relative to the project root
 	verbose bool
 }
 
 func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
-	home, _ := os.UserHomeDir()
-	d := doctorRenderer{w: w, root: r.Root, home: home, verbose: verbose}
+	d := doctorRenderer{w: w, paths: ui.NewPathDisplay(r.Root), verbose: verbose}
 	groups := groupDoctorFindings(r.Findings)
 
 	var problems, passed []doctorGroup
@@ -126,10 +131,16 @@ func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
 			failing[g.check.id] = true
 		}
 	}
+	var hints []doctorGroup
 	for _, g := range groups {
-		if g.severity == doctor.OK && !failing[g.check.id] && !g.check.note {
-			passed = append(passed, g)
+		if g.severity != doctor.OK || failing[g.check.id] || g.check.note {
+			continue
 		}
+		if g.check.hint && slices.ContainsFunc(g.findings, func(f doctor.Finding) bool { return f.Remedy != "" }) {
+			hints = append(hints, g)
+			continue
+		}
+		passed = append(passed, g)
 	}
 
 	d.summary(r, problems, passed)
@@ -142,7 +153,12 @@ func renderDoctorReport(w io.Writer, r doctor.Report, verbose bool) {
 				d.group(g)
 			}
 		}
-	} else if len(passed) > 0 {
+	} else {
+		for _, g := range hints {
+			d.group(g)
+		}
+	}
+	if !verbose && len(passed) > 0 {
 		titles := make([]string, len(passed))
 		for i, g := range passed {
 			titles[i] = g.check.title
@@ -164,7 +180,7 @@ func (d doctorRenderer) summary(r doctor.Report, problems, passed []doctorGroup)
 		title += " --user"
 	}
 	if r.Root != "" {
-		title += "  " + ui.StyleMuted.Render(doctorRenderer{home: d.home}.display(r.Root))
+		title += "  " + ui.StyleMuted.Render(ui.DisplayPath("", r.Root))
 	}
 	d.line(ui.StyleHeading.Render(title))
 
@@ -284,7 +300,7 @@ func (d doctorRenderer) items(g doctorGroup, explain bool) []string {
 
 	var items []string
 	for _, e := range entries {
-		item := d.display(e.path)
+		item := d.paths.Path(e.path)
 		switch {
 		case len(e.lines) == 1:
 			item += fmt.Sprintf(":%d", e.lines[0])
@@ -311,7 +327,7 @@ func (d doctorRenderer) repairs(repairs []doctor.RepairOutcome) {
 	d.line(ui.StyleHeading.Render("Repairs"))
 	for _, r := range repairs {
 		_, check := lookupDoctorCheck(r.ID)
-		where := ui.StyleMuted.Render(" " + d.display(r.Path))
+		where := ui.StyleMuted.Render(" " + d.paths.Path(r.Path))
 		switch r.Status {
 		case doctor.Planned:
 			d.line(ui.StyleInfo.Render("  • would repair "+check.title) + where)
@@ -320,8 +336,11 @@ func (d doctorRenderer) repairs(repairs []doctor.RepairOutcome) {
 		case doctor.Failed:
 			d.line(ui.StyleError.Render("  ✗ could not repair "+check.title) + where)
 		}
+		if r.Action != "" {
+			d.line(ui.StyleMuted.Render("      " + r.Action))
+		}
 		if r.Backup != "" {
-			d.line(ui.StyleMuted.Render("      backup: " + d.display(r.Backup)))
+			d.line(ui.StyleMuted.Render("      backup: " + d.paths.Path(r.Backup)))
 		}
 		if r.Error != "" {
 			d.line(ui.StyleError.Render("      " + r.Error))
@@ -350,22 +369,6 @@ func (d doctorRenderer) nextSteps(r doctor.Report, problems []doctorGroup) {
 	for _, s := range steps {
 		d.line(ui.StyleInfo.Render(s))
 	}
-}
-
-// display shortens a path relative to the project root or home directory.
-func (d doctorRenderer) display(path string) string {
-	if path == "" {
-		return ""
-	}
-	if d.root != "" {
-		if rel, err := filepath.Rel(d.root, path); err == nil && !strings.HasPrefix(rel, "..") {
-			return rel
-		}
-	}
-	if d.home != "" && (path == d.home || strings.HasPrefix(path, d.home+string(filepath.Separator))) {
-		return "~" + strings.TrimPrefix(path, d.home)
-	}
-	return path
 }
 
 func distinct(findings []doctor.Finding, key func(doctor.Finding) string) []string {

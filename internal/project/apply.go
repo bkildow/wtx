@@ -14,8 +14,100 @@ import (
 
 // ApplyResult holds counts of files processed during Apply.
 type ApplyResult struct {
+	Included  int // files copied from the main worktree via .worktreeinclude
 	Copied    int
 	Symlinked int
+}
+
+// IncludeSource is the main worktree and the files its .worktreeinclude
+// selects (paths relative to Dir), as listed by git.ListWorktreeIncludes.
+type IncludeSource struct {
+	Dir   string
+	Files []string
+}
+
+// applyInclude copies the .worktreeinclude-selected files from the main
+// worktree into worktreePath. Files that already exist in the destination are
+// left alone (not counted), matching Claude Code and Conductor, which only
+// seed at creation. It is a no-op when include is nil, empty, or the destination is the main
+// worktree itself.
+func applyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
+	if include == nil || len(include.Files) == 0 || SamePath(include.Dir, worktreePath) {
+		return 0, nil
+	}
+
+	ui.Step("Copying .worktreeinclude files from " + include.Dir)
+
+	var count int
+	for _, rel := range include.Files {
+		src := filepath.Join(include.Dir, rel)
+		dest := filepath.Join(worktreePath, rel)
+
+		// Seed only: never replace a file the worktree already has, so a
+		// re-run of wtx apply keeps a worktree's own edits.
+		if _, err := os.Lstat(dest); err == nil {
+			continue
+		}
+		// A parent that is a symlink (e.g. a directory linked from
+		// shared/symlink) would make the copy land outside the worktree.
+		if hasSymlinkParent(worktreePath, rel) {
+			continue
+		}
+
+		if dryRun {
+			ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", src, dest))
+			count++
+			continue
+		}
+
+		info, err := os.Lstat(src)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue // removed since git listed it
+			}
+			return count, err
+		}
+		// Sockets, FIFOs and devices cannot be copied; skip rather than
+		// failing the whole apply after the worktree already exists.
+		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+			ui.Warning("  skipped " + rel + ": not a regular file")
+			continue
+		}
+		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+			return count, err
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			if err := fscopy.CopySymlink(src, dest); err != nil {
+				return count, err
+			}
+		} else if err := fscopy.CopyFile(src, dest); err != nil {
+			return count, err
+		}
+		ui.Info("  copied " + rel)
+		count++
+	}
+	return count, nil
+}
+
+// hasSymlinkParent reports whether any existing directory component of rel
+// (below root) is a symlink.
+func hasSymlinkParent(root, rel string) bool {
+	dir := root
+	parts := strings.Split(filepath.ToSlash(filepath.Dir(rel)), "/")
+	for _, part := range parts {
+		if part == "." || part == "" {
+			continue
+		}
+		dir = filepath.Join(dir, part)
+		info, err := os.Lstat(dir)
+		if err != nil {
+			return false
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (int, error) {
@@ -285,7 +377,15 @@ func symlinkDirContents(srcDir, destDir, worktreePath string) (int, error) {
 	return count, nil
 }
 
-func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (ApplyResult, error) {
+// Apply layers files into a worktree in order: .worktreeinclude files from
+// the main worktree, then shared/copy, then shared/symlink. Later layers win,
+// so machine-local shared files override what the main worktree provides.
+// include may be nil to skip the .worktreeinclude layer.
+func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, include *IncludeSource) (ApplyResult, error) {
+	included, err := applyInclude(include, worktreePath, dryRun)
+	if err != nil {
+		return ApplyResult{}, err
+	}
 	copied, err := ApplyCopy(projectRoot, worktreePath, cfg, dryRun, vars)
 	if err != nil {
 		return ApplyResult{}, err
@@ -294,7 +394,7 @@ func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, va
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	return ApplyResult{Copied: copied, Symlinked: symlinked}, nil
+	return ApplyResult{Included: included, Copied: copied, Symlinked: symlinked}, nil
 }
 
 // logCopyDir logs a top-level directory copy once, collapsing nested files.

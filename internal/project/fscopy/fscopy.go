@@ -122,3 +122,12 @@ func byteCopy(src, dst string, mode os.FileMode) error {
 	}
 	return nil
 }
+
+// CopySymlink recreates the symlink at src as dst, preserving its target.
+func CopySymlink(src, dst string) error {
+	target, err := os.Readlink(src)
+	if err != nil {
+		return err
+	}
+	return os.Symlink(target, dst)
+}

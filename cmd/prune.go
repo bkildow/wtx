@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/forge"
 	"github.com/bkildow/wtx/internal/git"
@@ -131,7 +130,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	// Resolve current worktree path for comparison
-	currentPath := resolvePathBest(cwd)
+	currentPath := ui.CanonicalPath(cwd)
 
 	// Optional PR awareness. A missing or unusable gh is the normal case, not
 	// an error: detection just falls back to the git-native checks.
@@ -157,7 +156,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if resolvePathBest(wt.Path) == currentPath {
+		if ui.CanonicalPath(wt.Path) == currentPath {
 			continue
 		}
 
@@ -211,11 +210,9 @@ func runPrune(cmd *cobra.Command, args []string) error {
 
 	ui.Step("Merged worktrees:")
 	t := ui.NewTable().Headers("BRANCH", "PATH", "MERGED", "STATUS")
+	paths := ui.NewPathDisplay(projectRoot)
 	for _, p := range pruneable {
-		relPath, err := filepath.Rel(projectRoot, p.worktree.Path)
-		if err != nil {
-			relPath = p.worktree.Path
-		}
+		relPath := paths.Path(p.worktree.Path)
 		t.Row(p.worktree.Branch, relPath, p.reason, p.status())
 	}
 	ui.PrintTable(t)

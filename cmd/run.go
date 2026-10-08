@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
@@ -16,10 +15,12 @@ import (
 func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [name] [args...]",
-		Short: "Run a named project script from .worktree.yml",
-		Long: `Runs a script configured under the "scripts" key of .worktree.yml.
+		Short: "Run a named project script",
+		Long: `Runs a script configured under the "scripts" key of .worktree.yml, or an
+executable of that name in the project's bin directory (next to shared_dir,
+e.g. ~/.wtx/<name>/bin/). A scripts entry wins over a bin file of the same name.
 
-Script paths are resolved relative to the project root (absolute paths are
+Script paths are resolved relative to the project root (absolute and ~/ paths are
 allowed). The script runs with the current worktree as its working directory
 and receives these environment variables:
 
@@ -40,7 +41,7 @@ Because of this, wtx flags must come before the script name:
   wtx run refresh --no-cache        # --no-cache is passed to the script
   wtx run --dry-run refresh         # dry-run applies to wtx
 
-With no name, an interactive picker lists the configured scripts.`,
+With no name, an interactive picker lists the configured and bin scripts.`,
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: completeScriptNames,
 		RunE:              runRun,
@@ -57,8 +58,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if len(cfg.Scripts) == 0 {
-		ui.Info("No scripts configured in .worktree.yml")
+	names := project.AvailableScriptNames(projectRoot, cfg)
+	if len(names) == 0 {
+		ui.Info("No scripts configured in .worktree.yml or found in " + ui.DisplayPath(projectRoot, project.BinPath(projectRoot, cfg)))
 		return nil
 	}
 
@@ -68,7 +70,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		name, scriptArgs = args[0], args[1:]
 	} else {
 		prompter := &ui.InteractivePrompter{}
-		name, err = prompter.SelectScript(project.ScriptNames(cfg))
+		name, err = prompter.SelectScript(names)
 		if err != nil {
 			if ui.IsUserAbort(err) {
 				return nil
@@ -138,7 +140,7 @@ func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Co
 	sc := scriptContext{
 		dir:              cwd,
 		vars:             project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)},
-		mainWorktreePath: resolveMainWorktreePath(worktrees, filtered, cfg),
+		mainWorktreePath: resolveMainWorktreePath(worktrees, filtered, cfg.MainBranch),
 	}
 	if wt, ok := resolveCurrentWorktree(filtered); ok {
 		sc.dir = wt.Path
@@ -147,18 +149,19 @@ func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Co
 	return sc, nil
 }
 
-// resolveMainWorktreePath finds the worktree checked out on cfg.MainBranch.
-// For wtx init projects the main worktree is the project root itself, which
-// filterManagedWorktrees excludes, so fall back to the unfiltered list.
-func resolveMainWorktreePath(all, filtered []git.WorktreeInfo, cfg *config.Config) string {
-	if cfg.MainBranch == "" {
+// resolveMainWorktreePath finds the worktree checked out on branch (empty
+// for none). For wtx init projects the main worktree is the project root
+// itself, which filterManagedWorktrees excludes, so fall back to the
+// unfiltered list.
+func resolveMainWorktreePath(all, filtered []git.WorktreeInfo, branch string) string {
+	if branch == "" {
 		return ""
 	}
-	if wt, ok := findWorktreeByBranch(filtered, cfg.MainBranch); ok {
+	if wt, ok := findWorktreeByBranch(filtered, branch); ok {
 		return wt.Path
 	}
 	for _, wt := range all {
-		if !wt.Bare && wt.Branch == cfg.MainBranch {
+		if !wt.Bare && wt.Branch == branch {
 			return wt.Path
 		}
 	}
@@ -178,19 +181,18 @@ func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) (
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	cfg, err := config.Load(projectRoot)
+	cfg, err := loadProjectAt(projectRoot)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	return project.ScriptNames(cfg), cobra.ShellCompDirectiveNoFileComp
+	return project.AvailableScriptNames(projectRoot, cfg), cobra.ShellCompDirectiveNoFileComp
 }
 
 // displayScriptPath shows scripts under the project root as a relative path
 // and everything else as-is.
 func displayScriptPath(projectRoot, scriptPath string) string {
-	rel, err := filepath.Rel(projectRoot, scriptPath)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return scriptPath
+	if rel, ok := ui.RelWithin(projectRoot, scriptPath); ok {
+		return rel
 	}
-	return rel
+	return scriptPath
 }

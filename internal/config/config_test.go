@@ -472,9 +472,9 @@ func TestYamlQuote(t *testing.T) {
 		{"", `""`},
 	}
 	for _, tt := range tests {
-		got := yamlQuote(tt.input)
+		got := YAMLQuote(tt.input)
 		if got != tt.want {
-			t.Errorf("yamlQuote(%q) = %q, want %q", tt.input, got, tt.want)
+			t.Errorf("YAMLQuote(%q) = %q, want %q", tt.input, got, tt.want)
 		}
 	}
 }
@@ -627,5 +627,69 @@ func TestWriteAnnotatedWithDiskValues(t *testing.T) {
 	}
 	if reloaded.DiskWarnPercent != 25 || reloaded.DiskWarnGB != 30 {
 		t.Errorf("thresholds = %d%%/%dGB, want 25%%/30GB", reloaded.DiskWarnPercent, reloaded.DiskWarnGB)
+	}
+}
+
+func TestParseRecordsWhichPathsAreSet(t *testing.T) {
+	tests := []struct {
+		name               string
+		content            string
+		wantWT, wantShared string
+		wtSet, sharedSet   bool
+		homeDefaults       bool
+	}{
+		{"checkout omitted", "git_dir: .git\n", DefaultWorktreeDir, DefaultSharedDir, false, false, true},
+		{"checkout explicit", "git_dir: .git\nworktree_dir: .worktrees\nshared_dir: .worktrees/shared\n", ".worktrees", ".worktrees/shared", true, true, false},
+		{"checkout one omitted", "git_dir: .git\nworktree_dir: trees\n", "trees", DefaultSharedDir, true, false, true},
+		{"checkout null counts as omitted", "git_dir: .git\nworktree_dir:\nshared_dir: ~\n", DefaultWorktreeDir, DefaultSharedDir, false, false, true},
+		{"bare omitted", "git_dir: .bare\n", DefaultWorktreeDir, DefaultSharedDir, false, false, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg, err := Parse([]byte(tt.content))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if cfg.WorktreeDir != tt.wantWT || cfg.SharedDir != tt.wantShared {
+				t.Errorf("dirs = %q, %q; want %q, %q", cfg.WorktreeDir, cfg.SharedDir, tt.wantWT, tt.wantShared)
+			}
+			if cfg.WorktreeDirSet != tt.wtSet || cfg.SharedDirSet != tt.sharedSet {
+				t.Errorf("set = %v, %v; want %v, %v", cfg.WorktreeDirSet, cfg.SharedDirSet, tt.wtSet, tt.sharedSet)
+			}
+			if got := cfg.HomeDefaults(); got != tt.homeDefaults {
+				t.Errorf("HomeDefaults() = %v, want %v", got, tt.homeDefaults)
+			}
+		})
+	}
+}
+
+func TestRenderAnnotatedOmitsPerClonePaths(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.GitDir = ".git"
+	out := renderAnnotatedConfig(&cfg)
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "worktree_dir:") || strings.HasPrefix(line, "shared_dir:") {
+			t.Errorf("rendered %q for a checkout layout with omitted paths", line)
+		}
+	}
+	if !strings.Contains(out, "~/.wtx/<name>/") {
+		t.Errorf("missing per-clone explanation:\n%s", out)
+	}
+	got, err := Parse([]byte(out))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.WorktreeDirSet || got.SharedDirSet || !got.HomeDefaults() {
+		t.Errorf("round trip set = %v, %v", got.WorktreeDirSet, got.SharedDirSet)
+	}
+
+	// Explicit values and bare layouts are still written.
+	cfg.WorktreeDir, cfg.WorktreeDirSet = ".worktrees", true
+	if out := renderAnnotatedConfig(&cfg); !strings.Contains(out, "\nworktree_dir: .worktrees\n") {
+		t.Errorf("explicit worktree_dir not written:\n%s", out)
+	}
+	bare := DefaultConfig()
+	if out := renderAnnotatedConfig(&bare); !strings.Contains(out, "\nworktree_dir: worktrees\n") || strings.Contains(out, "~/.wtx/<name>/") {
+		t.Errorf("bare layout rendering changed:\n%s", out)
 	}
 }

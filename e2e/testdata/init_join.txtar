@@ -1,0 +1,83 @@
+[!exec:git] skip 'git not available'
+
+# Repository A initializes wtx and commits .worktree.yml.
+exec git init -b main $WORK/a/myrepo
+cd $WORK/a/myrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init
+exec git add .worktree.yml
+exec git commit -m 'add wtx config'
+
+# A teammate clones it under another directory name.
+exec git clone $WORK/a/myrepo $WORK/b/teamrepo
+cd $WORK/b/teamrepo
+cp .worktree.yml $WORK/committed.yml
+
+# doctor flags the clone as not set up.
+! exec wtx doctor --strict
+stderr 'wtx init'
+
+# wtx add refuses until this clone is set up, and creates nothing.
+! exec wtx add --skip-setup x
+stderr 'not set up'
+stderr 'wtx init'
+! exists $WTX_HOME/teamrepo
+
+# Dry-run join prints the per-clone writes and changes nothing.
+exec wtx --dry-run init
+stderr 'write .*/\.wtx-home/teamrepo/project\.yml'
+stderr 'config --local wtx\.name teamrepo'
+! stderr 'write .*\.worktree\.yml'
+! exists $WTX_HOME/teamrepo
+
+# wtx init joins: per-clone setup only, the committed config is unchanged.
+exec wtx init
+stderr 'Joined wtx project'
+cmp .worktree.yml $WORK/committed.yml
+exists $WTX_HOME/teamrepo/project.yml
+exists $WTX_HOME/teamrepo/shared/copy
+exists $WTX_HOME/teamrepo/bin/refresh
+grep 'root: .*b/teamrepo' $WTX_HOME/teamrepo/project.yml
+exec git config --local wtx.name
+stdout '^teamrepo$'
+exec git status --porcelain
+! stdout .
+
+# Running it again changes nothing.
+exec wtx init
+stderr 'already set up'
+
+exec wtx add --skip-setup x
+exists $WTX_HOME/teamrepo/worktrees/x/.git
+exec wtx run refresh
+stderr 'not implemented'
+exec wtx doctor --strict
+
+# A third clone with the same directory name as A collides in ~/.wtx.
+exec git clone $WORK/a/myrepo $WORK/c/myrepo
+cd $WORK/c/myrepo
+! exec wtx add --skip-setup y
+stderr 'belongs to .*a/myrepo'
+stderr 'wtx init --name'
+! exec wtx init
+stderr 'belongs to .*a/myrepo'
+stderr 'wtx init --name'
+! exec git config --local wtx.name
+
+# --name picks another directory and records it in local git config.
+exec wtx init --name other
+stderr 'Joined wtx project'
+cmp .worktree.yml $WORK/committed.yml
+exec git config --local wtx.name
+stdout '^other$'
+grep 'root: .*c/myrepo' $WTX_HOME/other/project.yml
+exec wtx add --skip-setup y
+exists $WTX_HOME/other/worktrees/y/.git
+! exists $WTX_HOME/myrepo/worktrees/y
+
+# Linked worktrees share the clone's wtx.name.
+cd $WTX_HOME/other/worktrees/y
+exec wtx root
+stdout 'c/myrepo$'
+exec wtx list
+stderr 'wtx-home/other/worktrees/y'

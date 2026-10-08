@@ -15,6 +15,7 @@ import (
 	"github.com/bkildow/wtx/internal/claude"
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 const scanLimit = 1 << 20
@@ -64,7 +65,7 @@ func (s *inspection) settings(path string) {
 		return
 	}
 	s.seenSettings[actual] = true
-	if !within(s.root, actual) {
+	if !s.managed(actual) {
 		s.add("claude.hooks", "warn", path, "Settings resolve outside the project.", "Review legacy hook commands in the external settings manually.")
 		return
 	}
@@ -93,7 +94,7 @@ func (s *inspection) settings(path string) {
 	}
 	i := s.add("claude.hooks", "warn", actual, fmt.Sprintf("%d recognized legacy hook command(s) can be migrated.", changed), "Run wtx doctor --fix to replace recognized wt executables before v1.0.")
 	s.planContent(i, file, updated, func() error {
-		if resolved(path) != actual {
+		if ui.CanonicalPath(path) != actual {
 			return fmt.Errorf("settings link changed since inspection: %s", path)
 		}
 		now, n, _, err := claude.MigrateLegacyHooks(file.data)
@@ -221,7 +222,7 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 		s.scanSkipped++
 		return
 	}
-	if s.gitDir != "" && within(s.gitDir, path) {
+	if s.gitDir != "" && ui.Within(s.gitDir, path) {
 		return
 	}
 	data, err := os.ReadFile(path)
@@ -273,9 +274,8 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 					remedy = "Review custom wrapper/command candidate wt and update to wtx before v1.0."
 				}
 			}
-			i := s.add("migration.references", "warn", path, "Legacy identifier candidate: "+identifier+" (text match; execution not established).", remedy)
+			i := s.addSubject("migration.references", path, identifier, "Legacy identifier candidate: "+identifier+" (text match; execution not established).", remedy)
 			s.report.Findings[i].Line = line + 1
-			s.report.Findings[i].Subject = identifier
 		}
 	}
 }
@@ -285,7 +285,7 @@ func (s *inspection) resolveDir(dir string) string {
 	if r, ok := s.resolvedDirs[dir]; ok {
 		return r
 	}
-	r := resolved(dir)
+	r := ui.CanonicalPath(dir)
 	s.resolvedDirs[dir] = r
 	return r
 }
@@ -320,17 +320,17 @@ func (s *inspection) user() {
 	}
 	// Canonicalize the home root so normal macOS /var aliases aren't mistaken
 	// for arbitrary shell includes during scanning.
-	home = resolved(home)
+	home = ui.CanonicalPath(home)
 	zdir := os.Getenv("ZDOTDIR")
 	if zdir == "" {
 		zdir = home
 	}
-	zdir = resolved(zdir)
+	zdir = ui.CanonicalPath(zdir)
 	xdg := os.Getenv("XDG_CONFIG_HOME")
 	if xdg == "" {
 		xdg = filepath.Join(home, ".config")
 	}
-	xdg = resolved(xdg)
+	xdg = ui.CanonicalPath(xdg)
 	for _, name := range []string{".bashrc", ".bash_profile", ".bash_login", ".profile"} {
 		s.scanFile(filepath.Join(home, name), scopeUser)
 	}

@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // backupDirName lives under the Git directory, which scans and apply skip.
@@ -74,6 +75,11 @@ type repair struct {
 	value    string
 	backups  string
 	validate func() error
+	// Operation repairs (run != nil) perform a filesystem or Git operation
+	// instead of replacing file; done verifies the result.
+	action string
+	run    func(ctx context.Context) error
+	done   func() error
 }
 
 // planContent schedules replacing file with data.
@@ -87,7 +93,7 @@ func (s *inspection) planConfig(index int, file snapshot, key, value string, gua
 }
 
 func (s *inspection) plan(index int, r repair) {
-	if !within(s.root, resolved(r.file.path)) || !within(s.root, r.file.parent) {
+	if !s.managed(ui.CanonicalPath(r.file.path)) || !s.managed(r.file.parent) {
 		s.report.Findings[index].Remedy += " Repair manually: target is outside the project."
 		return
 	}
@@ -105,8 +111,10 @@ func (r repair) check() error {
 			return err
 		}
 	}
-	if err := r.file.unchanged(); err != nil {
-		return err
+	if r.run == nil {
+		if err := r.file.unchanged(); err != nil {
+			return err
+		}
 	}
 	if r.validate != nil {
 		return r.validate()
@@ -115,6 +123,12 @@ func (r repair) check() error {
 }
 
 func (r repair) verify(ctx context.Context) error {
+	if r.run != nil {
+		if r.done == nil {
+			return nil
+		}
+		return r.done()
+	}
 	if r.key != "" {
 		value, err := git.ConfigBool(ctx, r.file.path, r.key)
 		if err != nil {
@@ -138,6 +152,9 @@ func (r repair) verify(ctx context.Context) error {
 func (r repair) apply(ctx context.Context) (string, error) {
 	if err := r.check(); err != nil {
 		return "", err
+	}
+	if r.run != nil {
+		return "", r.run(ctx)
 	}
 	dir := filepath.Dir(r.file.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

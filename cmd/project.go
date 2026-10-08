@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
@@ -40,27 +39,35 @@ func loadProject() (string, *config.Config, error) {
 		return "", nil, err
 	}
 
-	cfg, err := config.Load(root)
+	cfg, err := loadProjectAt(root)
 	if err != nil {
 		return "", nil, err
 	}
-
 	return root, cfg, nil
 }
 
-// filterManagedWorktrees returns only worktrees that wtx manages — those
-// created under the worktrees directory. This excludes bare entries (from
-// wtx clone setups) and the main working tree at the project root (from
-// wtx init setups).
+// loadProjectAt loads the config of the project at root, resolves its
+// per-clone ~/.wtx/<name> defaults and checks that its paths expand (see
+// project.LoadConfig). Every command entry point that loads a config goes
+// through it.
+func loadProjectAt(root string) (*config.Config, error) {
+	return project.LoadConfig(context.Background(), root)
+}
+
+// filterManagedWorktrees returns the worktrees wtx manages: every linked
+// worktree of the repository, wherever it lives on disk (including ones
+// outside the project root or created by other tools). It excludes only bare
+// entries (from wtx clone setups) and the main working tree at the project
+// root (from wtx init setups).
 func filterManagedWorktrees(worktrees []git.WorktreeInfo, projectRoot string) []git.WorktreeInfo {
-	absRoot := resolvePathBest(projectRoot)
+	absRoot := ui.CanonicalPath(projectRoot)
 	var filtered []git.WorktreeInfo
 	for _, wt := range worktrees {
 		if wt.Bare {
 			continue
 		}
 		// Fast path: exact string match avoids syscall
-		if wt.Path == projectRoot || resolvePathBest(wt.Path) == absRoot {
+		if wt.Path == projectRoot || ui.CanonicalPath(wt.Path) == absRoot {
 			continue
 		}
 		filtered = append(filtered, wt)
@@ -79,12 +86,24 @@ func detectDefaultBranch(ctx context.Context, runner git.Git) string {
 	return branch
 }
 
-// resolvePathBest tries to resolve symlinks; falls back to filepath.Clean.
-func resolvePathBest(p string) string {
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
+// branchFromWorktreePath returns the branch checked out at worktreePath
+// according to git (worktrees, from WorktreeList). When git has no entry with
+// a branch for that path, it derives the name from the worktree's location
+// under worktreesDir. Paths are canonicalized so an expanded "~" or WTX_HOME
+// path matches however the caller spelled it (e.g. macOS /var vs
+// /private/var).
+func branchFromWorktreePath(worktrees []git.WorktreeInfo, worktreesDir, worktreePath string) (string, error) {
+	path := ui.CanonicalPath(worktreePath)
+	for _, wt := range worktrees {
+		if !wt.Bare && wt.Branch != "" && ui.CanonicalPath(wt.Path) == path {
+			return wt.Branch, nil
+		}
 	}
-	return filepath.Clean(p)
+	rel, err := filepath.Rel(ui.CanonicalPath(worktreesDir), path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.ToSlash(rel), nil
 }
 
 // resolveCurrentWorktree finds the managed worktree that contains the current
@@ -95,10 +114,10 @@ func resolveCurrentWorktree(filtered []git.WorktreeInfo) (git.WorktreeInfo, bool
 	if err != nil {
 		return git.WorktreeInfo{}, false
 	}
-	currentPath := resolvePathBest(cwd)
+	currentPath := ui.CanonicalPath(cwd)
 	for _, wt := range filtered {
-		wtPath := resolvePathBest(wt.Path)
-		if currentPath == wtPath || strings.HasPrefix(currentPath, wtPath+string(os.PathSeparator)) {
+		// The worktree root itself (".") counts as inside it.
+		if ui.Within(ui.CanonicalPath(wt.Path), currentPath) {
 			return wt, true
 		}
 	}

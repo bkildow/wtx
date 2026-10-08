@@ -1,0 +1,93 @@
+[!exec:git] skip 'git not available'
+
+# --- init layout: the project root is the main worktree ---
+exec git init -b main myrepo
+cd myrepo
+cp $WORK/gitignore .gitignore
+cp $WORK/worktreeinclude .worktreeinclude
+cp $WORK/envexample .env.example
+mkdir secrets build
+cp $WORK/envexample secrets/tracked.txt
+exec git add .
+exec git add -f secrets/tracked.txt
+exec git commit -m 'initial'
+exec wtx init
+
+# Machine-local files in the main checkout. secrets/tracked.txt is tracked
+# despite matching both files, so its local edit must not be copied.
+cp $WORK/secret secrets/tracked.txt
+cp $WORK/secret .env
+cp $WORK/secret secrets/key.txt
+cp $WORK/secret build/out.txt
+# shared/copy overrides .worktreeinclude for the same path.
+cp $WORK/override $WTX_HOME/myrepo/shared/copy/.env.local
+cp $WORK/secret .env.local
+
+# Dry-run lists the would-copy paths without touching disk.
+exec wtx --dry-run add --skip-setup feature
+stderr 'copy .*\.env -> .*feature/\.env'
+! exists $WTX_HOME/myrepo/worktrees/feature
+
+exec wtx add --skip-setup feature
+stderr '3 included'
+cmp $WTX_HOME/myrepo/worktrees/feature/.env $WORK/secret
+cmp $WTX_HOME/myrepo/worktrees/feature/secrets/key.txt $WORK/secret
+cmp $WTX_HOME/myrepo/worktrees/feature/.env.local $WORK/override
+! exists $WTX_HOME/myrepo/worktrees/feature/build/out.txt
+# Tracked files come from git, not from the main checkout.
+cmp $WTX_HOME/myrepo/worktrees/feature/.env.example $WORK/envexample
+cmp $WTX_HOME/myrepo/worktrees/feature/secrets/tracked.txt $WORK/envexample
+
+# Re-running wtx apply leaves a worktree's edited .env alone; shared/copy
+# still applies after and wins.
+cp $WORK/edited $WTX_HOME/myrepo/worktrees/feature/.env
+exec wtx --dry-run apply feature
+! stderr 'myrepo/\.env -> '
+exec wtx apply feature
+stderr '0 included'
+cmp $WTX_HOME/myrepo/worktrees/feature/.env $WORK/edited
+cmp $WTX_HOME/myrepo/worktrees/feature/.env.local $WORK/override
+
+# A file missing from the worktree is seeded again.
+rm $WTX_HOME/myrepo/worktrees/feature/.env
+exec wtx apply feature
+stderr '1 included'
+cmp $WTX_HOME/myrepo/worktrees/feature/.env $WORK/secret
+
+# --- clone/bare layout: the main-branch worktree is the source ---
+cd $WORK
+setup-repo
+setup-project
+cd $WORK/project
+cp $WORK/barecfg .worktree.yml
+exec wtx add --skip-setup master
+cp $WORK/secret worktrees/master/.env
+cp $WORK/worktreeinclude worktrees/master/.worktreeinclude
+cp $WORK/gitignore worktrees/master/.gitignore
+
+exec wtx add --skip-setup other
+stderr '1 included'
+cmp worktrees/other/.env $WORK/secret
+
+-- gitignore --
+.env
+.env.local
+secrets/
+build/
+-- worktreeinclude --
+.env*
+secrets/
+-- envexample --
+EXAMPLE=1
+-- secret --
+SECRET=1
+-- edited --
+EDITED_IN_WORKTREE=1
+-- override --
+OVERRIDE=1
+-- barecfg --
+version: 1
+git_dir: .bare
+worktree_dir: worktrees
+shared_dir: shared
+main_branch: master

@@ -9,8 +9,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bkildow/wtx/internal/disk"
 	"gopkg.in/yaml.v3"
+
+	"github.com/bkildow/wtx/internal/disk"
 )
 
 const (
@@ -40,7 +41,7 @@ type Config struct {
 	Editor           string   `yaml:"editor,omitempty"`
 
 	// Scripts maps a name to an executable path (relative to the project
-	// root, or absolute) run via `wtx run <name>`.
+	// root, absolute, or ~/...) run via `wtx run <name>`.
 	Scripts map[string]string `yaml:"scripts,omitempty"`
 
 	// DiskWarn gates the low-disk-space warning. It is a pointer because the
@@ -48,6 +49,21 @@ type Config struct {
 	DiskWarn        *bool `yaml:"disk_warn,omitempty"`
 	DiskWarnPercent int   `yaml:"disk_warn_percent,omitempty"`
 	DiskWarnGB      int   `yaml:"disk_warn_gb,omitempty"`
+
+	// WorktreeDirSet and SharedDirSet record whether .worktree.yml spells
+	// out worktree_dir and shared_dir. Load fills omitted keys with
+	// DefaultWorktreeDir and DefaultSharedDir; for checkout-layout projects
+	// the project package then resolves them per clone to ~/.wtx/<name>/
+	// (see project.ResolveLayout).
+	WorktreeDirSet bool `yaml:"-"`
+	SharedDirSet   bool `yaml:"-"`
+}
+
+// HomeDefaults reports whether an omitted worktree_dir or shared_dir
+// resolves per clone to ~/.wtx/<name>/: true for checkout-layout projects
+// (wtx init) that leave at least one of them out of .worktree.yml.
+func (c *Config) HomeDefaults() bool {
+	return c.IsCheckoutLayout() && (!c.WorktreeDirSet || !c.SharedDirSet)
 }
 
 // DiskThreshold returns the configured low-disk thresholds, or nil when disk
@@ -75,6 +91,13 @@ func (c *Config) DiskThreshold() *disk.Threshold {
 	return &t
 }
 
+// IsCheckoutLayout reports whether git_dir is a checkout's .git directory
+// (wtx init), so the project root is the main worktree, as opposed to a bare
+// repository (wtx clone).
+func (c *Config) IsCheckoutLayout() bool {
+	return filepath.Base(c.GitDir) == ".git"
+}
+
 // MainBranchOrDefault returns the configured main branch, falling back to DefaultMainBranch.
 func (c *Config) MainBranchOrDefault() string {
 	if c.MainBranch != "" {
@@ -92,6 +115,7 @@ func DefaultConfig() Config {
 	}
 }
 
+// Load reads .worktree.yml from projectRoot (see Parse).
 func Load(projectRoot string) (*Config, error) {
 	path := filepath.Join(projectRoot, ConfigFileName)
 	data, err := os.ReadFile(path)
@@ -101,12 +125,27 @@ func Load(projectRoot string) (*Config, error) {
 		}
 		return nil, err
 	}
+	return Parse(data)
+}
 
+// Parse decodes .worktree.yml content on top of DefaultConfig and records
+// which of worktree_dir and shared_dir it sets. A key with a null value
+// counts as omitted.
+func Parse(data []byte) (*Config, error) {
 	cfg := DefaultConfig()
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, errors.Join(ErrInvalidConfig, err)
 	}
-
+	var keys map[string]any
+	if err := yaml.Unmarshal(data, &keys); err != nil {
+		return nil, errors.Join(ErrInvalidConfig, err)
+	}
+	if cfg.WorktreeDirSet = keys["worktree_dir"] != nil; !cfg.WorktreeDirSet {
+		cfg.WorktreeDir = DefaultWorktreeDir
+	}
+	if cfg.SharedDirSet = keys["shared_dir"] != nil; !cfg.SharedDirSet {
+		cfg.SharedDir = DefaultSharedDir
+	}
 	return &cfg, nil
 }
 
@@ -144,22 +183,38 @@ func renderAnnotatedConfig(cfg *Config) string {
 
 	b.WriteString("\n# Path to the git directory (.bare for cloned projects, .git for initialized)\n")
 	if cfg != nil {
-		fmt.Fprintf(&b, "git_dir: %s\n", cfg.GitDir)
+		fmt.Fprintf(&b, "git_dir: %s\n", YAMLQuote(cfg.GitDir))
 	} else {
 		fmt.Fprintf(&b, "git_dir: %s\n", DefaultGitDir)
 	}
 
-	b.WriteString("\n# Directory name for worktrees (relative to project root)\n")
-	if cfg != nil {
-		fmt.Fprintf(&b, "worktree_dir: %s\n", cfg.WorktreeDir)
-	} else {
+	home := cfg != nil && cfg.HomeDefaults()
+	if home {
+		b.WriteString("\n# Worktrees, shared files and scripts live outside the repository, per clone,\n")
+		b.WriteString("# in ~/.wtx/<name>/ (worktrees/, shared/, bin/; $WTX_HOME replaces ~/.wtx).\n")
+		b.WriteString("# <name> is this clone's 'git config wtx.name', else the repository directory\n")
+		b.WriteString("# name. Run 'wtx init' in each clone to set it up.\n")
+	}
+	b.WriteString("\n# Directory for worktrees: relative to the project root, absolute, or ~/...\n")
+	b.WriteString("# (~/.wtx/... honors $WTX_HOME)\n")
+	switch {
+	case home && !cfg.WorktreeDirSet:
+		b.WriteString("# An explicit value overrides the per-clone default for every clone.\n")
+		b.WriteString("# worktree_dir: ~/.wtx/<name>/worktrees\n")
+	case cfg != nil:
+		fmt.Fprintf(&b, "worktree_dir: %s\n", YAMLQuote(cfg.WorktreeDir))
+	default:
 		fmt.Fprintf(&b, "worktree_dir: %s\n", DefaultWorktreeDir)
 	}
 
-	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories)\n")
-	if cfg != nil {
-		fmt.Fprintf(&b, "shared_dir: %s\n", cfg.SharedDir)
-	} else {
+	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories); same path\n")
+	b.WriteString("# rules as worktree_dir. Scripts live in a bin/ directory next to it.\n")
+	switch {
+	case home && !cfg.SharedDirSet:
+		b.WriteString("# shared_dir: ~/.wtx/<name>/shared\n")
+	case cfg != nil:
+		fmt.Fprintf(&b, "shared_dir: %s\n", YAMLQuote(cfg.SharedDir))
+	default:
 		fmt.Fprintf(&b, "shared_dir: %s\n", DefaultSharedDir)
 	}
 
@@ -212,7 +267,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.Setup) > 0 {
 		b.WriteString("setup:\n")
 		for _, s := range cfg.Setup {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(s))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(s))
 		}
 	} else {
 		b.WriteString("# setup:\n")
@@ -225,7 +280,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.ParallelSetup) > 0 {
 		b.WriteString("parallel_setup:\n")
 		for _, s := range cfg.ParallelSetup {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(s))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(s))
 		}
 	} else {
 		b.WriteString("# parallel_setup:\n")
@@ -237,7 +292,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.Teardown) > 0 {
 		b.WriteString("teardown:\n")
 		for _, t := range cfg.Teardown {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(t))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(t))
 		}
 	} else {
 		b.WriteString("# teardown:\n")
@@ -249,7 +304,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	if cfg != nil && len(cfg.ParallelTeardown) > 0 {
 		b.WriteString("parallel_teardown:\n")
 		for _, t := range cfg.ParallelTeardown {
-			fmt.Fprintf(&b, "  - %s\n", yamlQuote(t))
+			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(t))
 		}
 	} else {
 		b.WriteString("# parallel_teardown:\n")
@@ -258,7 +313,9 @@ func renderAnnotatedConfig(cfg *Config) string {
 	}
 
 	b.WriteString("\n# Named scripts run via 'wtx run <name>' from any worktree\n")
-	b.WriteString("# Paths are executables resolved relative to the project root\n")
+	b.WriteString("# Paths are executables: relative to the project root, absolute, or ~/...\n")
+	b.WriteString("# Executables in the bin/ directory next to shared_dir run by file name without\n")
+	b.WriteString("# an entry here (e.g. 'wtx run refresh'); an entry here wins over bin/.\n")
 	if cfg != nil && len(cfg.Scripts) > 0 {
 		b.WriteString("scripts:\n")
 		names := make([]string, 0, len(cfg.Scripts))
@@ -267,7 +324,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 		}
 		sort.Strings(names)
 		for _, name := range names {
-			fmt.Fprintf(&b, "  %s: %s\n", yamlQuote(name), yamlQuote(cfg.Scripts[name]))
+			fmt.Fprintf(&b, "  %s: %s\n", YAMLQuote(name), YAMLQuote(cfg.Scripts[name]))
 		}
 	} else {
 		b.WriteString("# scripts:\n")
@@ -278,10 +335,10 @@ func renderAnnotatedConfig(cfg *Config) string {
 	return b.String()
 }
 
-// yamlQuote wraps a string in double quotes if it contains characters
+// YAMLQuote wraps a string in double quotes if it contains characters
 // that need quoting in YAML, otherwise returns it bare.
-func yamlQuote(s string) string {
-	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$\n") || s == "" {
+func YAMLQuote(s string) string {
+	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$\n\t") || s == "" || strings.TrimSpace(s) != s {
 		return fmt.Sprintf("%q", s)
 	}
 	return s

@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 type Severity string
@@ -46,6 +46,7 @@ type RepairOutcome struct {
 	ID     string       `json:"check_id"`
 	Path   string       `json:"path"`
 	Status RepairStatus `json:"status"`
+	Action string       `json:"action,omitempty"` // what an operation repair does, e.g. a move
 	Backup string       `json:"backup,omitempty"`
 	Error  string       `json:"error,omitempty"`
 }
@@ -82,6 +83,11 @@ type Options struct {
 	User     bool
 	Fix      bool
 	DryRun   bool
+	// MigrateHome plans and (unless DryRun) applies only the opt-in move of
+	// an in-repo init project to ~/.wtx/<HomeName>/ (HomeName defaults to
+	// the repository directory name).
+	MigrateHome bool
+	HomeName    string
 }
 
 type inspection struct {
@@ -99,19 +105,37 @@ type inspection struct {
 	resolvedDirs map[string]string
 	seenBlobs    map[string]bool // tracked blob+path pairs already scanned
 	scanSkipped  int
+	// managedDirs are wtx-managed directories outside root (an expanded
+	// worktree_dir and the shared/bin parent, e.g. ~/.wtx/<name>), resolved.
+	managedDirs []string
+	paths       ui.PathDisplay // displays paths relative to root
+	// clone is the ~/.wtx/<name> name of this clone when the config leaves
+	// worktree_dir or shared_dir to the per-clone default (perClone).
+	clone    project.CloneName
+	perClone bool
 }
 
 // Run always returns a report, including discovery and operational failures.
 func Run(ctx context.Context, opts Options) Report {
 	s := inspect(ctx, opts)
-	if !opts.Fix || opts.User {
+	if (!opts.Fix && !opts.MigrateHome) || opts.User {
 		s.report.finish()
 		return s.report
 	}
 	repairs := s.repairs
+	if opts.MigrateHome {
+		// The migration moves worktrees, so other repairs' targets would
+		// move underneath them; they run with a separate --fix.
+		repairs = nil
+		for _, r := range s.repairs {
+			if r.id == migrateID {
+				repairs = append(repairs, r)
+			}
+		}
+	}
 	outcomes := make([]RepairOutcome, len(repairs))
 	for i, change := range repairs {
-		outcomes[i] = RepairOutcome{ID: change.id, Path: change.file.path, Status: Planned}
+		outcomes[i] = RepairOutcome{ID: change.id, Path: change.file.path, Action: change.action, Status: Planned}
 	}
 	if !opts.DryRun {
 		for i, change := range repairs {
@@ -120,6 +144,10 @@ func Run(ctx context.Context, opts Options) Report {
 			if outcomes[i].Backup, err = change.apply(ctx); err != nil {
 				outcomes[i].Status, outcomes[i].Error = Failed, err.Error()
 			}
+		}
+		// The working directory may have moved with a worktree.
+		if s.root != "" {
+			opts.StartDir = s.root
 		}
 		s = inspect(ctx, opts)
 		s.recheck(ctx, repairs, outcomes)
@@ -168,7 +196,8 @@ func (r *Report) finish() {
 		if r.Repairs[i].ID != r.Repairs[j].ID {
 			return r.Repairs[i].ID < r.Repairs[j].ID
 		}
-		return r.Repairs[i].Path < r.Repairs[j].Path
+		// Migration steps are listed in the order they run.
+		return r.Repairs[i].ID != migrateID && r.Repairs[i].Path < r.Repairs[j].Path
 	})
 	r.Counts = Counts{}
 	for _, f := range r.Findings {
@@ -188,15 +217,23 @@ func (s *inspection) add(id string, severity Severity, path, explanation, remedy
 	return len(s.report.Findings) - 1
 }
 
+// addSubject adds a warning about subject (e.g. a branch), for findings whose
+// path is shared with other findings.
+func (s *inspection) addSubject(id, path, subject, explanation, remedy string) int {
+	i := s.add(id, Warn, path, explanation, remedy)
+	s.report.Findings[i].Subject = subject
+	return i
+}
+
 func (s *inspection) problem(id, path string, err error) {
 	s.add(id, "fail", path, "Inspection failed: "+err.Error(), "Correct the file or access permissions and rerun wtx doctor.")
 }
 
 // Checks skipped when a prerequisite stage fails, from innermost outward.
 var (
-	worktreeChecks = []string{"git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state"}
+	worktreeChecks = []string{"home.layout", "git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state"}
 	gitChecks      = append([]string{"git.worktrees", "git.exclude"}, worktreeChecks...)
-	configChecks   = append([]string{"scripts", "teardown", "disk", "migration.references", "claude.hooks"}, gitChecks...)
+	configChecks   = append([]string{"home.paths", "home.marker", "home.orphans", "scripts", "teardown", "disk", "migration.references", "claude.hooks"}, gitChecks...)
 )
 
 func (s *inspection) blocked(ids ...string) {
@@ -209,8 +246,8 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}, seenBlobs: map[string]bool{}}
 	if opts.User {
 		s.report.Scope = "user"
-		if opts.Fix {
-			s.add("user.repair", "fail", "", "--user --fix is not supported: dotfile changes are manual.", "Run wtx doctor --user and review the suggested replacements.")
+		if opts.Fix || opts.MigrateHome {
+			s.add("user.repair", "fail", "", "--user cannot be combined with --fix or --migrate-home: dotfile changes are manual.", "Run wtx doctor --user and review the suggested replacements.")
 		}
 		s.user()
 		return s
@@ -241,6 +278,9 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	if err == nil {
 		err = guard.unchanged()
 	}
+	if err == nil {
+		s.clone, s.perClone, err = project.ResolveLayout(ctx, s.root, s.cfg)
+	}
 	if err != nil {
 		s.problem("project.config", where, err)
 		s.blocked(configChecks...)
@@ -248,11 +288,15 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	}
 	s.guards = append(s.guards, guard)
 	s.report.Root = s.root
+	s.paths = ui.NewPathDisplay(s.root)
 	gitDir := project.GitDirPath(s.root, s.cfg)
-	s.gitDir = resolved(gitDir)
+	s.gitDir = ui.CanonicalPath(gitDir)
 	s.backups = filepath.Join(gitDir, backupDirName)
 	defer s.scanLimitations(s.root)
 	s.add("project.config", "ok", where, "Project configuration is readable.", "")
+	s.homePaths()
+	s.homeMarker()
+	s.homeOrphans()
 	s.scripts()
 	s.disk()
 	s.teardown(s.root)
@@ -274,6 +318,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.blocked(worktreeChecks...)
 		return s
 	}
+	s.homeLayout(worktrees)
 	s.compatibility(ctx, worktrees)
 	s.branches(ctx, worktrees)
 	facts := s.prefetch(ctx, worktrees)
@@ -318,24 +363,29 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		if f == nil {
 			continue // directory appeared after prefetch
 		}
-		if resolved(wt.Path) != s.root {
+		if ui.CanonicalPath(wt.Path) != s.root {
 			s.shared(wt.Path, f)
 			s.teardown(wt.Path)
 		}
 		s.claudeSettings(wt.Path)
 		s.scanTracked(wt.Path, f)
 	}
+	if opts.MigrateHome {
+		s.planMigration(ctx, worktrees, opts.HomeName)
+	}
 	return s
 }
 
-func resolved(path string) string {
-	if p, err := filepath.EvalSymlinks(path); err == nil {
-		return p
+// managed reports whether path lies in the project root or in a wtx-managed
+// directory outside it, such as an expanded ~/.wtx worktree_dir.
+func (s *inspection) managed(path string) bool {
+	if ui.Within(s.root, path) {
+		return true
 	}
-	return filepath.Clean(path)
-}
-
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !filepath.IsAbs(rel) && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	for _, dir := range s.managedDirs {
+		if ui.Within(dir, path) {
+			return true
+		}
+	}
+	return false
 }

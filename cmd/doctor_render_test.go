@@ -61,6 +61,21 @@ func TestRenderDoctorReportGroupsFindings(t *testing.T) {
 	}
 }
 
+func TestRenderDoctorReportHint(t *testing.T) {
+	report := doctor.Report{Scope: "project", Root: "/p", Findings: []doctor.Finding{
+		{ID: "home.layout", Severity: doctor.OK, Path: "/p/.worktrees", Explanation: "Worktrees live inside the repository (in-repo layout).", Remedy: "Optional: migrate."},
+		{ID: "home.paths", Severity: doctor.OK, Path: "/p/.worktrees", Explanation: "Worktree directory exists and is writable."},
+	}}
+	var buf bytes.Buffer
+	renderDoctorReport(&buf, report, false)
+	out := buf.String()
+	for _, want := range []string{"✓ Worktree layout\n    Worktrees live inside the repository (in-repo layout).", "→ Optional: migrate.", "✓ Passed: Worktree directory\n"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestRenderDoctorReportRepairs(t *testing.T) {
 	report := doctor.Report{Scope: "project", Root: "/p", Repairs: []doctor.RepairOutcome{
 		{ID: "git.exclude", Path: "/p/.git/info/exclude", Status: doctor.Applied, Backup: "/p/.git/wtx-doctor-backups/1"},

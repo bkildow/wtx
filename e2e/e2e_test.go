@@ -1,6 +1,7 @@
 package e2e_test
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -8,13 +9,18 @@ import (
 
 	"github.com/bkildow/wtx/cmd"
 	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/ui"
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
 func TestMain(m *testing.M) {
 	testscript.Main(m, map[string]func(){
 		"wtx": func() {
+			// Mirror cmd/wtx/main.go so scripts can assert on error text.
 			if err := cmd.Execute(); err != nil {
+				if !errors.Is(err, cmd.ErrReported) {
+					ui.Error(err.Error())
+				}
 				os.Exit(1)
 			}
 		},
@@ -49,6 +55,8 @@ func setupEnv(env *testscript.Env) error {
 	env.Setenv("GIT_PAGER", "cat")
 	// A low-disk CI runner would otherwise inject a warning into command output.
 	env.Setenv("WTX_NO_DISK_WARN", "1")
+	// testscript has no usable HOME; keep ~/.wtx state inside the test dir.
+	env.Setenv("WTX_HOME", filepath.Join(env.WorkDir, ".wtx-home"))
 	return nil
 }
 
