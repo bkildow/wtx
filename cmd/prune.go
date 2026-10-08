@@ -244,7 +244,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	var removed int
+	var removed, branchesKept int
 	for _, p := range toRemove {
 		wt := p.worktree
 		if !skipTeardown {
@@ -264,7 +264,9 @@ func runPrune(cmd *cobra.Command, args []string) error {
 
 		// git branch -d refuses squash- and rebase-merged branches as unmerged.
 		// Keep them and print the delete command rather than force-deleting.
-		deleteBranchOrKeep(ctx, runner, wt.Branch)
+		if deleteBranchOrKeep(ctx, runner, wt.Branch) {
+			branchesKept++
+		}
 
 		removed++
 	}
@@ -274,6 +276,9 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	}
 
 	summary := fmt.Sprintf("Pruned %d worktree(s)", removed)
+	if branchesKept > 0 {
+		summary += fmt.Sprintf(", kept %d branch(es) git calls unmerged", branchesKept)
+	}
 	if len(kept) > 0 {
 		summary += fmt.Sprintf(", kept %d with uncommitted changes (use --force)", len(kept))
 	}

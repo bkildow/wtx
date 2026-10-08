@@ -56,6 +56,7 @@ exec wtx prune --yes
 stderr 'Removing worktree: squashed'
 stderr 'Branch squashed kept: git sees it as not fully merged'
 stderr 'git --git-dir \S+/\.bare branch -D squashed'
+stderr 'Pruned 1 worktree\(s\), kept 1 branch\(es\) git calls unmerged'
 ! stderr 'hint:'
 ! exists worktrees/squashed
 exec git --git-dir .bare rev-parse --verify --quiet refs/heads/squashed
