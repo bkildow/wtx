@@ -106,17 +106,21 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		ui.Info("Claude Code hooks are already configured, updating...")
 	}
 
-	if err := claude.ConfigureHooks(sharedTarget, wtBinary); err != nil {
-		return fmt.Errorf("failed to configure hooks: %w", err)
+	dryRun := IsDryRun()
+	if dryRun {
+		ui.DryRunNotice("write " + filepath.Join(sharedTarget, ".claude", "settings.local.json"))
+	} else {
+		if err := claude.ConfigureHooks(sharedTarget, wtBinary); err != nil {
+			return fmt.Errorf("failed to configure hooks: %w", err)
+		}
+		ui.Success("Configured Claude Code hooks in shared/symlink/.claude/settings.local.json")
 	}
-
-	ui.Success("Configured Claude Code hooks in shared/symlink/.claude/settings.local.json")
 	ui.Info("  WorktreeCreate -> " + wtBinary + " claude hook-worktree-create")
 	ui.Info("  WorktreeRemove -> " + wtBinary + " claude hook-worktree-remove")
 
 	// Apply to all existing worktrees so they get the symlink immediately.
 	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, false)
+	runner := git.NewRunner(gitDir, dryRun)
 	worktrees, err := runner.WorktreeList(ctx)
 	if err != nil {
 		ui.Warning("Could not list worktrees: " + err.Error())
@@ -125,9 +129,13 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	for _, wt := range filtered {
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
-		if _, err := project.Apply(projectRoot, wt.Path, cfg, false, &vars, nil); err != nil {
+		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))
 		}
+	}
+	if dryRun {
+		ui.DryRunNotice(fmt.Sprintf("apply hooks to %d existing worktrees", len(filtered)))
+		return nil
 	}
 	ui.Success(fmt.Sprintf("Applied hooks to %d existing worktrees", len(filtered)))
 
