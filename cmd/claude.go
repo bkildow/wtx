@@ -91,6 +91,12 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
+	// The hooks go into shared/symlink; never create it under a ~/.wtx/<name>
+	// this clone has not set up.
+	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+		return err
+	}
+
 	wtBinary, _ := cmd.Flags().GetString("binary")
 
 	// Write hooks to shared/symlink so all worktrees get a symlink via wtx apply.

@@ -183,6 +183,9 @@ func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *c
 	}
 	homeDir, err := project.SelectHomeDir(root, name)
 	if homeDir == "" {
+		if config.Exists(root) {
+			return nil, err
+		}
 		return nil, fmt.Errorf("%w (or use --in-repo)", err)
 	}
 	if err != nil {
