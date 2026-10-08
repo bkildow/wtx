@@ -33,7 +33,7 @@
 ## Features
 
 - **Bare-repo workflow** — no `.git` at project root; all worktrees live under `worktrees/`
-- **Adopt an existing checkout** — `wtx init` keeps worktrees and shared files in `~/.wtx/<name>/`, outside the repository
+- **Adopt an existing checkout** — `wtx init` keeps worktrees and shared files in `~/.wtx/<name>/`, outside the repository, and teammates' clones join with the same command
 - **Shared files** — copy per-worktree configs or symlink heavy directories (node_modules, vendor) once
 - **`.worktreeinclude`** — copy gitignored files such as `.env` from the main checkout into new worktrees
 - **Reflink-aware copies** — near-instant copy-on-write clones on APFS, btrfs, and reflink-enabled XFS; transparent byte-copy fallback on other filesystems
@@ -77,10 +77,13 @@ on PATH. Linked settings inside the project are deduplicated by resolved path;
 external targets require manual attention.
 
 `--migrate-home [--name <name>]` moves an `init --in-repo` project's worktrees,
-`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the ownership marker,
-retargets shared symlinks, runs `git worktree repair`, and rewrites
-`worktree_dir`, `shared_dir`, and `bin/` scripts in `.worktree.yml` with the
-literal `~` form (the previous file is backed up under the Git directory). Run
+`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the ownership marker, records
+`<name>` as `wtx.name` in the local Git config, retargets shared symlinks, runs
+`git worktree repair`, and removes `worktree_dir`, `shared_dir`, and the
+`scripts` entries for files in `bin/` from `.worktree.yml`, so the paths resolve
+per clone and `wtx run` finds the scripts in `bin/` by name (the previous file
+is backed up under the Git directory). `<name>` defaults to `wtx.name`, then to
+the repository directory name. Run
 it from the main checkout and preview it with `wtx --dry-run doctor
 --migrate-home`. Locked worktrees, worktrees with submodules or running setup,
 and Git-tracked shared files stay in place and are reported; re-running resumes
@@ -203,7 +206,7 @@ wtx prune
 | Command | Description |
 |---------|-------------|
 | `wtx clone <url> [name]` | Clone a repo as a bare worktree project |
-| `wtx init` | Initialize wtx in an existing git checkout |
+| `wtx init` | Initialize wtx in an existing git checkout, or set up a clone of one |
 | `wtx add [branch]` | Create a new worktree for a branch |
 | `wtx list` | List all worktrees |
 | `wtx remove [name]` | Remove a worktree and its branch |
@@ -242,24 +245,24 @@ Clones as a bare repo and writes `.worktree.yml`. Optionally prompts to create a
 wtx init                      # Use ~/.wtx/<repo-dir-name>/
 wtx init --name api-v2        # Use ~/.wtx/api-v2/
 wtx init --in-repo            # Keep everything in .worktrees/ inside the repo
-wtx --dry-run init            # Print every path it would create
+wtx --dry-run init            # Print every write it would make
 ```
 
 Run `wtx init` at the root of an existing checkout (a directory with a `.git`
 directory). The checkout becomes the main worktree. The only file added to the
-working tree is `.worktree.yml`. Worktrees, shared files, and scripts are
-machine-local and live in `~/.wtx/<name>/`:
+working tree is `.worktree.yml`; commit it. Worktrees, shared files, and scripts
+are machine-local and live in `~/.wtx/<name>/`, set up per clone:
 
 ```
 myrepo/                      # Your existing checkout (the main worktree)
-├── .git/
-├── .worktree.yml            # Commit it: hooks, scripts, main_branch
+├── .git/                    # Local config holds wtx.name = myrepo
+├── .worktree.yml            # Commit it: hooks, main_branch (no machine-local paths)
 └── .worktreeinclude         # Optional, commit it: ignored files to copy
 
 ~/.wtx/myrepo/               # Machine-local, outside the repository
 ├── project.yml              # Marker: the repository that owns this directory
 ├── bin/
-│   └── refresh              # Starter script for `wtx run refresh`
+│   └── refresh              # Starter script: `wtx run refresh`
 ├── shared/
 │   ├── copy/
 │   └── symlink/
@@ -271,12 +274,17 @@ Keeping worktrees outside the checkout keeps them out of anything rooted at it:
 Docker build contexts and bind mounts, IDE indexes and search results, file
 watchers, and linters or test runners that discover nested projects.
 
-`.worktree.yml` stores these paths with a literal `~`
-(`worktree_dir: ~/.wtx/myrepo/worktrees`), so the file is portable across
-machines. Set `WTX_HOME` to keep project directories somewhere other than
-`~/.wtx`; `~/.wtx/...` paths in `.worktree.yml` then resolve under `$WTX_HOME`.
+`.worktree.yml` leaves `worktree_dir` and `shared_dir` out. For `git_dir: .git`
+projects, omitted paths resolve per clone to `~/.wtx/<name>/worktrees` and
+`~/.wtx/<name>/shared` (scripts in `~/.wtx/<name>/bin/`), so the committed file
+names no machine-local directory. Explicit values in `.worktree.yml` override
+this for every clone. Set `WTX_HOME` to keep project directories somewhere
+other than `~/.wtx`.
 
-`<name>` defaults to the repository's directory name; `--name` picks another.
+`<name>` is the clone's `wtx.name` in its local Git config (`git config --local
+wtx.name`, shared by all of the clone's worktrees and never committed), or the
+repository's directory name when that is unset. `wtx init` records it: `--name`
+picks it, otherwise an existing `wtx.name` or the directory name is kept.
 Names must not be `.`, `..`, or contain path separators. If `~/.wtx/<name>`
 already exists, `wtx init` reuses it only when its `project.yml` names the same
 repository. A directory that belongs to another repository, or has no
@@ -286,11 +294,31 @@ Two checkouts with the same directory name therefore need distinct names.
 `wtx` commands find the project from the checkout, from any of its worktrees, or
 from inside `~/.wtx/<name>/` (through `project.yml`).
 
+<a id="joining-from-a-clone"></a>
+
+#### Joining from a clone
+
+A teammate who clones a repository with a committed `.worktree.yml` runs
+`wtx init` in the clone. Because the config leaves the paths to each clone,
+`wtx init` joins the project: it sets up `~/.wtx/<name>/` (marker, `shared/`,
+`worktrees/`, `bin/refresh`) and records `wtx.name`, and leaves `.worktree.yml`
+unchanged. Running it again on a set-up clone changes nothing. Until then,
+`wtx add` refuses to create worktrees and says to run `wtx init`; `wtx doctor`
+flags the clone as not set up. If another checkout on the machine already owns
+`~/.wtx/<name>/`, pick another name with `wtx init --name <other>`.
+
+A `.worktree.yml` with explicit `worktree_dir` and `shared_dir` (an `--in-repo`
+project, or an older config with `~/.wtx/...` paths) is already complete, and
+`wtx init` reports it as an existing project. For an explicit `~/.wtx/<name>`
+directory that lacks `project.yml`, it points at `wtx doctor --fix`, which
+records the clone as the owner.
+
 `--in-repo` keeps worktrees, shared files, and scripts in `.worktrees/` inside
-the repository (`worktree_dir: .worktrees`, `shared_dir: .worktrees/shared`,
-scripts in `.worktrees/bin/`). Add `.worktrees/` to `.gitignore`, or commit
-`.worktrees/shared/` and ignore only the worktrees. `--name` cannot be combined
-with `--in-repo`. `wtx doctor` points in-repo projects at
+the repository and writes those paths into `.worktree.yml`
+(`worktree_dir: .worktrees`, `shared_dir: .worktrees/shared`,
+`scripts.refresh: .worktrees/bin/refresh`). Add `.worktrees/` to `.gitignore`,
+or commit `.worktrees/shared/` and ignore only the worktrees. `--name` cannot be
+combined with `--in-repo`. `wtx doctor` points in-repo projects at
 `wtx doctor --migrate-home`, which moves them to `~/.wtx/<name>/`.
 
 <a id="wt-config-init"></a>
@@ -362,6 +390,11 @@ relative to the project root, so a `bin/refresh-snapshot` that rebuilds your
 local environment can be run identically from inside any worktree without
 hunting for it. The script must exist and be executable.
 
+A name without a `scripts:` entry runs the executable file of that name in the
+project's `bin/` directory, the sibling of `shared_dir` (`bin/` for `wtx clone`,
+`~/.wtx/<name>/bin/` for `wtx init`). A `scripts:` entry wins over a `bin/` file
+of the same name. The picker and shell completion list both.
+
 The script's working directory is the worktree containing `$PWD`, or the
 current directory when run from outside a worktree. These environment
 variables are exported:
@@ -384,7 +417,9 @@ A non-zero exit from the script is reported as an error.
 
 **Starter refresh script.** `wtx clone` and `wtx init` create `bin/refresh`
 (`~/.wtx/<name>/bin/refresh` for `wtx init`, `.worktrees/bin/refresh` for
-`wtx init --in-repo`) and register it as `scripts.refresh`.
+`wtx init --in-repo`). `wtx clone` and `wtx init --in-repo` register it as
+`scripts.refresh`; `wtx init` relies on the `bin/` fallback, so the committed
+config names no machine-local path.
 It is a no-op that prints a message, but its comments lay out the typical
 shape of an environment refresh: work in the main worktree via
 `WTX_MAIN_WORKTREE_PATH`, start services, pull, refresh data, capture a
@@ -567,22 +602,26 @@ scripts:
 |-------|-------------|---------|
 | `version` | Config version | `1` |
 | `git_dir` | Path to the git directory (`.git` for `wtx init` projects) | `.bare` |
-| `worktree_dir` | Directory holding worktrees (see [path rules](#path-rules)) | `worktrees` |
-| `shared_dir` | Directory holding `copy/` and `symlink/`; scripts live in a `bin/` next to it (see [path rules](#path-rules)) | `shared` |
+| `worktree_dir` | Directory holding worktrees (see [path rules](#path-rules)) | `worktrees`; `~/.wtx/<name>/worktrees` per clone for `git_dir: .git` |
+| `shared_dir` | Directory holding `copy/` and `symlink/`; scripts live in a `bin/` next to it (see [path rules](#path-rules)) | `shared`; `~/.wtx/<name>/shared` per clone for `git_dir: .git` |
 | `main_branch` | Primary branch (branch ref protected from deletion, used as base for new branches unless `wtx add --base-branch` is given) | `main` |
 | `editor` | Preferred editor binary name | (auto-detect) |
 | `setup` | Commands to run sequentially after creating a worktree | `[]` |
 | `parallel_setup` | Commands to run concurrently after serial setup hooks | `[]` |
 | `teardown` | Commands to run sequentially before removing a worktree | `[]` |
 | `parallel_teardown` | Commands to run concurrently after serial teardown hooks | `[]` |
-| `scripts` | Named executables for `wtx run <name>` (see [path rules](#path-rules)) | `{}` |
+| `scripts` | Named executables for `wtx run <name>` (see [path rules](#path-rules)); executables in `bin/` run by name without an entry | `{}` |
 | `disk_warn` | Warn when free disk space is low (`false` disables) | `true` |
 | `disk_warn_percent` | Warn below this percentage of free space (`-1` disables this bound) | `10` |
 | `disk_warn_gb` | Warn below this many GB of free space (`-1` disables this bound) | `10` |
 
-`wtx init` writes `git_dir: .git`, `worktree_dir: ~/.wtx/<name>/worktrees`, and
-`shared_dir: ~/.wtx/<name>/shared` (or `.worktrees` and `.worktrees/shared`
-with `--in-repo`).
+`wtx init` writes `git_dir: .git` and leaves `worktree_dir` and `shared_dir`
+out, so they resolve per clone to `~/.wtx/<name>/worktrees` and
+`~/.wtx/<name>/shared`, where `<name>` is the clone's `git config wtx.name` or
+the repository directory name (see [Joining from a clone](#joining-from-a-clone)).
+With `--in-repo` it writes `worktree_dir: .worktrees` and
+`shared_dir: .worktrees/shared`. Omitted paths of `git_dir: .bare` projects
+default to `worktrees` and `shared`.
 
 <a id="path-rules"></a>
 
@@ -596,7 +635,9 @@ with `--in-repo`).
 | anything else | Relative to the project root |
 
 `~user` forms are not expanded. Keep the literal `~` in `.worktree.yml` so the
-file works on every machine.
+file works on every machine. An explicit `~/.wtx/<name>/...` path names the same
+directory for every clone; leave `worktree_dir` and `shared_dir` out to give
+each clone its own.
 
 ### .worktreeinclude
 
