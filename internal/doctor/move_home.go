@@ -97,7 +97,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	// Destination: the ~/.wtx/<name> directory the config already names
 	// (re-run), else --name or the repository directory name.
 	var err error
-	if dirs := s.cloneDirs(); len(dirs) > 0 {
+	if dirs := s.clone.CloneDirs(); len(dirs) > 0 {
 		m.cloneDir = dirs[0]
 		err = project.CheckCloneDir(m.cloneDir, s.root)
 		if moveWT || moveShare {

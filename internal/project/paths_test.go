@@ -76,14 +76,14 @@ func TestExpandPathNoHome(t *testing.T) {
 	}
 
 	cfg := &config.Config{WorktreeDir: "~/.wtx/x/worktrees", SharedDir: "~/.wtx/x/shared"}
-	if err := ValidatePaths("/proj", cfg); err == nil {
-		t.Error("ValidatePaths should fail without HOME or WTX_HOME")
+	if err := validatePaths("/proj", cfg); err == nil {
+		t.Error("validatePaths should fail without HOME or WTX_HOME")
 	}
 
 	// WTX_HOME alone is enough for ~/.wtx paths.
 	t.Setenv(WtxHomeEnv, t.TempDir())
-	if err := ValidatePaths("/proj", cfg); err != nil {
-		t.Errorf("ValidatePaths with WTX_HOME: %v", err)
+	if err := validatePaths("/proj", cfg); err != nil {
+		t.Errorf("validatePaths with WTX_HOME: %v", err)
 	}
 }
 

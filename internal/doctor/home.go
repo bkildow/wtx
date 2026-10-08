@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"golang.org/x/sys/unix"
 
@@ -74,23 +73,11 @@ func existingAncestor(path string) string {
 	}
 }
 
-// cloneDirs returns the distinct ~/.wtx/<name> directories that the
-// configured worktree and shared directories live in.
-func (s *inspection) cloneDirs() []string {
-	var dirs []string
-	for _, dir := range []string{s.clone.WorktreesDir(), s.clone.SharedDir()} {
-		if d, ok := project.CloneDirOf(dir); ok && !slices.Contains(dirs, d) {
-			dirs = append(dirs, d)
-		}
-	}
-	return dirs
-}
-
 // homeMarker checks that each ~/.wtx/<name> directory this project uses
 // records this project as its owner.
 func (s *inspection) homeMarker() {
 	cloneDir, perClone := s.clone.CloneDir()
-	for _, dir := range s.cloneDirs() {
+	for _, dir := range s.clone.CloneDirs() {
 		s.addManaged(dir)
 		path := filepath.Join(dir, project.MarkerFileName)
 		// For per-clone defaults, say where <name> came from.

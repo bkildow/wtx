@@ -317,11 +317,10 @@ func loadHookContext(ctx context.Context) (*hookContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	clone, err := project.Open(ctx, projectRoot, project.Options{})
+	clone, err := project.Open(ctx, projectRoot, project.Options{BatchMode: true})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	clone.Runner().BatchMode = true
 	return &hookContext{payload: payload, clone: clone}, nil
 }
 

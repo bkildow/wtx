@@ -159,11 +159,7 @@ func existingProjectError(clone *project.Clone) error {
 	if clone.Layout() == project.BareLayout {
 		return err
 	}
-	for _, path := range []string{clone.WorktreesDir(), clone.SharedDir()} {
-		dir, ok := project.CloneDirOf(path)
-		if !ok {
-			continue
-		}
+	for _, dir := range clone.CloneDirs() {
 		if _, statErr := os.Stat(dir); statErr != nil {
 			continue
 		}

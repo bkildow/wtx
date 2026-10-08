@@ -158,11 +158,7 @@ func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) (
 		return nil, cobra.ShellCompDirectiveDefault
 	}
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	clone, err := project.Open(cmd.Context(), cwd, project.Options{})
+	clone, err := completionClone(cmd.Context())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}

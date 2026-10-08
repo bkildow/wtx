@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
@@ -49,6 +50,9 @@ type Options struct {
 	// Quiet keeps the Clone's Runner from echoing the git commands it runs,
 	// for structured reports such as wtx doctor.
 	Quiet bool
+	// BatchMode keeps the Clone's Runner from prompting for credentials,
+	// for non-interactive callers such as the Claude Code hooks.
+	BatchMode bool
 }
 
 // Clone is one machine's copy of a Project, resolved once: its Layout,
@@ -60,10 +64,8 @@ type Clone struct {
 	layout    LayoutKind
 	name      CloneName
 	cloneDir  string
-	gitDir    string
 	worktrees string
 	shared    string
-	bin       string
 	runner    *git.Runner
 }
 
@@ -88,14 +90,15 @@ func Open(ctx context.Context, startDir string, opts Options) (*Clone, error) {
 // per-clone defaults and checks that every configured path expands.
 func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options) (*Clone, error) {
 	resolved := *cfg
-	c := &Clone{root: root, cfg: &resolved, gitDir: GitDirPath(root, &resolved)}
-	c.runner = git.NewRunner(c.gitDir, opts.DryRun)
+	gitDir := GitDirPath(root, &resolved)
+	c := &Clone{root: root, cfg: &resolved, runner: git.NewRunner(gitDir, opts.DryRun)}
 	c.runner.Quiet = opts.Quiet
+	c.runner.BatchMode = opts.BatchMode
 
 	if resolved.HomeDefaults() {
 		// Reading the name is never part of a command's output, and it
 		// runs under dry-run.
-		quiet := git.NewRunner(c.gitDir, false)
+		quiet := git.NewRunner(gitDir, false)
 		quiet.Quiet = true
 		name, err := ReadCloneName(ctx, quiet, root)
 		if err != nil {
@@ -104,13 +107,12 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 		c.name = name
 		ApplyHomeConfigPaths(&resolved, name.Name)
 	}
-	if err := ValidatePaths(root, &resolved); err != nil {
+	if err := validatePaths(root, &resolved); err != nil {
 		return nil, err
 	}
 
 	c.worktrees = WorktreesPath(root, &resolved)
 	c.shared = SharedPath(root, &resolved)
-	c.bin = BinFor(c.shared)
 	c.cloneDir, _ = configuredCloneDir(root, &resolved)
 
 	switch {
@@ -147,7 +149,7 @@ func (c *Clone) CloneDir() (string, bool) { return c.cloneDir, c.cloneDir != "" 
 
 // GitDir is the absolute git directory: the bare repository or the
 // checkout's .git.
-func (c *Clone) GitDir() string { return c.gitDir }
+func (c *Clone) GitDir() string { return c.runner.GitDir }
 
 // WorktreesDir is the absolute directory new worktrees are created in.
 func (c *Clone) WorktreesDir() string { return c.worktrees }
@@ -157,7 +159,7 @@ func (c *Clone) SharedDir() string { return c.shared }
 
 // BinDir is the absolute directory of scripts run by `wtx run`, the sibling
 // bin/ of SharedDir.
-func (c *Clone) BinDir() string { return c.bin }
+func (c *Clone) BinDir() string { return BinFor(c.shared) }
 
 // Config is the resolved .worktree.yml: per-clone defaults are filled in.
 // Callers must not modify it.
@@ -216,6 +218,19 @@ func (c *Clone) MainWorktree(ctx context.Context) (git.WorktreeInfo, bool, error
 		}
 	}
 	return git.WorktreeInfo{}, false, nil
+}
+
+// CloneDirs returns the distinct Clone dirs that WorktreesDir and SharedDir
+// live in, whether they are the per-clone default or spelled out in
+// .worktree.yml.
+func (c *Clone) CloneDirs() []string {
+	var dirs []string
+	for _, path := range []string{c.worktrees, c.shared} {
+		if dir, ok := CloneDirOf(path); ok && !slices.Contains(dirs, dir) {
+			dirs = append(dirs, dir)
+		}
+	}
+	return dirs
 }
 
 // CheckOwned checks, before anything is created there, that the Clone dir
