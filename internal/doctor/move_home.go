@@ -108,7 +108,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	} else {
 		if name == "" {
 			// wtx.name (e.g. from an interrupted run), else the directory name.
-			clone, cerr := project.ReadCloneName(ctx, s.root, s.cfg)
+			clone, cerr := project.ReadCloneName(ctx, s.runner, s.root)
 			if cerr != nil {
 				s.add(migrateID, Fail, cfgPath, cerr.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
 				return

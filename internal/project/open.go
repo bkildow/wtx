@@ -2,7 +2,9 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
@@ -44,6 +46,9 @@ type Options struct {
 	// DryRun makes the Clone's Runner print commands that change the
 	// repository instead of running them. Queries still run.
 	DryRun bool
+	// Quiet keeps the Clone's Runner from echoing the git commands it runs,
+	// for structured reports such as wtx doctor.
+	Quiet bool
 }
 
 // Clone is one machine's copy of a Project, resolved once: its Layout,
@@ -85,11 +90,14 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	resolved := *cfg
 	c := &Clone{root: root, cfg: &resolved, gitDir: GitDirPath(root, &resolved)}
 	c.runner = git.NewRunner(c.gitDir, opts.DryRun)
+	c.runner.Quiet = opts.Quiet
 
 	if resolved.HomeDefaults() {
+		// Reading the name is never part of a command's output, and it
+		// runs under dry-run.
 		quiet := git.NewRunner(c.gitDir, false)
 		quiet.Quiet = true
-		name, err := readCloneName(ctx, quiet, root)
+		name, err := ReadCloneName(ctx, quiet, root)
 		if err != nil {
 			return nil, err
 		}
@@ -103,7 +111,7 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	c.worktrees = WorktreesPath(root, &resolved)
 	c.shared = SharedPath(root, &resolved)
 	c.bin = BinFor(c.shared)
-	c.cloneDir, _ = CloneHomeDir(root, &resolved)
+	c.cloneDir, _ = cloneDirOf(root, &resolved)
 
 	switch {
 	case !resolved.IsCheckoutLayout():
@@ -214,5 +222,21 @@ func (c *Clone) MainWorktree(ctx context.Context) (git.WorktreeInfo, bool, error
 // belongs to this Clone (its Owner marker names the Project root). Clones
 // without a Clone dir always pass.
 func (c *Clone) CheckOwned() error {
-	return CheckCloneSetup(c.root, c.cfg)
+	dir, ok := c.CloneDir()
+	if !ok {
+		return nil
+	}
+	m, err := ReadMarker(dir)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return fmt.Errorf("%w: %s has no %s\n  run 'wtx init' in %s to set it up", ErrCloneNotSetUp, dir, MarkerFileName, c.root)
+	case err != nil:
+		return fmt.Errorf("%w: %w\n  run 'wtx doctor' for details", ErrCloneNotSetUp, err)
+	case SamePath(m.Root, c.root):
+		return nil
+	case config.Exists(m.Root):
+		return fmt.Errorf("%w: %s belongs to %s\n  give this clone its own directory with 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
+	default:
+		return fmt.Errorf("%w: %s belongs to %s, which is no longer a wtx project\n  run 'wtx doctor --fix' to record this clone as its owner, or 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
+	}
 }

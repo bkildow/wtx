@@ -280,7 +280,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	if err == nil {
 		// Inspection only queries git, so the Clone is never dry-run;
 		// opts.DryRun only keeps Run from applying repairs.
-		s.clone, err = project.Resolve(ctx, s.root, s.cfg, project.Options{})
+		s.clone, err = project.Resolve(ctx, s.root, s.cfg, project.Options{Quiet: true})
 	}
 	if errors.Is(err, project.ErrPathExpansion) {
 		s.report.Root = s.root
@@ -311,8 +311,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s.teardown(s.root)
 	s.claudeSettings(s.root)
 	s.scanProject()
-	s.runner = git.NewRunner(gitDir, false)
-	s.runner.Quiet = true
+	s.runner = s.clone.Runner()
 	s.gitVersion(ctx)
 	if _, err := s.runner.Query(ctx, "rev-parse", "--git-dir"); err != nil {
 		s.problem("project.git", gitDir, err)

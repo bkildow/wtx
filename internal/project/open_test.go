@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bkildow/wtx/internal/config"
@@ -124,6 +125,16 @@ func TestOpenResolvesEachLayout(t *testing.T) {
 			f.shared, f.bin = filepath.Join(f.worktrees, "shared"), filepath.Join(f.worktrees, "bin")
 			f.addFeature(t)
 			f.start = filepath.Join(f.worktrees, "feature")
+			return f
+		}},
+		{"checkout with only shared_dir omitted", func(t *testing.T, base, home string) layoutFixture {
+			f := checkoutClone(t, base, "worktree_dir: ~/trees\n", "")
+			cloneDir := filepath.Join(home, ".wtx", "myrepo")
+			f.cloneDir = cloneDir
+			f.worktrees = filepath.Join(home, "trees")
+			f.shared, f.bin = filepath.Join(cloneDir, "shared"), filepath.Join(cloneDir, "bin")
+			f.name = CloneName{Name: "myrepo", Source: NameFromDirectory}
+			f.addFeature(t)
 			return f
 		}},
 		{"custom paths", func(t *testing.T, base, home string) layoutFixture {
@@ -314,6 +325,28 @@ func TestCloneCheckOwned(t *testing.T) {
 		t.Errorf("no Owner marker: err = %v", err)
 	}
 	dir, _ := c.CloneDir()
+
+	// Another Project owns the Clone dir.
+	other := filepath.Join(base, "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, other, "version: 1\ngit_dir: .git\n")
+	if err := WriteMarker(dir, other, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "wtx init --name") {
+		t.Errorf("other owner: err = %v", err)
+	}
+
+	// The owner is no longer a Project: an Orphaned Clone dir.
+	if err := os.Remove(filepath.Join(other, config.ConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "wtx doctor --fix") {
+		t.Errorf("orphaned: err = %v", err)
+	}
+
 	if err := WriteMarker(dir, f.root, false); err != nil {
 		t.Fatal(err)
 	}

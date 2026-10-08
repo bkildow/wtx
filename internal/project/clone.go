@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/bkildow/wtx/internal/config"
@@ -41,18 +40,13 @@ func (n CloneName) Describe() string {
 	return fmt.Sprintf("name %q is the repository directory name (git config %s is unset)", n.Name, NameConfigKey)
 }
 
-// ReadCloneName resolves the ~/.wtx/<name> name of the clone at root: git
-// config wtx.name when set, otherwise the directory name of root. A git
-// directory that cannot be read falls back to the directory name, so
-// diagnostics still work; an invalid wtx.name is an error.
-func ReadCloneName(ctx context.Context, root string, cfg *config.Config) (CloneName, error) {
-	runner := git.NewRunner(GitDirPath(root, cfg), false)
-	runner.Quiet = true
-	return readCloneName(ctx, runner, root)
-}
-
-// readCloneName is ReadCloneName reading wtx.name through runner.
-func readCloneName(ctx context.Context, runner *git.Runner, root string) (CloneName, error) {
+// ReadCloneName resolves the Clone name of the Clone at root, reading
+// wtx.name through runner: git config wtx.name when set, otherwise the
+// directory name of root. A git directory that cannot be read falls back to
+// the directory name, so diagnostics still work; an invalid wtx.name is an
+// error. Resolve reads it for a Clone with a Clone dir; doctor reads it for
+// the Clone dir an In-repo layout would migrate to.
+func ReadCloneName(ctx context.Context, runner *git.Runner, root string) (CloneName, error) {
 	if value, ok, err := runner.LocalConfig(ctx, NameConfigKey); err == nil && ok {
 		if err := ValidateProjectName(value); err != nil {
 			return CloneName{}, fmt.Errorf("git config %s: %w", NameConfigKey, err)
@@ -78,46 +72,13 @@ func ApplyHomeConfigPaths(cfg *config.Config, name string) {
 	}
 }
 
-// ResolveLayout resolves the per-clone defaults of a checkout-layout
-// project (see config.Config.HomeDefaults): omitted worktree_dir and
-// shared_dir become ~/.wtx/<name>/worktrees and ~/.wtx/<name>/shared for
-// the clone's name (see ReadCloneName). Other projects are left unchanged
-// and report ok == false.
-func ResolveLayout(ctx context.Context, root string, cfg *config.Config) (name CloneName, ok bool, err error) {
-	if !cfg.HomeDefaults() {
-		return CloneName{}, false, nil
-	}
-	name, err = ReadCloneName(ctx, root, cfg)
-	if err != nil {
-		return CloneName{}, false, err
-	}
-	ApplyHomeConfigPaths(cfg, name.Name)
-	return name, true, nil
-}
-
-// LoadConfig loads the config of the project at root, resolves per-clone
-// defaults (ResolveLayout) and checks that its paths expand.
-func LoadConfig(ctx context.Context, root string) (*config.Config, error) {
-	cfg, err := config.Load(root)
-	if err != nil {
-		return nil, err
-	}
-	if _, _, err := ResolveLayout(ctx, root, cfg); err != nil {
-		return nil, err
-	}
-	if err := ValidatePaths(root, cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
-}
-
-// ErrCloneNotSetUp is returned by CheckCloneSetup when this clone has not
+// ErrCloneNotSetUp is returned by Clone.CheckOwned when this Clone has not
 // run wtx init.
 var ErrCloneNotSetUp = errors.New("this clone is not set up for wtx")
 
-// CloneHomeDir returns the ~/.wtx/<name> directory that a resolved cfg
-// uses for its per-clone defaults, or false when it has none.
-func CloneHomeDir(root string, cfg *config.Config) (string, bool) {
+// cloneDirOf returns the Clone dir that a resolved cfg uses for its
+// per-clone defaults, or false when it has none.
+func cloneDirOf(root string, cfg *config.Config) (string, bool) {
 	if !cfg.HomeDefaults() {
 		return "", false
 	}
@@ -126,27 +87,4 @@ func CloneHomeDir(root string, cfg *config.Config) (string, bool) {
 		path = WorktreesPath(root, cfg)
 	}
 	return HomeProjectDirOf(path)
-}
-
-// CheckCloneSetup checks, before anything is created there, that the
-// per-clone ~/.wtx/<name> directory of a resolved cfg belongs to the clone
-// at root. Projects without per-clone defaults always pass.
-func CheckCloneSetup(root string, cfg *config.Config) error {
-	dir, ok := CloneHomeDir(root, cfg)
-	if !ok {
-		return nil
-	}
-	m, err := ReadMarker(dir)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("%w: %s has no %s\n  run 'wtx init' in %s to set it up", ErrCloneNotSetUp, dir, MarkerFileName, root)
-	case err != nil:
-		return fmt.Errorf("%w: %w\n  run 'wtx doctor' for details", ErrCloneNotSetUp, err)
-	case SamePath(m.Root, root):
-		return nil
-	case config.Exists(m.Root):
-		return fmt.Errorf("%w: %s belongs to %s\n  give this clone its own directory with 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
-	default:
-		return fmt.Errorf("%w: %s belongs to %s, which is no longer a wtx project\n  run 'wtx doctor --fix' to record this clone as its owner, or 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
-	}
 }

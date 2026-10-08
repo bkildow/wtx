@@ -313,10 +313,11 @@ func TestMigrateHomeRefusals(t *testing.T) {
 			t.Fatal("bin moved away from the shared directory it is resolved against")
 		}
 		// worktree_dir is left to the per-clone default; shared_dir stays.
-		cfg, err := project.LoadConfig(ctx, root)
+		clone, err := project.Open(ctx, root, project.Options{})
 		if err != nil {
 			t.Fatal(err)
 		}
+		cfg := clone.Config()
 		if cfg.WorktreeDirSet() || cfg.WorktreeDir != "~/.wtx/proj/worktrees" || cfg.SharedDir != ".worktrees/shared" {
 			t.Fatalf("config: %+v", cfg)
 		}
