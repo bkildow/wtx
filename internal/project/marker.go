@@ -142,13 +142,10 @@ func HomeProjectDirOf(path string) (string, bool) {
 }
 
 // SelectHomeDir picks the ~/.wtx/<name> directory for the repository at
-// root; name defaults to root's directory name. An empty dir means name is
-// invalid (or the wtx home cannot be determined). A non-empty dir with an
-// error means the directory is not available to root (see CheckHomeDir).
+// root. An empty dir means name is invalid (including empty) or the wtx home
+// cannot be determined. A non-empty dir with an error means the directory is
+// not available to root (see CheckHomeDir).
 func SelectHomeDir(root, name string) (dir string, err error) {
-	if name == "" {
-		name = filepath.Base(root)
-	}
 	if dir, err = HomeProjectDir(name); err != nil {
 		return "", err
 	}

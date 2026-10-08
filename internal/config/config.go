@@ -91,7 +91,6 @@ func (c *Config) DiskThreshold() *disk.Threshold {
 	return &t
 }
 
-// MainBranchOrDefault returns the configured main branch, falling back to DefaultMainBranch.
 // IsCheckoutLayout reports whether git_dir is a checkout's .git directory
 // (wtx init), so the project root is the main worktree, as opposed to a bare
 // repository (wtx clone).
@@ -99,6 +98,7 @@ func (c *Config) IsCheckoutLayout() bool {
 	return filepath.Base(c.GitDir) == ".git"
 }
 
+// MainBranchOrDefault returns the configured main branch, falling back to DefaultMainBranch.
 func (c *Config) MainBranchOrDefault() string {
 	if c.MainBranch != "" {
 		return c.MainBranch

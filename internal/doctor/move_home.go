@@ -86,6 +86,11 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	}
 	if moveShare {
 		m.oldShare = shareDir
+	} else if legacyShare := filepath.Join(s.root, project.InRepoLayout().SharedDir); m.oldWT == legacy && isDir(legacyShare) {
+		// The config moved on without this clone's in-repo files (e.g. a
+		// teammate pulled a migrated .worktree.yml): move them along with
+		// the worktrees instead of leaving them behind.
+		m.oldShare = legacyShare
 	}
 	oldBin := m.oldBin()
 	if m.oldShare != "" && (m.oldWT == "" || !ui.Within(m.oldWT, m.oldShare) || !ui.Within(m.oldWT, oldBin)) {
@@ -99,6 +104,11 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	if dirs := s.homeProjectDirs(); len(dirs) > 0 {
 		m.homeDir = dirs[0]
 		err = project.CheckHomeDir(m.homeDir, s.root)
+		if moveWT || moveShare {
+			// The moved directory's key is dropped from the config and then
+			// resolves per clone through wtx.name, which must name homeDir.
+			m.name = filepath.Base(m.homeDir)
+		}
 	} else {
 		if name == "" {
 			// wtx.name (e.g. from an interrupted run), else the directory name.
@@ -237,7 +247,7 @@ func (m *migration) planDir(ctx context.Context, label, from, to string) (keep b
 		m.s.addSubject(migrateID, from, label, "The "+label+" directory contains files tracked by Git; it stays in the repository.", "Keep it, or untrack it and rerun wtx doctor --migrate-home to move it.")
 		return true
 	}
-	if !emptyOrMissing(to) {
+	if !noFiles(to) {
 		m.s.addSubject(migrateID, to, label, "Destination "+label+" directory already exists and is not empty.", "Merge "+from+" into it manually, then rerun wtx doctor --migrate-home.")
 		return true
 	}
@@ -306,23 +316,27 @@ func (m *migration) planRelink() {
 	oldLinks, newLinks := filepath.Join(m.oldShare, "symlink"), filepath.Join(m.newShare, "symlink")
 	runner := m.s.runner
 	root := m.s.root
+	relinkAll := func(ctx context.Context, checkOnly bool) error {
+		if !isDir(newLinks) {
+			return nil
+		}
+		worktrees, err := runner.WorktreeList(ctx)
+		if err != nil {
+			return err
+		}
+		var errs []error
+		for _, wt := range worktrees {
+			if !wt.Bare && ui.CanonicalPath(wt.Path) != root && isDir(wt.Path) {
+				errs = append(errs, relink(newLinks, oldLinks, wt.Path, checkOnly))
+			}
+		}
+		return errors.Join(errs...)
+	}
+	// done re-checks the links so a failed retarget keeps the config
+	// unchanged and a rerun plans this step again.
 	m.step(newLinks, "retarget shared symlinks in worktrees",
-		func(ctx context.Context) error {
-			if !isDir(newLinks) {
-				return nil
-			}
-			worktrees, err := runner.WorktreeList(ctx)
-			if err != nil {
-				return err
-			}
-			var errs []error
-			for _, wt := range worktrees {
-				if !wt.Bare && ui.CanonicalPath(wt.Path) != root && isDir(wt.Path) {
-					errs = append(errs, relink(newLinks, oldLinks, wt.Path))
-				}
-			}
-			return errors.Join(errs...)
-		}, nil)
+		func(ctx context.Context) error { return relinkAll(ctx, false) },
+		func() error { return relinkAll(context.Background(), true) })
 }
 
 func (m *migration) planRepair(moved []string) {
@@ -494,6 +508,27 @@ func emptyOrMissing(dir string) bool {
 	return errors.Is(err, os.ErrNotExist) || (err == nil && len(entries) == 0)
 }
 
+// noFiles reports whether dir is missing or holds only (nested) empty
+// directories, such as the shared/copy and shared/symlink scaffold that wtx
+// init creates.
+func noFiles(dir string) bool {
+	found := false
+	err := filepath.WalkDir(dir, func(_ string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !entry.IsDir() {
+			found = true
+			return fs.SkipAll
+		}
+		return nil
+	})
+	if errors.Is(err, os.ErrNotExist) {
+		return true
+	}
+	return err == nil && !found
+}
+
 // movedCheck verifies a move: the source is gone and the destination exists.
 func movedCheck(from, to string) error {
 	if exists(from) {
@@ -514,14 +549,15 @@ func moveDir(from, to string) error {
 		}
 		return fmt.Errorf("%s does not exist", from)
 	}
-	if !emptyOrMissing(to) {
+	if !noFiles(to) {
 		return fmt.Errorf("%s already exists and is not empty", to)
 	}
 	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
 		return err
 	}
 	if exists(to) {
-		if err := os.Remove(to); err != nil {
+		// Only empty directories (e.g. the wtx init scaffold): replace them.
+		if err := os.RemoveAll(to); err != nil {
 			return err
 		}
 	}
@@ -564,8 +600,9 @@ func copyTree(from, to string) error {
 
 // relink retargets symlinks under worktree that point at oldRoot/<rel> to
 // newRoot/<rel>, walking only the mirror of newRoot. Other links are left
-// alone.
-func relink(newRoot, oldRoot, worktree string) error {
+// alone. With checkOnly it changes nothing and reports a link that still
+// needs retargeting as an error.
+func relink(newRoot, oldRoot, worktree string, checkOnly bool) error {
 	oldRoot = ui.CanonicalPath(oldRoot)
 	return filepath.WalkDir(newRoot, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
@@ -597,6 +634,9 @@ func relink(newRoot, oldRoot, worktree string) error {
 		}
 		target, err := os.Readlink(link)
 		if err == nil && ui.CanonicalPath(target) == filepath.Join(oldRoot, rel) {
+			if checkOnly {
+				return fmt.Errorf("%s still points at %s", link, target)
+			}
 			if err := os.Remove(link); err != nil {
 				return err
 			}

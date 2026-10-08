@@ -39,7 +39,10 @@ cd $WORK/c/repo
 stderr 'invalid project name'
 ! exec wtx init --name ..
 stderr 'invalid project name'
+! exec wtx init --name ''
+stderr 'invalid project name'
 ! exists .worktree.yml
+! exists $WTX_HOME/worktrees
 
 # A directory under ~/.wtx without a marker is not adopted
 mkdir $WTX_HOME/repo

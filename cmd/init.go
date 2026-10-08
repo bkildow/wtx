@@ -163,7 +163,8 @@ type cloneSetup struct {
 	cfg     *config.Config // resolved to the ~/.wtx/<name> layout
 	name    string
 	homeDir string
-	setName bool // wtx.name must be written
+	setName bool   // wtx.name must be written
+	oldName string // wtx.name before this run, or ""
 }
 
 // planCloneSetup picks the clone's name (--name, else wtx.name, else the
@@ -192,7 +193,7 @@ func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *c
 		return nil, fmt.Errorf("%w\n  choose another directory with 'wtx init --name <other>'", err)
 	}
 	project.ApplyHomeLayout(cfg, name)
-	return &cloneSetup{root: root, cfg: cfg, name: name, homeDir: homeDir, setName: current != name}, nil
+	return &cloneSetup{root: root, cfg: cfg, name: name, homeDir: homeDir, setName: current != name, oldName: current}, nil
 }
 
 // done reports whether the clone is fully set up already.
@@ -203,22 +204,12 @@ func (c *cloneSetup) done() bool {
 	if m, err := project.ReadMarker(c.homeDir); err != nil || !project.SamePath(m.Root, c.root) {
 		return false
 	}
-	for _, dir := range c.dirs() {
+	for _, dir := range project.ScaffoldDirs(c.root, c.cfg) {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			return false
 		}
 	}
 	return true
-}
-
-func (c *cloneSetup) dirs() []string {
-	shared := project.SharedPath(c.root, c.cfg)
-	return []string{
-		filepath.Join(shared, "copy"),
-		filepath.Join(shared, "symlink"),
-		project.WorktreesPath(c.root, c.cfg),
-		project.BinPath(c.root, c.cfg),
-	}
 }
 
 // apply creates ~/.wtx/<name> with its marker, scaffold and starter
@@ -237,6 +228,10 @@ func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) er
 		return err
 	}
 	if c.setName {
+		if c.oldName != "" {
+			ui.Warning("Renaming this clone from " + c.oldName + " to " + c.name + ": worktrees and shared files under " +
+				ui.DisplayPath(c.root, filepath.Join(filepath.Dir(c.homeDir), c.oldName)) + " stay there")
+		}
 		ui.Step("Recording " + project.NameConfigKey + " " + c.name + " in local git config")
 		if err := runner.SetLocalConfig(ctx, project.NameConfigKey, c.name); err != nil {
 			return err

@@ -83,15 +83,19 @@ func walkUpForConfig(startDir string) (string, error) {
 	}
 }
 
-func CreateScaffold(projectRoot string, cfg *config.Config, dryRun bool) error {
-	dirs := []string{
-		filepath.Join(SharedPath(projectRoot, cfg), "copy"),
-		filepath.Join(SharedPath(projectRoot, cfg), "symlink"),
+// ScaffoldDirs lists the directories CreateScaffold creates.
+func ScaffoldDirs(projectRoot string, cfg *config.Config) []string {
+	shared := SharedPath(projectRoot, cfg)
+	return []string{
+		filepath.Join(shared, "copy"),
+		filepath.Join(shared, "symlink"),
 		WorktreesPath(projectRoot, cfg),
 		BinPath(projectRoot, cfg),
 	}
+}
 
-	for _, dir := range dirs {
+func CreateScaffold(projectRoot string, cfg *config.Config, dryRun bool) error {
+	for _, dir := range ScaffoldDirs(projectRoot, cfg) {
 		if dryRun {
 			ui.DryRunNotice("mkdir -p " + dir)
 			continue

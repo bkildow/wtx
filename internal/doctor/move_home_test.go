@@ -214,6 +214,55 @@ func TestMigrateHomeResumesAfterSkippedWorktree(t *testing.T) {
 	}
 }
 
+// A clone whose config already leaves the paths per clone (a teammate who
+// pulled a migrated .worktree.yml and ran wtx init) still has its own
+// .worktrees/: shared files and bin move with the worktrees, into the
+// empty scaffold wtx init created.
+func TestMigrateHomeLeftoverClone(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	root, gitDir, wtxHome := inRepoFixture(t)
+	ctx := context.Background()
+	home := filepath.Join(wtxHome, "proj")
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.WorktreeDirSet, cfg.SharedDirSet = false, false
+	cfg.Scripts = map[string]string{"check": "bin/check"}
+	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, "--git-dir", gitDir, "config", "--local", project.NameConfigKey, "proj")
+	for _, dir := range []string{"shared/copy", "shared/symlink"} {
+		if err := os.MkdirAll(filepath.Join(home, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := project.WriteMarker(home, root, false); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Run(ctx, Options{StartDir: root, MigrateHome: true})
+	if r.Unsuccessful(false) {
+		t.Fatalf("migration failed: repairs=%+v findings=%+v", r.Repairs, r.Findings)
+	}
+	if data, err := os.ReadFile(filepath.Join(home, "shared", "copy", ".env")); err != nil || string(data) != "SECRET=1\n" {
+		t.Errorf("shared copy file: %q %v", data, err)
+	}
+	if !exists(filepath.Join(home, "bin", "refresh")) {
+		t.Error("bin not moved")
+	}
+	link := filepath.Join(home, "worktrees", "a", "notes.txt")
+	if target, err := os.Readlink(link); err != nil || target != filepath.Join(home, "shared", "symlink", "notes.txt") {
+		t.Errorf("symlink %s -> %q (%v)", link, target, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".worktrees")); !os.IsNotExist(err) {
+		t.Errorf(".worktrees not removed: %v", err)
+	}
+}
+
 func TestMigrateHomeRefusals(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
