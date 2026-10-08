@@ -36,11 +36,11 @@ grep 'root: .*b/myrepo' $WTX_HOME/myrepo-b/project.yml
 exec git init $WORK/c/repo
 cd $WORK/c/repo
 ! exec wtx init --name ../escape
-stderr 'invalid project name'
+stderr 'invalid clone name'
 ! exec wtx init --name ..
-stderr 'invalid project name'
+stderr 'invalid clone name'
 ! exec wtx init --name ''
-stderr 'invalid project name'
+stderr 'invalid clone name'
 ! exists .worktree.yml
 ! exists $WTX_HOME/worktrees
 
@@ -57,7 +57,7 @@ exec wtx init
 stderr 'Initialized wtx project'
 
 # A config with explicit paths is refused; an explicit ~/.wtx directory
-# without an ownership marker points at wtx doctor --fix.
+# without an Owner marker points at wtx doctor --fix.
 exec git init $WORK/d/legacy
 cd $WORK/d/legacy
 cp $WORK/legacycfg .worktree.yml

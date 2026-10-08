@@ -206,7 +206,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 		b.WriteString("version: 1\n")
 	}
 
-	b.WriteString("\n# Path to the git directory (.bare for cloned projects, .git for initialized)\n")
+	b.WriteString("\n# Path to the git directory (.bare for wtx clone, .git for wtx init)\n")
 	if cfg != nil {
 		fmt.Fprintf(&b, "git_dir: %s\n", YAMLQuote(cfg.GitDir))
 	} else {

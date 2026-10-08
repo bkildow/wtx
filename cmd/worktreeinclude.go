@@ -44,7 +44,7 @@ func resolveIncludeSource(ctx context.Context, clone *project.Clone) *project.In
 }
 
 // dropManagedPaths removes files (relative to srcDir) that live inside wtx's
-// own directories, which can sit under the main worktree in init projects
+// own directories, which can sit under the Main worktree in an In-repo layout
 // (e.g. .worktrees/shared/copy/.env would otherwise match a ".env" pattern).
 func dropManagedPaths(files []string, srcDir string, managedDirs []string) []string {
 	var prefixes []string

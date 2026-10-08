@@ -472,11 +472,11 @@ func TestOperationalReportsAndStrict(t *testing.T) {
 	if r.Unsuccessful(false) || !r.Unsuccessful(true) {
 		t.Fatalf("clone without wtx init must fail strict only: %+v", r)
 	}
-	homeDir, err := project.HomeProjectDir(filepath.Base(root))
+	cloneDir, err := project.CloneDirFor(filepath.Base(root))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := project.WriteMarker(homeDir, root, false); err != nil {
+	if err := project.WriteMarker(cloneDir, root, false); err != nil {
 		t.Fatal(err)
 	}
 	r = Run(context.Background(), Options{StartDir: root})

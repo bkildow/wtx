@@ -74,12 +74,12 @@ func existingAncestor(path string) string {
 	}
 }
 
-// homeProjectDirs returns the distinct ~/.wtx/<name> directories that the
+// cloneDirs returns the distinct ~/.wtx/<name> directories that the
 // configured worktree and shared directories live in.
-func (s *inspection) homeProjectDirs() []string {
+func (s *inspection) cloneDirs() []string {
 	var dirs []string
 	for _, dir := range []string{s.clone.WorktreesDir(), s.clone.SharedDir()} {
-		if d, ok := project.HomeProjectDirOf(dir); ok && !slices.Contains(dirs, d) {
+		if d, ok := project.CloneDirOf(dir); ok && !slices.Contains(dirs, d) {
 			dirs = append(dirs, d)
 		}
 	}
@@ -90,7 +90,7 @@ func (s *inspection) homeProjectDirs() []string {
 // records this project as its owner.
 func (s *inspection) homeMarker() {
 	cloneDir, perClone := s.clone.CloneDir()
-	for _, dir := range s.homeProjectDirs() {
+	for _, dir := range s.cloneDirs() {
 		s.addManaged(dir)
 		path := filepath.Join(dir, project.MarkerFileName)
 		// For per-clone defaults, say where <name> came from.
@@ -115,17 +115,17 @@ func (s *inspection) homeMarker() {
 		m, err := project.ReadMarker(dir)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			i := s.add("home.marker", Warn, path, "Ownership marker is missing"+detail+"; wtx uses it to detect name collisions and orphaned directories.", "Run wtx doctor --fix to record this project as the owner.")
+			i := s.add("home.marker", Warn, path, "Owner marker is missing"+detail+"; wtx uses it to detect name collisions and orphaned directories.", "Run wtx doctor --fix to record this project as the owner.")
 			s.planMarker(i, path, content)
 		case err != nil:
-			i := s.add("home.marker", Warn, path, "Ownership marker is unreadable: "+err.Error()+".", "Run wtx doctor --fix to rewrite it (the old file is backed up).")
+			i := s.add("home.marker", Warn, path, "Owner marker is unreadable: "+err.Error()+".", "Run wtx doctor --fix to rewrite it (the old file is backed up).")
 			s.planMarker(i, path, content)
 		case project.SamePath(m.Root, s.root):
-			s.add("home.marker", OK, path, "Ownership marker names this project"+detail+".", "")
+			s.add("home.marker", OK, path, "Owner marker names this project"+detail+".", "")
 		case config.Exists(m.Root):
 			s.add("home.marker", Warn, path, "Directory belongs to another wtx project: "+m.Root+detail+".", otherRemedy)
 		default:
-			i := s.add("home.marker", Warn, path, "Ownership marker names "+m.Root+", which is no longer a wtx project (moved repository?).", "Run wtx doctor --fix to record this project as the owner.")
+			i := s.add("home.marker", Warn, path, "Owner marker names "+m.Root+", which is no longer a wtx project (moved repository?).", "Run wtx doctor --fix to record this project as the owner.")
 			s.planMarker(i, path, content)
 		}
 	}

@@ -139,9 +139,9 @@ func SharedPath(projectRoot string, cfg *config.Config) string {
 }
 
 // BinPath is the directory for project-level scripts run via `wtx run`. It
-// is a sibling of the shared directory: bin/ for cloned projects,
-// ~/.wtx/<name>/bin/ for initialized ones and .worktrees/bin/ for in-repo
-// ones.
+// is a sibling of the shared directory: bin/ in a Bare layout,
+// ~/.wtx/<name>/bin/ in a Checkout layout and .worktrees/bin/ in an In-repo
+// layout.
 func BinPath(projectRoot string, cfg *config.Config) string {
 	return BinFor(SharedPath(projectRoot, cfg))
 }

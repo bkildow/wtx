@@ -23,7 +23,7 @@ Every command that takes a name opens an interactive picker when the name is omi
 
 The project root is the directory containing `.worktree.yml`. Worktree directories use the branch name verbatim, so `feature/auth` lives at `worktrees/feature/auth/`.
 
-Cloned project (`wtx clone <url>`), a bare repo with no `.git` at the root:
+Bare layout (`wtx clone <url>`), a bare repo with no `.git` at the root:
 
     project/
       .bare/              # bare git repository
@@ -53,7 +53,7 @@ Initialized project (`wtx init` inside an existing repo), where the root is itse
 
 `wtx init --in-repo` puts worktrees, `shared/` and `bin/` under `project/.worktrees/` instead. Find a project's worktrees with `wtx list` or `wtx cd <name>` rather than assuming a path.
 
-Run git commands inside a worktree. In a cloned project the root has no `.git`, so git fails there.
+Run git commands inside a worktree. In a Bare layout the project root has no `.git`, so git fails there.
 
 ## Paths and navigation
 
@@ -81,7 +81,7 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 
 Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. After changing them, run `wtx apply --all` (or `wtx apply <name>`) to update existing worktrees.
 
-`.worktreeinclude` (gitignore syntax, committed at the repo root) lists ignored files such as `.env` to copy from the main checkout (the `main_branch` worktree in cloned projects). Only files that match and are gitignored are copied, and existing files are never overwritten. Order: `.worktreeinclude`, then `shared/copy/`, then `shared/symlink/`; later layers win. To give worktrees a local secret, add its pattern to `.worktreeinclude` rather than copying it by hand.
+`.worktreeinclude` (gitignore syntax, committed at the repo root) lists ignored files such as `.env` to copy from the main worktree (the `main_branch` worktree in a Bare layout). Only files that match and are gitignored are copied, and existing files are never overwritten. Order: `.worktreeinclude`, then `shared/copy/`, then `shared/symlink/`; later layers win. To give worktrees a local secret, add its pattern to `.worktreeinclude` rather than copying it by hand.
 
 Files ending in `.template` are copied with the suffix stripped and these variables substituted:
 

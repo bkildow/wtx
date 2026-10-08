@@ -27,7 +27,7 @@ and receives these environment variables:
   WTX_PROJECT_ROOT        Project root (where .worktree.yml lives)
   WTX_SHARED_PATH         Shared directory (copy/ and symlink/)
   WTX_MAIN_BRANCH         main_branch from .worktree.yml (main when unset)
-  WTX_MAIN_WORKTREE_PATH  Main worktree: the project root for wtx init projects,
+  WTX_MAIN_WORKTREE_PATH  Main worktree: the project root for a wtx init clone,
                           else the worktree on the main branch (empty if none)
   WTX_WORKTREE_PATH       Path of the current worktree (empty outside a worktree)
   WTX_WORKTREE_ID         Sanitized branch name (empty outside a worktree)

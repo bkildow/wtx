@@ -50,27 +50,6 @@ func printNotAProject() {
 	ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
 }
 
-// filterManagedWorktrees returns the worktrees wtx manages: every linked
-// worktree of the repository, wherever it lives on disk (including ones
-// outside the project root or created by other tools). It excludes only bare
-// entries (from wtx clone setups) and the main working tree at the project
-// root (from wtx init setups).
-func filterManagedWorktrees(worktrees []git.WorktreeInfo, projectRoot string) []git.WorktreeInfo {
-	absRoot := ui.CanonicalPath(projectRoot)
-	var filtered []git.WorktreeInfo
-	for _, wt := range worktrees {
-		if wt.Bare {
-			continue
-		}
-		// Fast path: exact string match avoids syscall
-		if wt.Path == projectRoot || ui.CanonicalPath(wt.Path) == absRoot {
-			continue
-		}
-		filtered = append(filtered, wt)
-	}
-	return filtered
-}
-
 // detectDefaultBranch asks git for the remote's default branch and falls back
 // to config.DefaultMainBranch on error.
 func detectDefaultBranch(ctx context.Context, runner git.Git) string {
