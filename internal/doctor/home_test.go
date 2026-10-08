@@ -130,6 +130,56 @@ func TestHomeMarkerChecks(t *testing.T) {
 	}
 }
 
+func TestHomeMarkerPerClone(t *testing.T) {
+	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
+	wtxHome := ui.CanonicalPath(t.TempDir())
+	t.Setenv("WTX_HOME", wtxHome)
+	root, gitDir, _ := fixture(t, false)
+	write(t, filepath.Join(root, config.ConfigFileName), "git_dir: .git\ndisk_warn: false\n", 0o600)
+	dir := filepath.Join(wtxHome, filepath.Base(root))
+	marker := filepath.Join(dir, project.MarkerFileName)
+
+	// Not set up yet: warn and point at wtx init; the name is the directory name.
+	r := Run(context.Background(), Options{StartDir: root})
+	f := finding(r, "home.marker", marker)
+	if f == nil || f.Severity != Warn || !strings.Contains(f.Remedy, "wtx init") || !strings.Contains(f.Explanation, "repository directory name") {
+		t.Fatalf("clone not set up: %+v", f)
+	}
+
+	// wtx.name moves the directory; a missing marker in an existing
+	// directory is repaired by --fix and the detail names wtx.name.
+	gitRun(t, "--git-dir", gitDir, "config", "--local", project.NameConfigKey, "teammate")
+	dir = filepath.Join(wtxHome, "teammate")
+	marker = filepath.Join(dir, project.MarkerFileName)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r = Run(context.Background(), Options{StartDir: root})
+	if f := finding(r, "home.marker", marker); f == nil || f.Severity != Warn || !f.Repairable || !strings.Contains(f.Explanation, "git config wtx.name") {
+		t.Fatalf("missing marker: %+v", f)
+	}
+	if r = Run(context.Background(), Options{StartDir: root, Fix: true}); r.Unsuccessful(false) {
+		t.Fatalf("marker repair failed: %+v", r.Repairs)
+	}
+	r = Run(context.Background(), Options{StartDir: root})
+	if f := finding(r, "home.marker", marker); f == nil || f.Severity != OK || !strings.Contains(f.Explanation, `"teammate" from git config wtx.name`) {
+		t.Fatalf("repaired marker: %+v", f)
+	}
+
+	// Another live project owns the directory: suggest wtx init --name.
+	other := t.TempDir()
+	if err := config.WriteAnnotated(other); err != nil {
+		t.Fatal(err)
+	}
+	if err := project.WriteMarker(dir, other, false); err != nil {
+		t.Fatal(err)
+	}
+	r = Run(context.Background(), Options{StartDir: root})
+	if f := finding(r, "home.marker", marker); f == nil || f.Severity != Warn || !strings.Contains(f.Remedy, "wtx init --name") {
+		t.Fatalf("foreign marker: %+v", f)
+	}
+}
+
 func TestHomeOrphans(t *testing.T) {
 	root, wtxHome, _ := homeFixture(t)
 	orphan := filepath.Join(wtxHome, "old")

@@ -86,7 +86,7 @@ func TestMigrateHome(t *testing.T) {
 		actions = append(actions, o.Action)
 	}
 	joined := strings.Join(actions, "\n")
-	for _, want := range []string{"write ownership marker", "move .worktrees/shared", "move .worktrees/bin", "git worktree move .worktrees/a", "git worktree move .worktrees/feat/x", "retarget shared symlinks", "git worktree repair", "remove .worktrees if empty", "rewrite worktree_dir"} {
+	for _, want := range []string{"write ownership marker", "move .worktrees/shared", "move .worktrees/bin", "git worktree move .worktrees/a", "git worktree move .worktrees/feat/x", "retarget shared symlinks", "git worktree repair", "remove .worktrees if empty", "set git config wtx.name proj", "remove worktree_dir, shared_dir"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("dry run missing step %q in:\n%s", want, joined)
 		}
@@ -132,10 +132,21 @@ func TestMigrateHome(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"worktree_dir: ~/.wtx/proj/worktrees\n", "shared_dir: ~/.wtx/proj/shared\n", "refresh: ~/.wtx/proj/bin/refresh\n", "check: bin/check\n", "# Directory for worktrees"} {
+	// The config keeps no machine-local paths: worktree_dir, shared_dir and
+	// the refresh entry (found in bin/ by name) are gone, and wtx.name
+	// records the clone's directory.
+	for _, want := range []string{"check: bin/check\n", "# Directory for worktrees"} {
 		if !strings.Contains(string(cfgData), want) {
 			t.Errorf("config missing %q:\n%s", want, cfgData)
 		}
+	}
+	for _, unwanted := range []string{"\nworktree_dir:", "\nshared_dir:", "refresh:", "~/.wtx/proj"} {
+		if strings.Contains(string(cfgData), unwanted) {
+			t.Errorf("config still has %q:\n%s", unwanted, cfgData)
+		}
+	}
+	if name := gitOutput(t, "--git-dir", gitDir, "config", "--local", "wtx.name"); strings.TrimSpace(name) != "proj" {
+		t.Errorf("wtx.name = %q", name)
 	}
 	if m, err := project.ReadMarker(home); err != nil || !project.SamePath(m.Root, root) {
 		t.Errorf("marker: %+v %v", m, err)
@@ -251,11 +262,12 @@ func TestMigrateHomeRefusals(t *testing.T) {
 		if exists(filepath.Join(wtxHome, "proj", "bin")) {
 			t.Fatal("bin moved away from the shared directory it is resolved against")
 		}
-		cfg, err := config.Load(root)
+		// worktree_dir is left to the per-clone default; shared_dir stays.
+		cfg, err := project.LoadConfig(ctx, root)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if cfg.WorktreeDir != "~/.wtx/proj/worktrees" || cfg.SharedDir != ".worktrees/shared" {
+		if cfg.WorktreeDirSet || cfg.WorktreeDir != "~/.wtx/proj/worktrees" || cfg.SharedDir != ".worktrees/shared" {
 			t.Fatalf("config: %+v", cfg)
 		}
 	})
@@ -294,22 +306,30 @@ func TestCopyTreeAndRemoveEmptyDirs(t *testing.T) {
 }
 
 func TestRewriteConfigPreservesLayout(t *testing.T) {
-	data := []byte("# top\nversion: 1\ngit_dir: .git\nworktree_dir: .worktrees # old\nshared_dir: .worktrees/shared\n\nscripts:\n  # keep\n  refresh: .worktrees/bin/refresh\n  \"odd name\": bin/x\n")
-	have := config.DefaultConfig()
-	have.WorktreeDir, have.SharedDir = ".worktrees", ".worktrees/shared"
-	have.Scripts = map[string]string{"refresh": ".worktrees/bin/refresh", "odd name": "bin/x"}
-	want := have
-	want.WorktreeDir, want.SharedDir = "~/.wtx/p/worktrees", "~/.wtx/p/shared"
-	want.Scripts = map[string]string{"refresh": "~/.wtx/p/bin/refresh", "odd name": "bin/x"}
-	out, err := rewriteConfig(data, &have, &want)
+	data := []byte("# top\nversion: 1\ngit_dir: .git\n# wt\nworktree_dir: .worktrees # old\nshared_dir: .worktrees/shared\n\nscripts:\n  # keep\n  refresh: .worktrees/bin/refresh\n  seed: .worktrees/bin/seed.sh\n  \"odd name\": bin/x\n")
+	want, err := config.Parse(data)
 	if err != nil {
 		t.Fatal(err)
 	}
-	expected := "# top\nversion: 1\ngit_dir: .git\nworktree_dir: ~/.wtx/p/worktrees\nshared_dir: ~/.wtx/p/shared\n\nscripts:\n  # keep\n  refresh: ~/.wtx/p/bin/refresh\n  \"odd name\": bin/x\n"
+	want.WorktreeDirSet, want.SharedDirSet = false, false
+	want.Scripts = map[string]string{"seed": "~/.wtx/p/bin/seed.sh", "odd name": "bin/x"}
+	out, err := rewriteConfig(data, want)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := "# top\nversion: 1\ngit_dir: .git\n# wt\n\nscripts:\n  # keep\n  seed: ~/.wtx/p/bin/seed.sh\n  \"odd name\": bin/x\n"
 	if string(out) != expected {
 		t.Fatalf("got:\n%s", out)
 	}
-	if _, err := rewriteConfig([]byte("worktree_dir: .worktrees\nshared_dir: .worktrees/shared\nscripts: {refresh: .worktrees/bin/refresh, odd name: bin/x}\n"), &have, &want); err == nil {
+
+	// A scripts key left without entries is dropped.
+	data = []byte("git_dir: .git\nworktree_dir: .worktrees\nscripts:\n  refresh: .worktrees/bin/refresh\nmain_branch: main\n")
+	want = &config.Config{GitDir: ".git", MainBranch: "main"}
+	if out, err := rewriteConfig(data, want); err != nil || string(out) != "git_dir: .git\nmain_branch: main\n" {
+		t.Fatalf("got %q, %v", out, err)
+	}
+
+	if _, err := rewriteConfig([]byte("worktree_dir: .worktrees\nshared_dir: .worktrees/shared\nscripts: {refresh: .worktrees/bin/refresh, odd name: bin/x}\n"), &config.Config{Scripts: map[string]string{"odd name": "bin/x"}}); err == nil {
 		t.Fatal("flow-style scripts must be refused")
 	}
 }

@@ -39,6 +39,10 @@ func (s *inspection) homePaths() {
 			s.add("home.paths", Fail, wt, "Worktree directory does not exist and "+parent+" is not writable.", "Create the directory or fix permissions, or change worktree_dir in "+config.ConfigFileName+".")
 			return
 		}
+		if dir, ok := project.CloneHomeDir(s.root, s.cfg); ok && !exists(filepath.Join(dir, project.MarkerFileName)) {
+			s.add("home.paths", OK, wt, "Worktree directory does not exist yet; wtx init sets up this clone ("+s.clone.Describe()+").", "")
+			return
+		}
 		s.add("home.paths", OK, wt, "Worktree directory does not exist yet; wtx add creates it.", "")
 	case err != nil:
 		s.problem("home.paths", wt, err)
@@ -90,10 +94,21 @@ func (s *inspection) homeProjectDirs() []string {
 // homeMarker checks that each ~/.wtx/<name> directory this project uses
 // records this project as its owner.
 func (s *inspection) homeMarker() {
+	cloneDir, _ := project.CloneHomeDir(s.root, s.cfg)
 	for _, dir := range s.homeProjectDirs() {
 		s.addManaged(dir)
 		path := filepath.Join(dir, project.MarkerFileName)
+		// For per-clone defaults, say where <name> came from.
+		detail, otherRemedy := "", "Point worktree_dir and shared_dir at a different ~/.wtx/<name> directory and move this project's files there; doctor never changes another project's directory."
+		if s.perClone && dir == cloneDir {
+			detail = " (" + s.clone.Describe() + ")"
+			otherRemedy = "Run wtx init --name <other> to give this clone its own ~/.wtx directory; doctor never changes another project's directory."
+		}
 		if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			if detail != "" {
+				s.add("home.marker", Warn, path, "This clone is not set up: its project directory does not exist"+detail+".", "Run wtx init to set up this clone.")
+				continue
+			}
 			s.add("home.marker", OK, path, "Project directory does not exist yet; wtx creates it with the first worktree.", "")
 			continue
 		}
@@ -105,15 +120,15 @@ func (s *inspection) homeMarker() {
 		m, err := project.ReadMarker(dir)
 		switch {
 		case errors.Is(err, os.ErrNotExist):
-			i := s.add("home.marker", Warn, path, "Ownership marker is missing; wtx uses it to detect name collisions and orphaned directories.", "Run wtx doctor --fix to record this project as the owner.")
+			i := s.add("home.marker", Warn, path, "Ownership marker is missing"+detail+"; wtx uses it to detect name collisions and orphaned directories.", "Run wtx doctor --fix to record this project as the owner.")
 			s.planMarker(i, path, content)
 		case err != nil:
 			i := s.add("home.marker", Warn, path, "Ownership marker is unreadable: "+err.Error()+".", "Run wtx doctor --fix to rewrite it (the old file is backed up).")
 			s.planMarker(i, path, content)
 		case project.SamePath(m.Root, s.root):
-			s.add("home.marker", OK, path, "Ownership marker names this project.", "")
+			s.add("home.marker", OK, path, "Ownership marker names this project"+detail+".", "")
 		case config.Exists(m.Root):
-			s.add("home.marker", Warn, path, "Directory belongs to another wtx project: "+m.Root+".", "Point worktree_dir and shared_dir at a different ~/.wtx/<name> directory and move this project's files there; doctor never changes another project's directory.")
+			s.add("home.marker", Warn, path, "Directory belongs to another wtx project: "+m.Root+detail+".", otherRemedy)
 		default:
 			i := s.add("home.marker", Warn, path, "Ownership marker names "+m.Root+", which is no longer a wtx project (moved repository?).", "Run wtx doctor --fix to record this project as the owner.")
 			s.planMarker(i, path, content)

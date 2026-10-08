@@ -13,6 +13,10 @@ exec git clone $WORK/a/myrepo $WORK/b/teamrepo
 cd $WORK/b/teamrepo
 cp .worktree.yml $WORK/committed.yml
 
+# doctor flags the clone as not set up.
+! exec wtx doctor --strict
+stderr 'wtx init'
+
 # wtx add refuses until this clone is set up, and creates nothing.
 ! exec wtx add --skip-setup x
 stderr 'not set up'
@@ -47,6 +51,7 @@ exec wtx add --skip-setup x
 exists $WTX_HOME/teamrepo/worktrees/x/.git
 exec wtx run refresh
 stderr 'not implemented'
+exec wtx doctor --strict
 
 # A third clone with the same directory name as A collides in ~/.wtx.
 exec git clone $WORK/a/myrepo $WORK/c/myrepo

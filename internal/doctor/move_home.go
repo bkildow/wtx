@@ -38,6 +38,7 @@ type migration struct {
 	oldShare string // in-repo shared directory, or ""
 	newWT    string
 	newShare string
+	name     string // wtx.name to record, or "" when the config already resolves to homeDir
 	steps    []repair
 }
 
@@ -99,12 +100,22 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		m.homeDir = dirs[0]
 		err = project.CheckHomeDir(m.homeDir, s.root)
 	} else {
+		if name == "" {
+			// wtx.name (e.g. from an interrupted run), else the directory name.
+			clone, cerr := project.ReadCloneName(ctx, s.root, s.cfg)
+			if cerr != nil {
+				s.add(migrateID, Fail, cfgPath, cerr.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
+				return
+			}
+			name = clone.Name
+		}
 		var dir string
 		if dir, err = project.SelectHomeDir(s.root, name); dir == "" {
 			s.add(migrateID, Fail, cfgPath, err.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
 			return
 		}
 		m.homeDir = ui.CanonicalPath(dir)
+		m.name = name
 	}
 	if err != nil {
 		s.add(migrateID, Fail, m.homeDir, err.Error()+".", "Choose another directory name with wtx doctor --migrate-home --name <name>.")
@@ -134,6 +145,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	finding := s.add(migrateID, Warn, m.homeDir, "Worktrees, shared files and scripts move from "+s.paths.Path(from)+" to "+ui.DisplayPath("", m.homeDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
 
 	m.planMarker()
+	m.planName(ctx)
 	keepShare := m.planDir(ctx, "shared", m.oldShare, m.newShare)
 	// bin/ is resolved as a sibling of shared_dir, so it stays wherever shared/ stays.
 	keepBin := keepShare
@@ -184,6 +196,28 @@ func (m *migration) planMarker() {
 			mk, err := project.ReadMarker(homeDir)
 			if err == nil && !project.SamePath(mk.Root, root) {
 				err = fmt.Errorf("marker names %s", mk.Root)
+			}
+			return err
+		})
+}
+
+// planName records the clone's name in local git config (wtx.name) unless
+// it already holds it, so the per-clone defaults the rewritten config relies
+// on resolve to homeDir.
+func (m *migration) planName(ctx context.Context) {
+	if m.name == "" {
+		return
+	}
+	runner, name := m.s.runner, m.name
+	if current, ok, err := runner.LocalConfig(ctx, project.NameConfigKey); err == nil && ok && current == name {
+		return
+	}
+	m.step(filepath.Join(m.s.gitDir, "config"), "set git config "+project.NameConfigKey+" "+name,
+		func(ctx context.Context) error { return runner.SetLocalConfig(ctx, project.NameConfigKey, name) },
+		func() error {
+			current, _, err := runner.LocalConfig(context.Background(), project.NameConfigKey)
+			if err == nil && current != name {
+				err = fmt.Errorf("git config %s is %q, not %q", project.NameConfigKey, current, name)
 			}
 			return err
 		})
@@ -314,10 +348,13 @@ func (m *migration) planCleanup() {
 	}, nil)
 }
 
-// planConfig rewrites worktree_dir, shared_dir and scripts that pointed into
-// the old bin directory, using the portable ~/.wtx/<name>/... spelling. It
-// runs last (every step checks the config is unchanged) and only once every
-// earlier step is done.
+// planConfig removes worktree_dir and shared_dir for the directories that
+// moved, so they resolve per clone to ~/.wtx/<name>/, and the scripts
+// entries that pointed into the old bin directory: wtx run finds a script
+// in the bin directory by file name. An entry whose name differs from its
+// file name is rewritten to the ~/.wtx/<name>/bin path instead. It runs last
+// (every step checks the config is unchanged) and only once every earlier
+// step is done.
 func (m *migration) planConfig(wt, shared, bin bool) {
 	path := filepath.Join(m.s.root, config.ConfigFileName)
 	file, err := takeSnapshot(path)
@@ -329,30 +366,35 @@ func (m *migration) planConfig(wt, shared, bin bool) {
 	want := *m.s.cfg
 	want.Scripts = maps.Clone(m.s.cfg.Scripts)
 	if wt {
-		want.WorktreeDir = layout.WorktreeDir
+		want.WorktreeDirSet = false
 	}
 	if shared {
-		want.SharedDir = layout.SharedDir
+		want.SharedDirSet = false
 	}
 	if bin {
 		oldBin := m.oldBin()
 		for name, value := range want.Scripts {
 			p := ui.CanonicalPath(project.ExpandOrJoin(m.s.root, value))
-			if rel, ok := ui.RelWithin(oldBin, p); ok {
+			rel, ok := ui.RelWithin(oldBin, p)
+			switch {
+			case !ok:
+			case rel == name:
+				delete(want.Scripts, name)
+			default:
 				want.Scripts[name] = layout.Bin + "/" + filepath.ToSlash(rel)
 			}
 		}
 	}
-	data, err := rewriteConfig(file.data, m.s.cfg, &want)
+	data, err := rewriteConfig(file.data, &want)
 	if err != nil {
-		m.s.add(migrateID, Fail, path, "Cannot rewrite "+config.ConfigFileName+" in place: "+err.Error()+".", fmt.Sprintf("Set worktree_dir: %s and shared_dir: %s (and update scripts under the old bin directory) manually.", want.WorktreeDir, want.SharedDir))
+		m.s.add(migrateID, Fail, path, "Cannot rewrite "+config.ConfigFileName+" in place: "+err.Error()+".", "Remove worktree_dir and shared_dir (and the scripts entries under the old bin directory) manually.")
 		return
 	}
 	if bytes.Equal(data, file.data) {
 		return
 	}
 	steps := slices.Clone(m.steps)
-	r := repair{id: migrateID, file: file, data: data, action: "rewrite worktree_dir, shared_dir and scripts with ~/.wtx paths", backups: m.s.backups}
+	r := repair{id: migrateID, file: file, data: data, action: "remove worktree_dir, shared_dir and bin scripts entries (per-clone ~/.wtx/<name> defaults)", backups: m.s.backups}
 	r.guards = append([]snapshot(nil), m.s.guards...)
 	r.validate = func() error {
 		for _, step := range steps {
@@ -374,47 +416,67 @@ var (
 	scriptEntry = regexp.MustCompile(`^(\s+)("[^"]*"|'[^']*'|[^\s:#][^:#]*?):\s*(.*)$`)
 )
 
-// rewriteConfig edits worktree_dir, shared_dir and block-style scripts
-// entries line by line, preserving comments and layout, then checks that the
+// rewriteConfig edits .worktree.yml line by line, preserving comments and
+// layout: it removes worktree_dir and shared_dir when want leaves them unset,
+// and removes or rewrites block-style scripts entries to match want.Scripts
+// (dropping a scripts key left without entries). It then checks that the
 // result parses to want.
-func rewriteConfig(data []byte, have, want *config.Config) ([]byte, error) {
+func rewriteConfig(data []byte, want *config.Config) ([]byte, error) {
 	lines := strings.Split(string(data), "\n")
+	var out []string
+	scriptsHeader, scriptEntries := -1, 0
 	inScripts := false
-	for i, line := range lines {
+	for _, line := range lines {
 		if k := topLevelKey.FindStringSubmatch(line); k != nil {
 			inScripts = k[1] == "scripts"
 			switch {
-			case k[1] == "worktree_dir" && have.WorktreeDir != want.WorktreeDir:
-				lines[i] = "worktree_dir: " + config.YAMLQuote(want.WorktreeDir)
-			case k[1] == "shared_dir" && have.SharedDir != want.SharedDir:
-				lines[i] = "shared_dir: " + config.YAMLQuote(want.SharedDir)
+			case k[1] == "worktree_dir" && !want.WorktreeDirSet:
+				continue
+			case k[1] == "shared_dir" && !want.SharedDirSet:
+				continue
+			case inScripts && strings.TrimSpace(strings.SplitN(k[2], "#", 2)[0]) == "":
+				scriptsHeader = len(out)
 			}
-			continue
-		}
-		if !inScripts {
+			out = append(out, line)
 			continue
 		}
 		e := scriptEntry.FindStringSubmatch(line)
-		if e == nil {
+		if !inScripts || e == nil {
+			out = append(out, line)
 			continue
 		}
 		var name string
 		if err := yaml.Unmarshal([]byte(e[2]), &name); err != nil {
+			out = append(out, line)
+			scriptEntries++
 			continue
 		}
-		if v, ok := want.Scripts[name]; ok && v != have.Scripts[name] {
-			lines[i] = e[1] + e[2] + ": " + config.YAMLQuote(v)
+		v, ok := want.Scripts[name]
+		if !ok {
+			continue
 		}
+		var have string
+		_ = yaml.Unmarshal([]byte(e[3]), &have)
+		if have != v {
+			line = e[1] + e[2] + ": " + config.YAMLQuote(v)
+		}
+		out = append(out, line)
+		scriptEntries++
 	}
-	out := []byte(strings.Join(lines, "\n"))
-	got := config.DefaultConfig()
-	if err := yaml.Unmarshal(out, &got); err != nil {
+	if scriptsHeader >= 0 && scriptEntries == 0 {
+		out = slices.Delete(out, scriptsHeader, scriptsHeader+1)
+	}
+	result := []byte(strings.Join(out, "\n"))
+	got, err := config.Parse(result)
+	if err != nil {
 		return nil, err
 	}
-	if got.WorktreeDir != want.WorktreeDir || got.SharedDir != want.SharedDir || !maps.Equal(got.Scripts, want.Scripts) {
+	if got.WorktreeDirSet != want.WorktreeDirSet || got.SharedDirSet != want.SharedDirSet ||
+		(want.WorktreeDirSet && got.WorktreeDir != want.WorktreeDir) || (want.SharedDirSet && got.SharedDir != want.SharedDir) ||
+		!maps.Equal(got.Scripts, want.Scripts) {
 		return nil, errors.New("unrecognized layout (flow-style or multi-line values)")
 	}
-	return out, nil
+	return result, nil
 }
 
 func exists(path string) bool {

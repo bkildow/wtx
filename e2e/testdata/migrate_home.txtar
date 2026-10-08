@@ -27,10 +27,12 @@ stderr 'git worktree move \.worktrees/feature'
 stderr 'git worktree move \.worktrees/other'
 stderr 'move \.worktrees/shared'
 stderr 'move \.worktrees/bin'
-stderr 'rewrite worktree_dir'
+stderr 'set git config wtx.name myrepo'
+stderr 'remove worktree_dir, shared_dir'
 exists .worktrees/feature/dirty.txt
 ! exists $WTX_HOME/myrepo
 grep 'worktree_dir: .worktrees' .worktree.yml
+! exec git config --local wtx.name
 
 # Migrate.
 exec wtx doctor --migrate-home
@@ -42,9 +44,14 @@ cmp $WTX_HOME/myrepo/worktrees/other/.env $WORK/env
 cmp $WTX_HOME/myrepo/worktrees/other/notes.txt $WORK/notes
 cmp $WTX_HOME/myrepo/shared/copy/.env $WORK/env
 exists $WTX_HOME/myrepo/bin/refresh
-grep 'worktree_dir: ~/.wtx/myrepo/worktrees' .worktree.yml
-grep 'shared_dir: ~/.wtx/myrepo/shared' .worktree.yml
-grep 'refresh: ~/.wtx/myrepo/bin/refresh' .worktree.yml
+# The config drops the machine-local paths; wtx.name names this clone's
+# directory and wtx run finds refresh in bin/.
+! grep '^worktree_dir:' .worktree.yml
+! grep '^shared_dir:' .worktree.yml
+! grep 'refresh:' .worktree.yml
+! grep '\.wtx/myrepo' .worktree.yml
+exec git config --local wtx.name
+stdout '^myrepo$'
 exec git worktree list
 stdout 'wtx-home/myrepo/worktrees/feature'
 stdout 'wtx-home/myrepo/worktrees/other'

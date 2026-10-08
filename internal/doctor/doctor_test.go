@@ -466,6 +466,19 @@ func TestOperationalReportsAndStrict(t *testing.T) {
 	}
 	root, _, _ := fixture(t, false)
 	write(t, filepath.Join(root, ".worktree.yml"), "scripts: {}\ndisk_warn: false\ngit_dir: .git\n", 0o600)
+	// The omitted paths resolve per clone; a clone that has not run wtx
+	// init is flagged until its ~/.wtx/<name> exists.
+	r = Run(context.Background(), Options{StartDir: root})
+	if r.Unsuccessful(false) || !r.Unsuccessful(true) {
+		t.Fatalf("clone without wtx init must fail strict only: %+v", r)
+	}
+	homeDir, err := project.HomeProjectDir(filepath.Base(root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := project.WriteMarker(homeDir, root, false); err != nil {
+		t.Fatal(err)
+	}
 	r = Run(context.Background(), Options{StartDir: root})
 	if r.Unsuccessful(false) || r.Unsuccessful(true) {
 		t.Fatalf("healthy project must pass strict: %+v", r)

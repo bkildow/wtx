@@ -109,6 +109,10 @@ type inspection struct {
 	// worktree_dir and the shared/bin parent, e.g. ~/.wtx/<name>), resolved.
 	managedDirs []string
 	paths       ui.PathDisplay // displays paths relative to root
+	// clone is the ~/.wtx/<name> name of this clone when the config leaves
+	// worktree_dir or shared_dir to the per-clone default (perClone).
+	clone    project.CloneName
+	perClone bool
 }
 
 // Run always returns a report, including discovery and operational failures.
@@ -273,6 +277,9 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	}
 	if err == nil {
 		err = guard.unchanged()
+	}
+	if err == nil {
+		s.clone, s.perClone, err = project.ResolveLayout(ctx, s.root, s.cfg)
 	}
 	if err != nil {
 		s.problem("project.config", where, err)
