@@ -40,23 +40,18 @@ stderr '\[dry-run\] git --git-dir \S+ branch -d wip'
 ! stderr 'kept'
 exists worktrees/wip
 
+# Removing it from inside prints only the project root to stdout, for the
+# shell wrapper
+cd worktrees/wip
 exec wtx remove wip
-! stdout .
+stdout '^\S+/project\n$'
 stderr 'Branch wip kept: git sees it as not fully merged'
 stderr 'git --git-dir \S+/\.bare branch -D wip'
 stderr 'Removed worktree: wip \(branch kept\)'
 ! stderr 'hint:'
+cd $WORK/project
 ! exists worktrees/wip
 exec git --git-dir .bare rev-parse --verify --quiet refs/heads/wip
-
-# Removing it from inside keeps stdout to the project root for the shell wrapper
-exec wtx add --skip-setup wip2
-exec git -C worktrees/wip2 commit --allow-empty -m wip
-cd worktrees/wip2
-exec wtx remove wip2
-stdout '^\S+/project\n$'
-stderr 'Branch wip2 kept'
-cd $WORK/project
 
 # List should show only main
 exec wtx list

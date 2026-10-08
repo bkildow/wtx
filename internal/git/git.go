@@ -475,7 +475,7 @@ func (r *Runner) BranchDelete(ctx context.Context, branch string, force bool) er
 // isNotFullyMerged reports whether git's output is the `branch -d` refusal
 // for an unmerged branch.
 func isNotFullyMerged(output string) bool {
-	return strings.Contains(strings.ToLower(output), "is not fully merged")
+	return strings.Contains(output, "is not fully merged")
 }
 
 func (r *Runner) IsWorktreeDirty(ctx context.Context, worktreePath string) (bool, error) {

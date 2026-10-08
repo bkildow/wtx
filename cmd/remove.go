@@ -102,7 +102,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	branchKept := false
 	if !isMainBranch {
-		branchKept = deleteBranchOrKeep(ctx, runner, runner.GitDir, selected.Branch)
+		branchKept = deleteBranchOrKeep(ctx, runner, selected.Branch)
 	}
 
 	ui.Success(removedWorktreeMessage(selected.Branch, branchKept))

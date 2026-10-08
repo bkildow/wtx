@@ -262,10 +262,9 @@ func runPrune(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		// Only a true ancestor merge satisfies `git branch -d`. For squash and
-		// rebase merges git still calls the branch unmerged, so hand the user
-		// the exact command rather than force-deleting behind their back.
-		deleteBranchOrKeep(ctx, runner, runner.GitDir, wt.Branch)
+		// git branch -d refuses squash- and rebase-merged branches as unmerged.
+		// Keep them and print the delete command rather than force-deleting.
+		deleteBranchOrKeep(ctx, runner, wt.Branch)
 
 		removed++
 	}
