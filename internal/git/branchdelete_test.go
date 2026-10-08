@@ -7,27 +7,6 @@ import (
 	"testing"
 )
 
-func TestIsNotFullyMerged(t *testing.T) {
-	tests := []struct {
-		name   string
-		stderr string
-		want   bool
-	}{
-		{"modern git", "error: the branch 'feature' is not fully merged\nhint: If you are sure you want to delete it, run 'git branch -D feature'\n", true},
-		{"older git", "error: The branch 'feature' is not fully merged.\nIf you are sure you want to delete it, run 'git branch -D feature'.\n", true},
-		{"missing branch", "error: branch 'feature' not found\n", false},
-		{"checked out", "error: cannot delete branch 'feature' used by worktree at '/tmp/x'\n", false},
-		{"empty", "", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := isNotFullyMerged(tt.stderr); got != tt.want {
-				t.Errorf("isNotFullyMerged(%q) = %v, want %v", tt.stderr, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBranchDeleteNotMerged(t *testing.T) {
 	r := newMergeRepo(t)
 	r.git("checkout", "-qb", "feature")

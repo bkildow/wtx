@@ -42,6 +42,24 @@ stderr 'Pruned 1 worktree\(s\)'
 ! stderr 'kept'
 ! exists worktrees/develop
 
+# A squash-merged branch is pruned, but git still calls it unmerged, so the
+# branch is kept and the exact command to delete it is printed.
+exec wtx add --skip-setup squashed
+cp $WORK/squash.txt worktrees/squashed/squash.txt
+exec git -C worktrees/squashed add squash.txt
+exec git -C worktrees/squashed commit -m 'add squash.txt'
+exec wtx add --skip-setup master
+cp $WORK/squash.txt worktrees/master/squash.txt
+exec git -C worktrees/master add squash.txt
+exec git -C worktrees/master commit -m 'squash: add squash.txt'
+exec wtx prune --yes
+stderr 'Removing worktree: squashed'
+stderr 'Branch squashed kept: git sees it as not fully merged'
+stderr 'git --git-dir \S+/\.bare branch -D squashed'
+! stderr 'hint:'
+! exists worktrees/squashed
+exec git --git-dir .bare rev-parse --verify --quiet refs/heads/squashed
+
 -- config.yml --
 version: 1
 git_dir: .bare
@@ -50,3 +68,5 @@ shared_dir: shared
 main_branch: master
 -- scratch.txt --
 uncommitted
+-- squash.txt --
+squashed change
