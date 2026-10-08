@@ -189,7 +189,7 @@ func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
 	}
 	// The in-repo directory written by wtx init --in-repo (and by wtx init
 	// before ~/.wtx became the default).
-	legacyDir := project.InRepoLayout().WorktreeDir
+	legacyDir := project.InRepoConfigPaths().WorktreeDir
 	legacy := filepath.Join(s.root, legacyDir)
 	leftovers := 0
 	for _, wt := range worktrees {

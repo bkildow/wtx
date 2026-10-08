@@ -83,29 +83,29 @@ func ExpandOrJoin(projectRoot, p string) string {
 	return filepath.Join(projectRoot, p)
 }
 
-// Layout holds the .worktree.yml spellings of a project's worktree, shared
+// ConfigPaths holds the .worktree.yml spellings of a project's worktree, shared
 // and bin directories.
-type Layout struct {
+type ConfigPaths struct {
 	WorktreeDir string
 	SharedDir   string
 	Bin         string
 }
 
-// HomeLayout is the layout of a project kept in ~/.wtx/<name>/, spelled with
-// a literal ~ so .worktree.yml stays portable.
-func HomeLayout(name string) Layout {
+// HomeConfigPaths are the config paths of a Clone kept in its Clone dir
+// ~/.wtx/<name>/, spelled with a literal ~ so .worktree.yml stays portable.
+func HomeConfigPaths(name string) ConfigPaths {
 	dir := wtxHomePrefix + "/" + name
-	return newLayout(dir+"/worktrees", dir+"/shared")
+	return newConfigPaths(dir+"/worktrees", dir+"/shared")
 }
 
-// InRepoLayout is the layout of a project kept in .worktrees/ inside the
-// repository (wtx init --in-repo).
-func InRepoLayout() Layout {
-	return newLayout(".worktrees", ".worktrees/shared")
+// InRepoConfigPaths are the config paths of an In-repo layout: .worktrees/
+// inside the repository (wtx init --in-repo).
+func InRepoConfigPaths() ConfigPaths {
+	return newConfigPaths(".worktrees", ".worktrees/shared")
 }
 
-func newLayout(worktreeDir, sharedDir string) Layout {
-	return Layout{WorktreeDir: worktreeDir, SharedDir: sharedDir, Bin: filepath.ToSlash(BinFor(sharedDir))}
+func newConfigPaths(worktreeDir, sharedDir string) ConfigPaths {
+	return ConfigPaths{WorktreeDir: worktreeDir, SharedDir: sharedDir, Bin: filepath.ToSlash(BinFor(sharedDir))}
 }
 
 // BinFor returns the bin directory for a shared directory: its sibling

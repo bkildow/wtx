@@ -192,7 +192,7 @@ func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *c
 	if err != nil {
 		return nil, fmt.Errorf("%w\n  choose another directory with 'wtx init --name <other>'", err)
 	}
-	project.ApplyHomeLayout(cfg, name)
+	project.ApplyHomeConfigPaths(cfg, name)
 	return &cloneSetup{root: root, cfg: cfg, name: name, homeDir: homeDir, setName: current != name, oldName: current}, nil
 }
 
@@ -253,9 +253,9 @@ func (c *cloneSetup) printPaths() {
 // initInRepo initializes a project that keeps everything in .worktrees/
 // inside the repository, with those paths recorded in .worktree.yml.
 func initInRepo(projectRoot string, cfg *config.Config, dry bool) error {
-	layout := project.InRepoLayout()
-	cfg.WorktreeDir, cfg.SharedDir = layout.WorktreeDir, layout.SharedDir
-	cfg.WorktreeDirSet, cfg.SharedDirSet = true, true
+	layout := project.InRepoConfigPaths()
+	cfg.SetWorktreeDir(layout.WorktreeDir)
+	cfg.SetSharedDir(layout.SharedDir)
 
 	ui.Step("Creating project scaffold")
 	if err := project.CreateScaffold(projectRoot, cfg, dry); err != nil {

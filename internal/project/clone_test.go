@@ -137,7 +137,7 @@ func TestCheckCloneSetup(t *testing.T) {
 		}
 	}
 	cfg := checkoutConfig(t, root, "")
-	ApplyHomeLayout(cfg, "myrepo")
+	ApplyHomeConfigPaths(cfg, "myrepo")
 	dir, err := HomeProjectDir("myrepo")
 	if err != nil {
 		t.Fatal(err)

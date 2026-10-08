@@ -134,12 +134,12 @@ func TestResolveScriptTilde(t *testing.T) {
 	}
 }
 
-func TestLayouts(t *testing.T) {
-	if got, want := HomeLayout("proj"), (Layout{"~/.wtx/proj/worktrees", "~/.wtx/proj/shared", "~/.wtx/proj/bin"}); got != want {
-		t.Errorf("HomeLayout = %+v, want %+v", got, want)
+func TestConfigPaths(t *testing.T) {
+	if got, want := HomeConfigPaths("proj"), (ConfigPaths{"~/.wtx/proj/worktrees", "~/.wtx/proj/shared", "~/.wtx/proj/bin"}); got != want {
+		t.Errorf("HomeConfigPaths = %+v, want %+v", got, want)
 	}
-	if got, want := InRepoLayout(), (Layout{".worktrees", ".worktrees/shared", ".worktrees/bin"}); got != want {
-		t.Errorf("InRepoLayout = %+v, want %+v", got, want)
+	if got, want := InRepoConfigPaths(), (ConfigPaths{".worktrees", ".worktrees/shared", ".worktrees/bin"}); got != want {
+		t.Errorf("InRepoConfigPaths = %+v, want %+v", got, want)
 	}
 	if got := BinFor("/a/b/shared"); got != "/a/b/bin" {
 		t.Errorf("BinFor = %q", got)

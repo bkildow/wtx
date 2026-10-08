@@ -25,10 +25,29 @@ func findProjectRoot() (string, error) {
 
 	root, err := project.FindRoot(cwd)
 	if errors.Is(err, config.ErrConfigNotFound) {
-		ui.Error("Not a wtx project (no .worktree.yml found)")
-		ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
+		printNotAProject()
 	}
 	return root, err
+}
+
+// openClone opens the Clone containing the current directory, honoring
+// --dry-run (see project.Open). Outside a Project it prints a friendly error
+// and returns config.ErrConfigNotFound.
+func openClone(ctx context.Context) (*project.Clone, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, err
+	}
+	c, err := project.Open(ctx, cwd, project.Options{DryRun: IsDryRun()})
+	if errors.Is(err, config.ErrConfigNotFound) {
+		printNotAProject()
+	}
+	return c, err
+}
+
+func printNotAProject() {
+	ui.Error("Not a wtx project (no .worktree.yml found)")
+	ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
 }
 
 // loadProject finds the project root and loads its config.

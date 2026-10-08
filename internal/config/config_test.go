@@ -653,8 +653,8 @@ func TestParseRecordsWhichPathsAreSet(t *testing.T) {
 			if cfg.WorktreeDir != tt.wantWT || cfg.SharedDir != tt.wantShared {
 				t.Errorf("dirs = %q, %q; want %q, %q", cfg.WorktreeDir, cfg.SharedDir, tt.wantWT, tt.wantShared)
 			}
-			if cfg.WorktreeDirSet != tt.wtSet || cfg.SharedDirSet != tt.sharedSet {
-				t.Errorf("set = %v, %v; want %v, %v", cfg.WorktreeDirSet, cfg.SharedDirSet, tt.wtSet, tt.sharedSet)
+			if cfg.WorktreeDirSet() != tt.wtSet || cfg.SharedDirSet() != tt.sharedSet {
+				t.Errorf("set = %v, %v; want %v, %v", cfg.WorktreeDirSet(), cfg.SharedDirSet(), tt.wtSet, tt.sharedSet)
 			}
 			if got := cfg.HomeDefaults(); got != tt.homeDefaults {
 				t.Errorf("HomeDefaults() = %v, want %v", got, tt.homeDefaults)
@@ -679,12 +679,12 @@ func TestRenderAnnotatedOmitsPerClonePaths(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.WorktreeDirSet || got.SharedDirSet || !got.HomeDefaults() {
-		t.Errorf("round trip set = %v, %v", got.WorktreeDirSet, got.SharedDirSet)
+	if got.WorktreeDirSet() || got.SharedDirSet() || !got.HomeDefaults() {
+		t.Errorf("round trip set = %v, %v", got.WorktreeDirSet(), got.SharedDirSet())
 	}
 
 	// Explicit values and bare layouts are still written.
-	cfg.WorktreeDir, cfg.WorktreeDirSet = ".worktrees", true
+	cfg.SetWorktreeDir(".worktrees")
 	if out := renderAnnotatedConfig(&cfg); !strings.Contains(out, "\nworktree_dir: .worktrees\n") {
 		t.Errorf("explicit worktree_dir not written:\n%s", out)
 	}
