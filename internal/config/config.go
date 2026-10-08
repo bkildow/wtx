@@ -50,20 +50,45 @@ type Config struct {
 	DiskWarnPercent int   `yaml:"disk_warn_percent,omitempty"`
 	DiskWarnGB      int   `yaml:"disk_warn_gb,omitempty"`
 
-	// WorktreeDirSet and SharedDirSet record whether .worktree.yml spells
+	// worktreeDirSet and sharedDirSet record whether .worktree.yml spells
 	// out worktree_dir and shared_dir. Load fills omitted keys with
 	// DefaultWorktreeDir and DefaultSharedDir; for checkout-layout projects
 	// the project package then resolves them per clone to ~/.wtx/<name>/
-	// (see project.ResolveLayout).
-	WorktreeDirSet bool `yaml:"-"`
-	SharedDirSet   bool `yaml:"-"`
+	// (see project.Resolve). Read them with WorktreeDirSet and SharedDirSet;
+	// SetWorktreeDir and SetSharedDir are the only writers.
+	worktreeDirSet bool
+	sharedDirSet   bool
+}
+
+// WorktreeDirSet reports whether .worktree.yml spells out worktree_dir.
+func (c *Config) WorktreeDirSet() bool { return c.worktreeDirSet }
+
+// SharedDirSet reports whether .worktree.yml spells out shared_dir.
+func (c *Config) SharedDirSet() bool { return c.sharedDirSet }
+
+// SetWorktreeDir records an explicit worktree_dir, as if .worktree.yml
+// spelled it out. An empty dir omits the key instead, restoring
+// DefaultWorktreeDir (and the per-clone default of a checkout layout).
+func (c *Config) SetWorktreeDir(dir string) {
+	c.WorktreeDir, c.worktreeDirSet = dir, dir != ""
+	if dir == "" {
+		c.WorktreeDir = DefaultWorktreeDir
+	}
+}
+
+// SetSharedDir is SetWorktreeDir for shared_dir.
+func (c *Config) SetSharedDir(dir string) {
+	c.SharedDir, c.sharedDirSet = dir, dir != ""
+	if dir == "" {
+		c.SharedDir = DefaultSharedDir
+	}
 }
 
 // HomeDefaults reports whether an omitted worktree_dir or shared_dir
 // resolves per clone to ~/.wtx/<name>/: true for checkout-layout projects
 // (wtx init) that leave at least one of them out of .worktree.yml.
 func (c *Config) HomeDefaults() bool {
-	return c.IsCheckoutLayout() && (!c.WorktreeDirSet || !c.SharedDirSet)
+	return c.IsCheckoutLayout() && (!c.worktreeDirSet || !c.sharedDirSet)
 }
 
 // DiskThreshold returns the configured low-disk thresholds, or nil when disk
@@ -140,10 +165,10 @@ func Parse(data []byte) (*Config, error) {
 	if err := yaml.Unmarshal(data, &keys); err != nil {
 		return nil, errors.Join(ErrInvalidConfig, err)
 	}
-	if cfg.WorktreeDirSet = keys["worktree_dir"] != nil; !cfg.WorktreeDirSet {
+	if cfg.worktreeDirSet = keys["worktree_dir"] != nil; !cfg.worktreeDirSet {
 		cfg.WorktreeDir = DefaultWorktreeDir
 	}
-	if cfg.SharedDirSet = keys["shared_dir"] != nil; !cfg.SharedDirSet {
+	if cfg.sharedDirSet = keys["shared_dir"] != nil; !cfg.sharedDirSet {
 		cfg.SharedDir = DefaultSharedDir
 	}
 	return &cfg, nil
@@ -181,7 +206,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 		b.WriteString("version: 1\n")
 	}
 
-	b.WriteString("\n# Path to the git directory (.bare for cloned projects, .git for initialized)\n")
+	b.WriteString("\n# Path to the git directory (.bare for wtx clone, .git for wtx init)\n")
 	if cfg != nil {
 		fmt.Fprintf(&b, "git_dir: %s\n", YAMLQuote(cfg.GitDir))
 	} else {
@@ -198,7 +223,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	b.WriteString("\n# Directory for worktrees: relative to the project root, absolute, or ~/...\n")
 	b.WriteString("# (~/.wtx/... honors $WTX_HOME)\n")
 	switch {
-	case home && !cfg.WorktreeDirSet:
+	case home && !cfg.worktreeDirSet:
 		b.WriteString("# An explicit value overrides the per-clone default for every clone.\n")
 		b.WriteString("# worktree_dir: ~/.wtx/<name>/worktrees\n")
 	case cfg != nil:
@@ -210,7 +235,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories); same path\n")
 	b.WriteString("# rules as worktree_dir. Scripts live in a bin/ directory next to it.\n")
 	switch {
-	case home && !cfg.SharedDirSet:
+	case home && !cfg.sharedDirSet:
 		b.WriteString("# shared_dir: ~/.wtx/<name>/shared\n")
 	case cfg != nil:
 		fmt.Fprintf(&b, "shared_dir: %s\n", YAMLQuote(cfg.SharedDir))

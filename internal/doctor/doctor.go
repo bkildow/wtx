@@ -4,6 +4,7 @@ package doctor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -83,9 +84,9 @@ type Options struct {
 	User     bool
 	Fix      bool
 	DryRun   bool
-	// MigrateHome plans and (unless DryRun) applies only the opt-in move of
-	// an in-repo init project to ~/.wtx/<HomeName>/ (HomeName defaults to
-	// the repository directory name).
+	// MigrateHome plans and (unless DryRun) applies only the opt-in
+	// Migration of an In-repo layout to the Clone dir ~/.wtx/<HomeName>/
+	// (HomeName defaults to wtx.name, then the repository directory name).
 	MigrateHome bool
 	HomeName    string
 }
@@ -109,10 +110,8 @@ type inspection struct {
 	// worktree_dir and the shared/bin parent, e.g. ~/.wtx/<name>), resolved.
 	managedDirs []string
 	paths       ui.PathDisplay // displays paths relative to root
-	// clone is the ~/.wtx/<name> name of this clone when the config leaves
-	// worktree_dir or shared_dir to the per-clone default (perClone).
-	clone    project.CloneName
-	perClone bool
+	// clone is the resolved Clone; cfg is its resolved config.
+	clone *project.Clone
 }
 
 // Run always returns a report, including discovery and operational failures.
@@ -279,17 +278,27 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		err = guard.unchanged()
 	}
 	if err == nil {
-		s.clone, s.perClone, err = project.ResolveLayout(ctx, s.root, s.cfg)
+		// Inspection only queries git, so the Clone is never dry-run;
+		// opts.DryRun only keeps Run from applying repairs.
+		s.clone, err = project.Resolve(ctx, s.root, s.cfg, project.Options{Quiet: true})
+	}
+	if errors.Is(err, project.ErrPathExpansion) {
+		s.report.Root = s.root
+		s.add("project.config", OK, where, "Project configuration is readable.", "")
+		s.add("home.paths", Fail, where, "Configured directory cannot be expanded: "+err.Error()+".", "Set HOME (or WTX_HOME for ~/.wtx paths), or edit worktree_dir and shared_dir in "+config.ConfigFileName+".")
+		s.blocked(configChecks[1:]...)
+		return s
 	}
 	if err != nil {
 		s.problem("project.config", where, err)
 		s.blocked(configChecks...)
 		return s
 	}
+	s.cfg = s.clone.Config()
 	s.guards = append(s.guards, guard)
 	s.report.Root = s.root
 	s.paths = ui.NewPathDisplay(s.root)
-	gitDir := project.GitDirPath(s.root, s.cfg)
+	gitDir := s.clone.GitDir()
 	s.gitDir = ui.CanonicalPath(gitDir)
 	s.backups = filepath.Join(gitDir, backupDirName)
 	defer s.scanLimitations(s.root)
@@ -302,8 +311,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s.teardown(s.root)
 	s.claudeSettings(s.root)
 	s.scanProject()
-	s.runner = git.NewRunner(gitDir, false)
-	s.runner.Quiet = true
+	s.runner = s.clone.Runner()
 	s.gitVersion(ctx)
 	if _, err := s.runner.Query(ctx, "rev-parse", "--git-dir"); err != nil {
 		s.problem("project.git", gitDir, err)

@@ -35,24 +35,24 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	dry := IsDryRun()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 	// Refuse before creating anything under a ~/.wtx/<name> this clone does
 	// not own (or has not set up with wtx init).
-	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+	if err := clone.CheckOwned(); err != nil {
 		return err
 	}
 
 	// Warn before the new worktree starts consuming space.
 	warnLowDisk(projectRoot, cfg)
 
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, dry)
+	runner := clone.Runner()
 
 	// Ensure git excludes are configured (idempotent, self-heals existing projects).
-	if err := project.EnsureGitExclude(gitDir, dry); err != nil {
+	if err := project.EnsureGitExclude(clone.GitDir(), dry); err != nil {
 		ui.Warning("Could not configure git excludes: " + err.Error())
 	}
 
@@ -100,7 +100,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	worktreePath := filepath.Join(project.WorktreesPath(projectRoot, cfg), branch)
+	worktreePath := filepath.Join(clone.WorktreesDir(), branch)
 
 	if _, err := os.Stat(worktreePath); err == nil {
 		return fmt.Errorf("worktree already exists: %s", ui.DisplayPath(projectRoot, worktreePath))
@@ -134,7 +134,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	include := resolveIncludeSource(ctx, projectRoot, cfg, nil)
+	include := resolveIncludeSource(ctx, clone)
 	result, err := project.Apply(projectRoot, worktreePath, cfg, dry, &vars, include)
 	if err != nil {
 		return err

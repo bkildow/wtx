@@ -235,7 +235,7 @@ func (s *inspection) states(root string) {
 }
 
 func (s *inspection) shared(root string, f *worktreeFacts) {
-	shared := project.SharedPath(s.root, s.cfg)
+	shared := s.clone.SharedDir()
 	s.report.Findings = append(s.report.Findings, f.copies...)
 	s.links(filepath.Join(shared, "symlink"), root)
 	s.report.Findings = append(s.report.Findings, f.danglingErrs...)

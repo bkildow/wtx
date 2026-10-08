@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -73,7 +74,7 @@ func ExpandPath(projectRoot, p string) (string, error) {
 }
 
 // ExpandOrJoin is ExpandPath for the string-returning path helpers. Callers
-// are expected to have run ValidatePaths (loadProject does), so an error
+// are expected to have run validatePaths (project.Resolve does), so an error
 // here means the environment changed mid-run; fall back to joining onto the
 // root rather than returning an empty path.
 func ExpandOrJoin(projectRoot, p string) string {
@@ -83,29 +84,29 @@ func ExpandOrJoin(projectRoot, p string) string {
 	return filepath.Join(projectRoot, p)
 }
 
-// Layout holds the .worktree.yml spellings of a project's worktree, shared
+// ConfigPaths holds the .worktree.yml spellings of a project's worktree, shared
 // and bin directories.
-type Layout struct {
+type ConfigPaths struct {
 	WorktreeDir string
 	SharedDir   string
 	Bin         string
 }
 
-// HomeLayout is the layout of a project kept in ~/.wtx/<name>/, spelled with
-// a literal ~ so .worktree.yml stays portable.
-func HomeLayout(name string) Layout {
+// HomeConfigPaths are the config paths of a Clone kept in its Clone dir
+// ~/.wtx/<name>/, spelled with a literal ~ so .worktree.yml stays portable.
+func HomeConfigPaths(name string) ConfigPaths {
 	dir := wtxHomePrefix + "/" + name
-	return newLayout(dir+"/worktrees", dir+"/shared")
+	return newConfigPaths(dir+"/worktrees", dir+"/shared")
 }
 
-// InRepoLayout is the layout of a project kept in .worktrees/ inside the
-// repository (wtx init --in-repo).
-func InRepoLayout() Layout {
-	return newLayout(".worktrees", ".worktrees/shared")
+// InRepoConfigPaths are the config paths of an In-repo layout: .worktrees/
+// inside the repository (wtx init --in-repo).
+func InRepoConfigPaths() ConfigPaths {
+	return newConfigPaths(".worktrees", ".worktrees/shared")
 }
 
-func newLayout(worktreeDir, sharedDir string) Layout {
-	return Layout{WorktreeDir: worktreeDir, SharedDir: sharedDir, Bin: filepath.ToSlash(BinFor(sharedDir))}
+func newConfigPaths(worktreeDir, sharedDir string) ConfigPaths {
+	return ConfigPaths{WorktreeDir: worktreeDir, SharedDir: sharedDir, Bin: filepath.ToSlash(BinFor(sharedDir))}
 }
 
 // BinFor returns the bin directory for a shared directory: its sibling
@@ -114,15 +115,30 @@ func BinFor(sharedDir string) string {
 	return filepath.Join(filepath.Dir(sharedDir), "bin")
 }
 
-// ValidatePaths checks that the configured worktree and shared directories
-// can be expanded (e.g. a "~" path needs a home directory or WTX_HOME).
-func ValidatePaths(projectRoot string, cfg *config.Config) error {
+// ErrPathExpansion matches the errors of validatePaths (and so of Resolve
+// and Open) for a configured directory that cannot be expanded.
+var ErrPathExpansion = errors.New("configured directory cannot be expanded")
+
+// pathExpansionError is a validatePaths error: its message names the config
+// key and value, and it matches both ErrPathExpansion and the cause.
+type pathExpansionError struct {
+	msg   string
+	cause error
+}
+
+func (e *pathExpansionError) Error() string   { return e.msg }
+func (e *pathExpansionError) Unwrap() []error { return []error{ErrPathExpansion, e.cause} }
+
+// validatePaths checks that the configured worktree and shared directories
+// can be expanded (e.g. a "~" path needs a home directory or WTX_HOME). Its
+// errors match ErrPathExpansion.
+func validatePaths(projectRoot string, cfg *config.Config) error {
 	for _, field := range []struct{ key, value string }{
 		{"worktree_dir", cfg.WorktreeDir},
 		{"shared_dir", cfg.SharedDir},
 	} {
 		if _, err := ExpandPath(projectRoot, field.value); err != nil {
-			return fmt.Errorf("%s %q: %w", field.key, field.value, err)
+			return &pathExpansionError{msg: fmt.Sprintf("%s %q: %v", field.key, field.value, err), cause: err}
 		}
 	}
 	return nil

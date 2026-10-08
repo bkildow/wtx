@@ -74,17 +74,19 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		if inRepo || !cfg.HomeDefaults() {
-			return existingProjectError(projectRoot, cfg)
+		// Joining picks the Clone name itself (--name wins over wtx.name),
+		// so only a refusal resolves the Clone.
+		if !inRepo && cfg.HomeDefaults() {
+			return joinClone(ctx, runner, projectRoot, cfg, name, nameSet, dry)
 		}
-		return joinClone(ctx, runner, projectRoot, cfg, name, nameSet, dry)
+		return existingProjectError(ctx, projectRoot, cfg)
 	}
 
 	cfg := config.DefaultConfig()
 	cfg.GitDir = ".git"
 	cfg.MainBranch = detectDefaultBranch(ctx, runner)
 	if inRepo {
-		return initInRepo(projectRoot, &cfg, dry)
+		return initInRepo(ctx, projectRoot, &cfg, dry)
 	}
 
 	setup, err := planCloneSetup(ctx, runner, projectRoot, &cfg, name, nameSet)
@@ -98,12 +100,14 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err := setup.apply(ctx, runner, dry); err != nil {
 		return err
 	}
+	paths := writtenPaths(ctx, projectRoot, &cfg, dry)
 
 	ui.Success("Initialized wtx project in: " + projectRoot)
 	ui.Info("  Your existing checkout is the main worktree.")
 	ui.Info("  Use 'wtx add <branch>' to create additional worktrees.")
 	ui.Info("")
-	setup.printPaths()
+	ui.Info("  Name:           " + setup.name + " (git config " + project.NameConfigKey + ")")
+	paths.print(projectRoot)
 	ui.Info("")
 	ui.Info("  Commit " + config.ConfigFileName + "; teammates run 'wtx init' in their clone to set it up.")
 	ui.Info("  To copy ignored files such as .env into new worktrees, list them in")
@@ -111,17 +115,59 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// writtenPaths reports the Clone at projectRoot as every later command
+// resolves it from the .worktree.yml that init just wrote. Under dry-run
+// nothing was written, so it reports the planned paths of cfg; it falls back
+// to them with a warning if the written config cannot be resolved, since
+// init itself already succeeded.
+func writtenPaths(ctx context.Context, projectRoot string, cfg *config.Config, dry bool) clonePaths {
+	planned := configuredPaths(projectRoot, cfg)
+	if dry {
+		return planned
+	}
+	written, err := config.Load(projectRoot)
+	if err != nil {
+		ui.Warning("Could not reload " + config.ConfigFileName + ": " + err.Error())
+		return planned
+	}
+	clone, err := project.Resolve(ctx, projectRoot, written, project.Options{})
+	if err != nil {
+		ui.Warning("Could not resolve the new clone: " + err.Error())
+		return planned
+	}
+	return clonePaths{worktrees: clone.WorktreesDir(), shared: clone.SharedDir(), bin: clone.BinDir()}
+}
+
+// clonePaths are the directories init reports.
+type clonePaths struct{ worktrees, shared, bin string }
+
+// configuredPaths are the directories a resolved cfg names for projectRoot.
+func configuredPaths(projectRoot string, cfg *config.Config) clonePaths {
+	return clonePaths{worktrees: project.WorktreesPath(projectRoot, cfg), shared: project.SharedPath(projectRoot, cfg), bin: project.BinPath(projectRoot, cfg)}
+}
+
+func (p clonePaths) print(root string) {
+	display := func(path string) string { return ui.DisplayPath(root, path) }
+	ui.Info("  Worktrees:      " + display(p.worktrees))
+	ui.Info("  Shared files:   " + display(p.shared))
+	ui.Info("  Refresh script: " + display(filepath.Join(p.bin, project.StarterScriptName)) + " (wtx run refresh)")
+}
+
 // existingProjectError refuses to initialize a project whose .worktree.yml
-// spells out its paths. For an explicit ~/.wtx/<name> directory without an
-// ownership marker it points at wtx doctor --fix.
-func existingProjectError(projectRoot string, cfg *config.Config) error {
+// spells out its paths (or, with --in-repo, any existing project). For an
+// explicit Clone dir without an Owner marker it points at wtx doctor --fix;
+// the per-clone default Clone dir is set up by a plain wtx init instead, so
+// it gets no such hint. A Clone that cannot be resolved (an invalid
+// wtx.name, a path that does not expand) gets the plain refusal.
+func existingProjectError(ctx context.Context, projectRoot string, cfg *config.Config) error {
 	err := fmt.Errorf("already a wtx project (%s exists)", config.ConfigFileName)
-	if !cfg.IsCheckoutLayout() || project.ValidatePaths(projectRoot, cfg) != nil {
+	clone, resolveErr := project.Resolve(ctx, projectRoot, cfg, project.Options{Quiet: true})
+	if resolveErr != nil || clone.Layout() == project.BareLayout {
 		return err
 	}
-	for _, path := range []string{project.WorktreesPath(projectRoot, cfg), project.SharedPath(projectRoot, cfg)} {
-		dir, ok := project.HomeProjectDirOf(path)
-		if !ok {
+	perClone, _ := clone.CloneDir()
+	for _, dir := range clone.CloneDirs() {
+		if dir == perClone {
 			continue
 		}
 		if _, statErr := os.Stat(dir); statErr != nil {
@@ -142,14 +188,14 @@ func joinClone(ctx context.Context, runner *git.Runner, projectRoot string, cfg 
 		return err
 	}
 	if setup.done() {
-		ui.Success("This clone is already set up: " + ui.DisplayPath(projectRoot, setup.homeDir))
+		ui.Success("This clone is already set up: " + ui.DisplayPath(projectRoot, setup.cloneDir))
 		setup.printPaths()
 		return nil
 	}
 	if err := setup.apply(ctx, runner, dry); err != nil {
 		return err
 	}
-	ui.Success("Joined wtx project: set up this clone in " + ui.DisplayPath(projectRoot, setup.homeDir))
+	ui.Success("Joined wtx project: set up this clone in " + ui.DisplayPath(projectRoot, setup.cloneDir))
 	ui.Info("  " + config.ConfigFileName + " is unchanged. Use 'wtx add <branch>' to create worktrees.")
 	ui.Info("")
 	setup.printPaths()
@@ -159,12 +205,12 @@ func joinClone(ctx context.Context, runner *git.Runner, projectRoot string, cfg 
 // cloneSetup is the per-clone part of wtx init: the ~/.wtx/<name>
 // directory with its marker, scaffold and starter script, and wtx.name.
 type cloneSetup struct {
-	root    string
-	cfg     *config.Config // resolved to the ~/.wtx/<name> layout
-	name    string
-	homeDir string
-	setName bool   // wtx.name must be written
-	oldName string // wtx.name before this run, or ""
+	root     string
+	cfg      *config.Config // resolved to the ~/.wtx/<name> layout
+	name     string
+	cloneDir string
+	setName  bool   // wtx.name must be written
+	oldName  string // wtx.name before this run, or ""
 }
 
 // planCloneSetup picks the clone's name (--name, else wtx.name, else the
@@ -182,8 +228,8 @@ func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *c
 	default:
 		name = filepath.Base(root)
 	}
-	homeDir, err := project.SelectHomeDir(root, name)
-	if homeDir == "" {
+	cloneDir, err := project.SelectCloneDir(root, name)
+	if cloneDir == "" {
 		if config.Exists(root) {
 			return nil, err
 		}
@@ -192,8 +238,8 @@ func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *c
 	if err != nil {
 		return nil, fmt.Errorf("%w\n  choose another directory with 'wtx init --name <other>'", err)
 	}
-	project.ApplyHomeLayout(cfg, name)
-	return &cloneSetup{root: root, cfg: cfg, name: name, homeDir: homeDir, setName: current != name, oldName: current}, nil
+	project.ApplyHomeConfigPaths(cfg, name)
+	return &cloneSetup{root: root, cfg: cfg, name: name, cloneDir: cloneDir, setName: current != name, oldName: current}, nil
 }
 
 // done reports whether the clone is fully set up already.
@@ -201,7 +247,7 @@ func (c *cloneSetup) done() bool {
 	if c.setName {
 		return false
 	}
-	if m, err := project.ReadMarker(c.homeDir); err != nil || !project.SamePath(m.Root, c.root) {
+	if m, err := project.ReadMarker(c.cloneDir); err != nil || !project.SamePath(m.Root, c.root) {
 		return false
 	}
 	for _, dir := range project.ScaffoldDirs(c.root, c.cfg) {
@@ -215,9 +261,9 @@ func (c *cloneSetup) done() bool {
 // apply creates ~/.wtx/<name> with its marker, scaffold and starter
 // script, records wtx.name and configures git excludes.
 func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) error {
-	ui.Step("Setting up " + ui.DisplayPath(c.root, c.homeDir))
-	if m, err := project.ReadMarker(c.homeDir); err != nil || !project.SamePath(m.Root, c.root) {
-		if err := project.WriteMarker(c.homeDir, c.root, dry); err != nil {
+	ui.Step("Setting up " + ui.DisplayPath(c.root, c.cloneDir))
+	if m, err := project.ReadMarker(c.cloneDir); err != nil || !project.SamePath(m.Root, c.root) {
+		if err := project.WriteMarker(c.cloneDir, c.root, dry); err != nil {
 			return err
 		}
 	}
@@ -230,7 +276,7 @@ func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) er
 	if c.setName {
 		if c.oldName != "" {
 			ui.Warning("Renaming this clone from " + c.oldName + " to " + c.name + ": worktrees and shared files under " +
-				ui.DisplayPath(c.root, filepath.Join(filepath.Dir(c.homeDir), c.oldName)) + " stay there")
+				ui.DisplayPath(c.root, filepath.Join(filepath.Dir(c.cloneDir), c.oldName)) + " stay there")
 		}
 		ui.Step("Recording " + project.NameConfigKey + " " + c.name + " in local git config")
 		if err := runner.SetLocalConfig(ctx, project.NameConfigKey, c.name); err != nil {
@@ -242,20 +288,16 @@ func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) er
 }
 
 func (c *cloneSetup) printPaths() {
-	display := func(p string) string { return ui.DisplayPath(c.root, p) }
-	refresh := filepath.Join(project.BinPath(c.root, c.cfg), project.StarterScriptName)
 	ui.Info("  Name:           " + c.name + " (git config " + project.NameConfigKey + ")")
-	ui.Info("  Worktrees:      " + display(project.WorktreesPath(c.root, c.cfg)))
-	ui.Info("  Shared files:   " + display(project.SharedPath(c.root, c.cfg)))
-	ui.Info("  Refresh script: " + display(refresh) + " (wtx run refresh)")
+	configuredPaths(c.root, c.cfg).print(c.root)
 }
 
 // initInRepo initializes a project that keeps everything in .worktrees/
 // inside the repository, with those paths recorded in .worktree.yml.
-func initInRepo(projectRoot string, cfg *config.Config, dry bool) error {
-	layout := project.InRepoLayout()
-	cfg.WorktreeDir, cfg.SharedDir = layout.WorktreeDir, layout.SharedDir
-	cfg.WorktreeDirSet, cfg.SharedDirSet = true, true
+func initInRepo(ctx context.Context, projectRoot string, cfg *config.Config, dry bool) error {
+	layout := project.InRepoConfigPaths()
+	cfg.SetWorktreeDir(layout.WorktreeDir)
+	cfg.SetSharedDir(layout.SharedDir)
 
 	ui.Step("Creating project scaffold")
 	if err := project.CreateScaffold(projectRoot, cfg, dry); err != nil {
@@ -275,16 +317,13 @@ func initInRepo(projectRoot string, cfg *config.Config, dry bool) error {
 	if err := writeConfig(projectRoot, cfg, dry); err != nil {
 		return err
 	}
+	paths := writtenPaths(ctx, projectRoot, cfg, dry)
 
-	display := func(p string) string { return ui.DisplayPath(projectRoot, p) }
-	refresh := filepath.Join(project.BinPath(projectRoot, cfg), project.StarterScriptName)
 	ui.Success("Initialized wtx project in: " + projectRoot)
 	ui.Info("  Your existing checkout is the main worktree.")
 	ui.Info("  Use 'wtx add <branch>' to create additional worktrees.")
 	ui.Info("")
-	ui.Info("  Worktrees:      " + display(project.WorktreesPath(projectRoot, cfg)))
-	ui.Info("  Shared files:   " + display(project.SharedPath(projectRoot, cfg)))
-	ui.Info("  Refresh script: " + display(refresh) + " (wtx run refresh)")
+	paths.print(projectRoot)
 	ui.Info("")
 	ui.Info("  Consider adding to .gitignore:")
 	ui.Info("    .worktrees/")

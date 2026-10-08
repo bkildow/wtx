@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bkildow/wtx/internal/git"
-	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	isatty "github.com/mattn/go-isatty"
 	"github.com/spf13/cobra"
@@ -29,10 +27,11 @@ func runCd(cmd *cobra.Command, args []string) error {
 		ui.Info("  Run: eval \"$(wtx shell-init zsh)\"  (or bash|fish) to set up the wrapper.")
 	}
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(cmd.Context())
 	if err != nil {
 		return err
 	}
+	projectRoot := clone.Root()
 
 	// "wtx cd .." is a shortcut for "wtx root"
 	if len(args) > 0 && args[0] == ".." {
@@ -40,13 +39,10 @@ func runCd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), IsDryRun())
-	worktrees, err := runner.WorktreeList(cmd.Context())
+	filtered, err := clone.ManagedWorktrees(cmd.Context())
 	if err != nil {
 		return err
 	}
-
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	if len(filtered) == 0 {
 		return fmt.Errorf("no worktrees found")

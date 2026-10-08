@@ -1,12 +1,11 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
 
-	"github.com/bkildow/wtx/internal/config"
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -27,8 +26,9 @@ and receives these environment variables:
   WTX_SCRIPT_NAME         Name of the script being run
   WTX_PROJECT_ROOT        Project root (where .worktree.yml lives)
   WTX_SHARED_PATH         Shared directory (copy/ and symlink/)
-  WTX_MAIN_BRANCH         main_branch from .worktree.yml
-  WTX_MAIN_WORKTREE_PATH  Worktree checked out on the main branch (empty if none)
+  WTX_MAIN_BRANCH         main_branch from .worktree.yml (main when unset)
+  WTX_MAIN_WORKTREE_PATH  Main worktree: the project root for a wtx init clone,
+                          else the worktree on the main branch (empty if none)
   WTX_WORKTREE_PATH       Path of the current worktree (empty outside a worktree)
   WTX_WORKTREE_ID         Sanitized branch name (empty outside a worktree)
   WTX_BRANCH_NAME         Branch of the current worktree (empty outside a worktree)
@@ -53,14 +53,15 @@ With no name, an interactive picker lists the configured and bin scripts.`,
 func runRun(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 
 	names := project.AvailableScriptNames(projectRoot, cfg)
 	if len(names) == 0 {
-		ui.Info("No scripts configured in .worktree.yml or found in " + ui.DisplayPath(projectRoot, project.BinPath(projectRoot, cfg)))
+		ui.Info("No scripts configured in .worktree.yml or found in " + ui.DisplayPath(projectRoot, clone.BinDir()))
 		return nil
 	}
 
@@ -84,7 +85,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	sc, err := resolveScriptContext(cmd, projectRoot, cfg)
+	sc, err := resolveScriptContext(ctx, clone)
 	if err != nil {
 		return err
 	}
@@ -97,8 +98,8 @@ func runRun(cmd *cobra.Command, args []string) error {
 		Args:             scriptArgs,
 		Dir:              sc.dir,
 		Vars:             sc.vars,
-		SharedPath:       project.SharedPath(projectRoot, cfg),
-		MainBranch:       cfg.MainBranch,
+		SharedPath:       clone.SharedDir(),
+		MainBranch:       cfg.MainBranchOrDefault(),
 		MainWorktreePath: sc.mainWorktreePath,
 	}, IsDryRun()); err != nil {
 		return err
@@ -122,25 +123,28 @@ type scriptContext struct {
 // worktree's branch exported; anywhere else it runs in the current directory
 // with only the project root set. It also locates the main branch's worktree
 // so scripts can act on it regardless of where they were invoked.
-func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Config) (scriptContext, error) {
+func resolveScriptContext(ctx context.Context, clone *project.Clone) (scriptContext, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return scriptContext{}, err
 	}
 
-	// Read-only lookup: use a non-dry runner so --dry-run still resolves
-	// the real worktree.
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), false)
-	worktrees, err := runner.WorktreeList(cmd.Context())
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return scriptContext{}, err
 	}
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
+	main, hasMain, err := clone.MainWorktree(ctx)
+	if err != nil {
+		return scriptContext{}, err
+	}
 
+	projectRoot := clone.Root()
 	sc := scriptContext{
-		dir:              cwd,
-		vars:             project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)},
-		mainWorktreePath: resolveMainWorktreePath(worktrees, filtered, cfg.MainBranch),
+		dir:  cwd,
+		vars: project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)},
+	}
+	if hasMain {
+		sc.mainWorktreePath = main.Path
 	}
 	if wt, ok := resolveCurrentWorktree(filtered); ok {
 		sc.dir = wt.Path
@@ -149,43 +153,16 @@ func resolveScriptContext(cmd *cobra.Command, projectRoot string, cfg *config.Co
 	return sc, nil
 }
 
-// resolveMainWorktreePath finds the worktree checked out on branch (empty
-// for none). For wtx init projects the main worktree is the project root
-// itself, which filterManagedWorktrees excludes, so fall back to the
-// unfiltered list.
-func resolveMainWorktreePath(all, filtered []git.WorktreeInfo, branch string) string {
-	if branch == "" {
-		return ""
-	}
-	if wt, ok := findWorktreeByBranch(filtered, branch); ok {
-		return wt.Path
-	}
-	for _, wt := range all {
-		if !wt.Bare && wt.Branch == branch {
-			return wt.Path
-		}
-	}
-	return ""
-}
-
 func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 	if len(args) != 0 {
 		return nil, cobra.ShellCompDirectiveDefault
 	}
 
-	cwd, err := os.Getwd()
+	clone, err := completionClone(cmd.Context())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	projectRoot, err := project.FindRoot(cwd)
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	cfg, err := loadProjectAt(projectRoot)
-	if err != nil {
-		return nil, cobra.ShellCompDirectiveNoFileComp
-	}
-	return project.AvailableScriptNames(projectRoot, cfg), cobra.ShellCompDirectiveNoFileComp
+	return project.AvailableScriptNames(clone.Root(), clone.Config()), cobra.ShellCompDirectiveNoFileComp
 }
 
 // displayScriptPath shows scripts under the project root as a relative path

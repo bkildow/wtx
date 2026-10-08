@@ -24,8 +24,8 @@ import (
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-// migrateID is the finding and repair ID of the opt-in move of an in-repo
-// init project (.worktrees/) to ~/.wtx/<name>/.
+// migrateID is the finding and repair ID of the opt-in Migration of an
+// In-repo layout (.worktrees/) to a Clone dir (~/.wtx/<name>/).
 const migrateID = "home.migrate"
 
 // migration is the plan for one --migrate-home run. Source directories are
@@ -33,12 +33,12 @@ const migrateID = "home.migrate"
 // partial failure pick up where the previous run stopped.
 type migration struct {
 	s        *inspection
-	homeDir  string // ~/.wtx/<name>, expanded
+	cloneDir string // ~/.wtx/<name>, expanded
 	oldWT    string // in-repo worktree directory, or ""
 	oldShare string // in-repo shared directory, or ""
 	newWT    string
 	newShare string
-	name     string // wtx.name to record, or "" when the config already resolves to homeDir
+	name     string // wtx.name to record, or "" when the config already resolves to cloneDir
 	steps    []repair
 }
 
@@ -55,7 +55,7 @@ func (s *inspection) inRepo(p string) bool {
 	return p != s.root && ui.Within(s.root, p)
 }
 
-// planMigration plans moving an in-repo init project to ~/.wtx/<name>/.
+// planMigration plans the Migration of an In-repo layout to a Clone dir.
 // Every step is an operation repair that re-checks its own preconditions, so
 // the plan is safe to apply after a partial failure and is a no-op once done.
 //
@@ -63,19 +63,15 @@ func (s *inspection) inRepo(p string) bool {
 // directories and operations, not snapshotted files under managed parents.
 func (s *inspection) planMigration(ctx context.Context, worktrees []git.WorktreeInfo, name string) {
 	cfgPath := filepath.Join(s.root, config.ConfigFileName)
-	if !s.cfg.IsCheckoutLayout() {
+	if s.clone.Layout() == project.BareLayout {
 		s.add(migrateID, Warn, cfgPath, "--migrate-home applies only to projects set up with wtx init (git_dir: .git); this project keeps its layout.", "")
 		return
 	}
-	if err := project.ValidatePaths(s.root, s.cfg); err != nil {
-		s.problem(migrateID, cfgPath, err)
-		return
-	}
 	m := &migration{s: s}
-	wtDir := ui.CanonicalPath(project.WorktreesPath(s.root, s.cfg))
-	shareDir := ui.CanonicalPath(project.SharedPath(s.root, s.cfg))
-	moveWT, moveShare := s.inRepo(wtDir), s.inRepo(shareDir)
-	legacy := filepath.Join(s.root, project.InRepoLayout().WorktreeDir)
+	wtDir := ui.CanonicalPath(s.clone.WorktreesDir())
+	shareDir := ui.CanonicalPath(s.clone.SharedDir())
+	moveWT, moveShare := s.clone.Layout() == project.InRepoLayout, s.inRepo(shareDir)
+	legacy := filepath.Join(s.root, project.InRepoConfigPaths().WorktreeDir)
 
 	// Sources: the configured directories while they are in the repository,
 	// otherwise what an interrupted migration left in .worktrees/.
@@ -86,7 +82,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	}
 	if moveShare {
 		m.oldShare = shareDir
-	} else if legacyShare := filepath.Join(s.root, project.InRepoLayout().SharedDir); m.oldWT == legacy && isDir(legacyShare) {
+	} else if legacyShare := filepath.Join(s.root, project.InRepoConfigPaths().SharedDir); m.oldWT == legacy && isDir(legacyShare) {
 		// The config moved on without this clone's in-repo files (e.g. a
 		// teammate pulled a migrated .worktree.yml): move them along with
 		// the worktrees instead of leaving them behind.
@@ -101,18 +97,18 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	// Destination: the ~/.wtx/<name> directory the config already names
 	// (re-run), else --name or the repository directory name.
 	var err error
-	if dirs := s.homeProjectDirs(); len(dirs) > 0 {
-		m.homeDir = dirs[0]
-		err = project.CheckHomeDir(m.homeDir, s.root)
+	if dirs := s.clone.CloneDirs(); len(dirs) > 0 {
+		m.cloneDir = dirs[0]
+		err = project.CheckCloneDir(m.cloneDir, s.root)
 		if moveWT || moveShare {
 			// The moved directory's key is dropped from the config and then
-			// resolves per clone through wtx.name, which must name homeDir.
-			m.name = filepath.Base(m.homeDir)
+			// resolves per clone through wtx.name, which must name cloneDir.
+			m.name = filepath.Base(m.cloneDir)
 		}
 	} else {
 		if name == "" {
 			// wtx.name (e.g. from an interrupted run), else the directory name.
-			clone, cerr := project.ReadCloneName(ctx, s.root, s.cfg)
+			clone, cerr := project.ReadCloneName(ctx, s.runner, s.root)
 			if cerr != nil {
 				s.add(migrateID, Fail, cfgPath, cerr.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
 				return
@@ -120,39 +116,39 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 			name = clone.Name
 		}
 		var dir string
-		if dir, err = project.SelectHomeDir(s.root, name); dir == "" {
+		if dir, err = project.SelectCloneDir(s.root, name); dir == "" {
 			s.add(migrateID, Fail, cfgPath, err.Error()+".", "Choose a name with wtx doctor --migrate-home --name <name>.")
 			return
 		}
-		m.homeDir = ui.CanonicalPath(dir)
+		m.cloneDir = ui.CanonicalPath(dir)
 		m.name = name
 	}
 	if err != nil {
-		s.add(migrateID, Fail, m.homeDir, err.Error()+".", "Choose another directory name with wtx doctor --migrate-home --name <name>.")
+		s.add(migrateID, Fail, m.cloneDir, err.Error()+".", "Choose another directory name with wtx doctor --migrate-home --name <name>.")
 		return
 	}
 	m.newWT, m.newShare = wtDir, shareDir
 	if moveWT {
-		m.newWT = filepath.Join(m.homeDir, "worktrees")
+		m.newWT = filepath.Join(m.cloneDir, "worktrees")
 	}
 	if moveShare {
-		m.newShare = filepath.Join(m.homeDir, "shared")
+		m.newShare = filepath.Join(m.cloneDir, "shared")
 	}
-	s.addManaged(m.homeDir)
+	s.addManaged(m.cloneDir)
 
 	if m.oldWT == "" && m.oldShare == "" {
-		s.add(migrateID, OK, m.homeDir, "Worktrees and shared files already live outside the repository.", "")
+		s.add(migrateID, OK, m.cloneDir, "Worktrees and shared files already live outside the repository.", "")
 		return
 	}
 	if cwd, err := os.Getwd(); err == nil && m.oldWT != "" && ui.Within(m.oldWT, ui.CanonicalPath(cwd)) {
-		s.add(migrateID, Fail, cwd, "The current directory is inside "+m.oldWT+", which the migration moves.", "Run wtx doctor --migrate-home from the main checkout: "+s.root)
+		s.add(migrateID, Fail, cwd, "The current directory is inside "+m.oldWT+", which the migration moves.", "Run wtx doctor --migrate-home from the Project root: "+s.root)
 		return
 	}
 	from := m.oldWT
 	if from == "" {
 		from = filepath.Dir(m.oldShare)
 	}
-	finding := s.add(migrateID, Warn, m.homeDir, "Worktrees, shared files and scripts move from "+s.paths.Path(from)+" to "+ui.DisplayPath("", m.homeDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
+	finding := s.add(migrateID, Warn, m.cloneDir, "Worktrees, shared files and scripts move from "+s.paths.Path(from)+" to "+ui.DisplayPath("", m.cloneDir)+".", "Planned steps are listed under Repairs; --dry-run previews them without changing anything.")
 
 	m.planMarker()
 	m.planName(ctx)
@@ -191,19 +187,19 @@ func (m *migration) step(target, action string, run func(context.Context) error,
 }
 
 func (m *migration) planMarker() {
-	if mk, err := project.ReadMarker(m.homeDir); err == nil && project.SamePath(mk.Root, m.s.root) {
+	if mk, err := project.ReadMarker(m.cloneDir); err == nil && project.SamePath(mk.Root, m.s.root) {
 		return
 	}
-	root, homeDir := m.s.root, m.homeDir
-	m.step(filepath.Join(homeDir, project.MarkerFileName), "write ownership marker",
+	root, cloneDir := m.s.root, m.cloneDir
+	m.step(filepath.Join(cloneDir, project.MarkerFileName), "write owner marker",
 		func(context.Context) error {
-			if err := project.CheckHomeDir(homeDir, root); err != nil {
+			if err := project.CheckCloneDir(cloneDir, root); err != nil {
 				return err
 			}
-			return project.WriteMarker(homeDir, root, false)
+			return project.WriteMarker(cloneDir, root, false)
 		},
 		func() error {
-			mk, err := project.ReadMarker(homeDir)
+			mk, err := project.ReadMarker(cloneDir)
 			if err == nil && !project.SamePath(mk.Root, root) {
 				err = fmt.Errorf("marker names %s", mk.Root)
 			}
@@ -213,7 +209,7 @@ func (m *migration) planMarker() {
 
 // planName records the clone's name in local git config (wtx.name) unless
 // it already holds it, so the per-clone defaults the rewritten config relies
-// on resolve to homeDir.
+// on resolve to cloneDir.
 func (m *migration) planName(ctx context.Context) {
 	if m.name == "" {
 		return
@@ -376,14 +372,14 @@ func (m *migration) planConfig(wt, shared, bin bool) {
 		m.s.problem(migrateID, path, err)
 		return
 	}
-	layout := project.HomeLayout(filepath.Base(m.homeDir))
+	layout := project.HomeConfigPaths(filepath.Base(m.cloneDir))
 	want := *m.s.cfg
 	want.Scripts = maps.Clone(m.s.cfg.Scripts)
 	if wt {
-		want.WorktreeDirSet = false
+		want.SetWorktreeDir("")
 	}
 	if shared {
-		want.SharedDirSet = false
+		want.SetSharedDir("")
 	}
 	if bin {
 		oldBin := m.oldBin()
@@ -444,9 +440,9 @@ func rewriteConfig(data []byte, want *config.Config) ([]byte, error) {
 		if k := topLevelKey.FindStringSubmatch(line); k != nil {
 			inScripts = k[1] == "scripts"
 			switch {
-			case k[1] == "worktree_dir" && !want.WorktreeDirSet:
+			case k[1] == "worktree_dir" && !want.WorktreeDirSet():
 				continue
-			case k[1] == "shared_dir" && !want.SharedDirSet:
+			case k[1] == "shared_dir" && !want.SharedDirSet():
 				continue
 			case inScripts && strings.TrimSpace(strings.SplitN(k[2], "#", 2)[0]) == "":
 				scriptsHeader = len(out)
@@ -485,8 +481,8 @@ func rewriteConfig(data []byte, want *config.Config) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if got.WorktreeDirSet != want.WorktreeDirSet || got.SharedDirSet != want.SharedDirSet ||
-		(want.WorktreeDirSet && got.WorktreeDir != want.WorktreeDir) || (want.SharedDirSet && got.SharedDir != want.SharedDir) ||
+	if got.WorktreeDirSet() != want.WorktreeDirSet() || got.SharedDirSet() != want.SharedDirSet() ||
+		(want.WorktreeDirSet() && got.WorktreeDir != want.WorktreeDir) || (want.SharedDirSet() && got.SharedDir != want.SharedDir) ||
 		!maps.Equal(got.Scripts, want.Scripts) {
 		return nil, errors.New("unrecognized layout (flow-style or multi-line values)")
 	}

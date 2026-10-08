@@ -36,7 +36,7 @@ var doctorChecks = []doctorCheck{
 	{id: "git.exclude", title: "Git exclude file"},
 	{id: "git.worktrees", title: "Worktrees"},
 	{id: "home.paths", title: "Worktree directory"},
-	{id: "home.marker", title: "~/.wtx ownership marker"},
+	{id: "home.marker", title: "Clone dir owner marker"},
 	{id: "home.layout", title: "Worktree layout", hint: true},
 	{id: "home.migrate", title: "Move to ~/.wtx"},
 	{

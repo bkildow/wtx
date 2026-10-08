@@ -25,54 +25,29 @@ func findProjectRoot() (string, error) {
 
 	root, err := project.FindRoot(cwd)
 	if errors.Is(err, config.ErrConfigNotFound) {
-		ui.Error("Not a wtx project (no .worktree.yml found)")
-		ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
+		printNotAProject()
 	}
 	return root, err
 }
 
-// loadProject finds the project root and loads its config.
-// Prints a friendly error if no project is found.
-func loadProject() (string, *config.Config, error) {
-	root, err := findProjectRoot()
+// openClone opens the Clone containing the current directory, honoring
+// --dry-run (see project.Open). Outside a Project it prints a friendly error
+// and returns config.ErrConfigNotFound.
+func openClone(ctx context.Context) (*project.Clone, error) {
+	cwd, err := os.Getwd()
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-
-	cfg, err := loadProjectAt(root)
-	if err != nil {
-		return "", nil, err
+	c, err := project.Open(ctx, cwd, project.Options{DryRun: IsDryRun()})
+	if errors.Is(err, config.ErrConfigNotFound) {
+		printNotAProject()
 	}
-	return root, cfg, nil
+	return c, err
 }
 
-// loadProjectAt loads the config of the project at root, resolves its
-// per-clone ~/.wtx/<name> defaults and checks that its paths expand (see
-// project.LoadConfig). Every command entry point that loads a config goes
-// through it.
-func loadProjectAt(root string) (*config.Config, error) {
-	return project.LoadConfig(context.Background(), root)
-}
-
-// filterManagedWorktrees returns the worktrees wtx manages: every linked
-// worktree of the repository, wherever it lives on disk (including ones
-// outside the project root or created by other tools). It excludes only bare
-// entries (from wtx clone setups) and the main working tree at the project
-// root (from wtx init setups).
-func filterManagedWorktrees(worktrees []git.WorktreeInfo, projectRoot string) []git.WorktreeInfo {
-	absRoot := ui.CanonicalPath(projectRoot)
-	var filtered []git.WorktreeInfo
-	for _, wt := range worktrees {
-		if wt.Bare {
-			continue
-		}
-		// Fast path: exact string match avoids syscall
-		if wt.Path == projectRoot || ui.CanonicalPath(wt.Path) == absRoot {
-			continue
-		}
-		filtered = append(filtered, wt)
-	}
-	return filtered
+func printNotAProject() {
+	ui.Error("Not a wtx project (no .worktree.yml found)")
+	ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
 }
 
 // detectDefaultBranch asks git for the remote's default branch and falls back

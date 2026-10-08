@@ -13,36 +13,36 @@ import (
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-// MarkerFileName is the file in ~/.wtx/<name>/ recording which repository
-// owns that directory.
+// MarkerFileName is the Owner marker file in a Clone dir, recording the
+// Project root that owns it.
 const MarkerFileName = "project.yml"
 
-// Marker is the content of a ~/.wtx/<name>/project.yml file.
+// Marker is the content of an Owner marker (<Clone dir>/project.yml).
 type Marker struct {
 	// Root is the absolute path of the repository (where .worktree.yml
 	// lives) that owns this directory.
 	Root string `yaml:"root"`
 }
 
-// ErrHomeDirTaken is returned by CheckHomeDir when a ~/.wtx/<name>
-// directory belongs to another repository or was not created by wtx.
-var ErrHomeDirTaken = errors.New("wtx home directory is not available")
+// ErrCloneDirTaken is returned by CheckCloneDir when a Clone dir belongs to
+// another Project root or was not created by wtx.
+var ErrCloneDirTaken = errors.New("clone directory is not available")
 
-// ValidateProjectName checks a name used for ~/.wtx/<name>.
-func ValidateProjectName(name string) error {
+// ValidateCloneName checks a Clone name, which names a Clone dir.
+func ValidateCloneName(name string) error {
 	switch {
 	case name == "", name == ".", name == "..":
-		return fmt.Errorf("invalid project name %q", name)
+		return fmt.Errorf("invalid clone name %q", name)
 	case strings.ContainsAny(name, `/\`):
-		return fmt.Errorf("invalid project name %q: must not contain path separators", name)
+		return fmt.Errorf("invalid clone name %q: must not contain path separators", name)
 	}
 	return nil
 }
 
-// HomeProjectDir returns the absolute ~/.wtx/<name> directory (honoring
-// WTX_HOME).
-func HomeProjectDir(name string) (string, error) {
-	if err := ValidateProjectName(name); err != nil {
+// CloneDirFor returns the absolute Clone dir for a Clone name:
+// ~/.wtx/<name>, honoring WTX_HOME.
+func CloneDirFor(name string) (string, error) {
+	if err := ValidateCloneName(name); err != nil {
 		return "", err
 	}
 	home, err := WtxHome()
@@ -103,10 +103,10 @@ func SamePath(a, b string) bool {
 	return ui.CanonicalPath(a) == ui.CanonicalPath(b)
 }
 
-// CheckHomeDir reports whether dir can be used for the repository at root:
-// it must not exist yet, or hold a marker naming the same root. Otherwise
-// the error wraps ErrHomeDirTaken.
-func CheckHomeDir(dir, root string) error {
+// CheckCloneDir reports whether dir can be the Clone dir of the Project root
+// root: it must not exist yet, or hold an Owner marker naming the same root.
+// Otherwise the error wraps ErrCloneDirTaken.
+func CheckCloneDir(dir, root string) error {
 	if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
 		return nil
 	} else if err != nil {
@@ -114,21 +114,21 @@ func CheckHomeDir(dir, root string) error {
 	}
 	m, err := ReadMarker(dir)
 	if errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%w: %s exists but has no %s", ErrHomeDirTaken, dir, MarkerFileName)
+		return fmt.Errorf("%w: %s exists but has no %s", ErrCloneDirTaken, dir, MarkerFileName)
 	}
 	if err != nil {
-		return fmt.Errorf("%w: %w", ErrHomeDirTaken, err)
+		return fmt.Errorf("%w: %w", ErrCloneDirTaken, err)
 	}
 	if !SamePath(m.Root, root) {
-		return fmt.Errorf("%w: %s belongs to %s", ErrHomeDirTaken, dir, m.Root)
+		return fmt.Errorf("%w: %s belongs to %s", ErrCloneDirTaken, dir, m.Root)
 	}
 	return nil
 }
 
-// HomeProjectDirOf returns the ~/.wtx/<name> directory (canonical, honoring
-// WTX_HOME) that path lies in. The wtx home itself and paths outside it
+// CloneDirOf returns the Clone dir (canonical, honoring WTX_HOME) that path
+// lies in. The wtx home itself and paths outside it
 // report false.
-func HomeProjectDirOf(path string) (string, bool) {
+func CloneDirOf(path string) (string, bool) {
 	home, err := WtxHome()
 	if err != nil {
 		return "", false
@@ -141,23 +141,22 @@ func HomeProjectDirOf(path string) (string, bool) {
 	return filepath.Join(home, strings.SplitN(rel, string(filepath.Separator), 2)[0]), true
 }
 
-// SelectHomeDir picks the ~/.wtx/<name> directory for the repository at
-// root. An empty dir means name is invalid (including empty) or the wtx home
+// SelectCloneDir picks the Clone dir named name for the Project root root. An empty dir means name is invalid (including empty) or the wtx home
 // cannot be determined. A non-empty dir with an error means the directory is
-// not available to root (see CheckHomeDir).
-func SelectHomeDir(root, name string) (dir string, err error) {
-	if dir, err = HomeProjectDir(name); err != nil {
+// not available to root (see CheckCloneDir).
+func SelectCloneDir(root, name string) (dir string, err error) {
+	if dir, err = CloneDirFor(name); err != nil {
 		return "", err
 	}
-	return dir, CheckHomeDir(dir, root)
+	return dir, CheckCloneDir(dir, root)
 }
 
-// RootFromMarker recognizes startDir inside a ~/.wtx/<name>/ directory (for
-// example its shared/ or bin/ folder) and returns the project root recorded
-// in that directory's marker. Only direct children of the wtx home are
+// RootFromMarker recognizes startDir inside a Clone dir (for example its
+// shared/ or bin/ folder) and returns the Project root its Owner marker
+// records. Only direct children of the wtx home are
 // considered, and the recorded root must still hold a .worktree.yml.
 func RootFromMarker(startDir string) (string, bool) {
-	dir, ok := HomeProjectDirOf(startDir)
+	dir, ok := CloneDirOf(startDir)
 	if !ok {
 		return "", false
 	}

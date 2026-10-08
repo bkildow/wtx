@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/bkildow/wtx/internal/git"
-	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -26,17 +25,13 @@ func newRepairCmd() *cobra.Command {
 
 func runRepair(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
-	dry := IsDryRun()
-
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	runner := clone.Runner()
 
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, dry)
-
-	ui.Step("Enabling extensions.worktreeConfig on " + cfg.GitDir)
+	ui.Step("Enabling extensions.worktreeConfig on " + ui.DisplayPath(clone.Root(), clone.GitDir()))
 	if err := runner.EnableWorktreeConfig(ctx); err != nil {
 		return err
 	}
@@ -47,7 +42,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	}
 
 	inspected, repaired := 0, 0
-	paths := ui.NewPathDisplay(projectRoot)
+	paths := ui.NewPathDisplay(clone.Root())
 	for _, wt := range worktrees {
 		if wt.Bare {
 			continue
