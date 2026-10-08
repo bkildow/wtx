@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/bkildow/wtx/internal/claude"
-	"github.com/bkildow/wtx/internal/config"
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -86,21 +84,22 @@ func newClaudeHookWorktreeRemoveCmd() *cobra.Command {
 func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	ctx := cmd.Context()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 
 	// The hooks go into shared/symlink; never create it under a ~/.wtx/<name>
 	// this clone has not set up.
-	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+	if err := clone.CheckOwned(); err != nil {
 		return err
 	}
 
 	wtBinary, _ := cmd.Flags().GetString("binary")
 
 	// Write hooks to shared/symlink so all worktrees get a symlink via wtx apply.
-	sharedTarget := filepath.Join(project.SharedPath(projectRoot, cfg), "symlink")
+	sharedTarget := filepath.Join(clone.SharedDir(), "symlink")
 
 	if claude.IsHooksConfigured(sharedTarget) {
 		ui.Info("Claude Code hooks are already configured, updating...")
@@ -119,14 +118,11 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	ui.Info("  WorktreeRemove -> " + wtBinary + " claude hook-worktree-remove")
 
 	// Apply to all existing worktrees so they get the symlink immediately.
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, dryRun)
-	worktrees, err := runner.WorktreeList(ctx)
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		ui.Warning("Could not list worktrees: " + err.Error())
 		return nil
 	}
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	for _, wt := range filtered {
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil); err != nil {
@@ -146,21 +142,20 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), hookCreateTimeout)
 	defer cancel()
 
-	hctx, err := loadHookContext()
+	hctx, err := loadHookContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	projectRoot, cfg := hctx.projectRoot, hctx.cfg
-	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+	clone := hctx.clone
+	projectRoot, cfg := clone.Root(), clone.Config()
+	if err := clone.CheckOwned(); err != nil {
 		return err
 	}
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, false)
-	runner.BatchMode = true
+	runner := clone.Runner()
 
 	// Ensure git excludes are configured (non-fatal if sandbox blocks it).
-	if err := project.EnsureGitExclude(gitDir, false); err != nil {
+	if err := project.EnsureGitExclude(clone.GitDir(), false); err != nil {
 		ui.Warning("Could not configure git excludes: " + err.Error())
 	}
 
@@ -169,7 +164,7 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	// checks read local refs only, which is sufficient.
 
 	branch := hctx.payload.Name
-	worktreePath := filepath.Join(project.WorktreesPath(projectRoot, cfg), branch)
+	worktreePath := filepath.Join(clone.WorktreesDir(), branch)
 
 	// If the worktree already exists and is valid, just return its path.
 	gitMarker := filepath.Join(worktreePath, ".git")
@@ -211,7 +206,7 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	include := resolveIncludeSource(ctx, projectRoot, cfg, nil)
+	include := resolveIncludeSource(ctx, clone)
 	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars, include)
 	if err != nil {
 		return fmt.Errorf("apply shared files failed: %w", err)
@@ -242,22 +237,20 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), hookRemoveTimeout)
 	defer cancel()
 
-	hctx, err := loadHookContext()
+	hctx, err := loadHookContext(ctx)
 	if err != nil {
 		return err
 	}
 
-	projectRoot, cfg := hctx.projectRoot, hctx.cfg
+	clone := hctx.clone
+	cfg := clone.Config()
 	worktreePath := hctx.payload.WorktreePath
-
-	gitDir := project.GitDirPath(projectRoot, cfg)
-	runner := git.NewRunner(gitDir, false)
-	runner.BatchMode = true
+	runner := clone.Runner()
 
 	// Ask git which branch the worktree has; fall back to the path below the
 	// worktrees dir. A listing error only loses the git lookup.
 	worktrees, _ := runner.WorktreeList(ctx)
-	branch, err := branchFromWorktreePath(worktrees, project.WorktreesPath(projectRoot, cfg), worktreePath)
+	branch, err := branchFromWorktreePath(worktrees, clone.WorktreesDir(), worktreePath)
 	if err != nil {
 		return fmt.Errorf("cannot determine branch from worktree path: %w", err)
 	}
@@ -289,14 +282,14 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 
 // hookContext bundles common state resolved during hook initialization.
 type hookContext struct {
-	payload     hookPayload
-	projectRoot string
-	cfg         *config.Config
+	payload hookPayload
+	clone   *project.Clone
 }
 
 // loadHookContext reads the JSON payload from stdin, validates it, resolves the
-// project root, and loads the config. Both hook handlers share this setup.
-func loadHookContext() (*hookContext, error) {
+// project root, and opens its Clone. Both hook handlers share this setup.
+// Hooks ignore --dry-run, and their git commands never prompt (BatchMode).
+func loadHookContext(ctx context.Context) (*hookContext, error) {
 	payload, err := readHookPayload(os.Stdin)
 	if err != nil {
 		return nil, err
@@ -324,11 +317,12 @@ func loadHookContext() (*hookContext, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg, err := loadProjectAt(projectRoot)
+	clone, err := project.Open(ctx, projectRoot, project.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to load config: %w", err)
 	}
-	return &hookContext{payload: payload, projectRoot: projectRoot, cfg: cfg}, nil
+	clone.Runner().BatchMode = true
+	return &hookContext{payload: payload, clone: clone}, nil
 }
 
 // readHookPayload parses the JSON hook payload from the given reader.

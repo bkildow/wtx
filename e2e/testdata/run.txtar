@@ -52,9 +52,13 @@ chmod 755 bin/fail
 ! exec wtx run fail
 
 # Without a scripts entry, executables in bin/ (next to shared/) run by name.
+# With main_branch unset, the main worktree is the one on the default branch.
 cp $WORK/no-scripts.yml .worktree.yml
 exec wtx run probe
 stderr 'Running probe: bin/probe'
+grep 'mainbranch=main' probe-out.txt
+grep 'mainpath='$WORK'/project/worktrees/main' probe-out.txt
+rm probe-out.txt
 ! exec wtx run noexec
 stderr 'unknown script "noexec" \(available: fail, probe\)'
 

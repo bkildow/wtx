@@ -3,8 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/bkildow/wtx/internal/git"
-	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -23,24 +21,22 @@ func newSyncCmd() *cobra.Command {
 func runSync(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
 
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), IsDryRun())
+	runner := clone.Runner()
 
 	ui.Step("Fetching all remotes")
 	if err := runner.FetchAll(ctx); err != nil {
 		return err
 	}
 
-	worktrees, err := runner.WorktreeList(ctx)
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return err
 	}
-
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	if len(filtered) == 0 {
 		ui.Info("No worktrees found.")
