@@ -74,7 +74,7 @@ func ExpandPath(projectRoot, p string) (string, error) {
 }
 
 // ExpandOrJoin is ExpandPath for the string-returning path helpers. Callers
-// are expected to have run ValidatePaths (loadProject does), so an error
+// are expected to have run ValidatePaths (project.Resolve does), so an error
 // here means the environment changed mid-run; fall back to joining onto the
 // root rather than returning an empty path.
 func ExpandOrJoin(projectRoot, p string) string {
