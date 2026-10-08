@@ -220,6 +220,9 @@ func TestHomePathsUnexpandable(t *testing.T) {
 	}
 	t.Setenv("HOME", "")
 	r := Run(context.Background(), Options{StartDir: root})
+	if r.Root != root {
+		t.Errorf("report root = %q, want %q", r.Root, root)
+	}
 	if f := finding(r, "project.config", ""); f == nil || f.Severity != OK {
 		t.Fatalf("the configuration itself is readable: %+v", f)
 	}
@@ -237,6 +240,9 @@ func TestHomePathsUnexpandableCloneDir(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("WTX_HOME", "")
 	r := Run(context.Background(), Options{StartDir: root})
+	if r.Root != root {
+		t.Errorf("report root = %q, want %q", r.Root, root)
+	}
 	if f := finding(r, "project.config", ""); f == nil || f.Severity != OK {
 		t.Fatalf("the configuration itself is readable: %+v", f)
 	}

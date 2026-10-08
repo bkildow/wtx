@@ -283,6 +283,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.clone, err = project.Resolve(ctx, s.root, s.cfg, project.Options{})
 	}
 	if errors.Is(err, project.ErrPathExpansion) {
+		s.report.Root = s.root
 		s.add("project.config", OK, where, "Project configuration is readable.", "")
 		s.add("home.paths", Fail, where, "Configured directory cannot be expanded: "+err.Error()+".", "Set HOME (or WTX_HOME for ~/.wtx paths), or edit worktree_dir and shared_dir in "+config.ConfigFileName+".")
 		s.blocked(configChecks[1:]...)
