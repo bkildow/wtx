@@ -31,7 +31,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	}
 	runner := clone.Runner()
 
-	ui.Step("Enabling extensions.worktreeConfig on " + clone.Config().GitDir)
+	ui.Step("Enabling extensions.worktreeConfig on " + ui.DisplayPath(clone.Root(), clone.GitDir()))
 	if err := runner.EnableWorktreeConfig(ctx); err != nil {
 		return err
 	}
