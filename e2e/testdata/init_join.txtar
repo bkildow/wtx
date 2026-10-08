@@ -86,6 +86,10 @@ stderr 'wtx-home/other/worktrees/y'
 exec git clone $WORK/a/myrepo $WORK/d/badname
 cd $WORK/d/badname
 exec git config --local wtx.name 'bad/name'
+# --in-repo refuses an existing project plainly, even with an invalid wtx.name.
+! exec wtx init --in-repo
+stderr 'already a wtx project'
+! stderr 'invalid clone name'
 exec wtx init --name good
 stderr 'Joined wtx project'
 exec git config --local wtx.name
