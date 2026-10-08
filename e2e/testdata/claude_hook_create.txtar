@@ -1,0 +1,30 @@
+[!exec:git] skip 'git not available'
+
+setup-repo develop
+setup-project
+
+cd $WORK/project
+
+# A branch that exists only locally (never pushed)
+exec git --git-dir .bare branch local-only HEAD
+
+# The WorktreeCreate hook checks out the existing local branch
+exec sh -c 'printf ''{"hook_event_name":"WorktreeCreate","name":"local-only","cwd":"%s"}'' "$WORK/project" > payload.json'
+stdin payload.json
+exec wtx claude hook-worktree-create
+stdout 'worktrees/local-only'
+exists worktrees/local-only/.git
+
+# A remote branch is checked out as-is
+exec sh -c 'printf ''{"hook_event_name":"WorktreeCreate","name":"develop","cwd":"%s"}'' "$WORK/project" > payload.json'
+stdin payload.json
+exec wtx claude hook-worktree-create
+stdout 'worktrees/develop'
+exists worktrees/develop/.git
+
+# An unknown name creates a new branch
+exec sh -c 'printf ''{"hook_event_name":"WorktreeCreate","name":"brand-new","cwd":"%s"}'' "$WORK/project" > payload.json'
+stdin payload.json
+exec wtx claude hook-worktree-create
+stdout 'worktrees/brand-new'
+exists worktrees/brand-new/.git
