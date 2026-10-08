@@ -1,6 +1,6 @@
 ---
 name: wtx
-description: wtx git-worktree CLI. Use when the user mentions wtx or worktrees, or when working inside a wtx project (a directory tree containing .worktree.yml).
+description: wtx git-worktree CLI. Load before running any wtx command or answering questions about wtx output (doctor, add, list, remove, apply, etc.). Use whenever the user mentions wtx or worktrees, or when working inside a wtx project (a directory tree containing .worktree.yml).
 ---
 
 # wtx
