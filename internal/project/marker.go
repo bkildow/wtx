@@ -26,15 +26,15 @@ type Marker struct {
 
 // ErrCloneDirTaken is returned by CheckCloneDir when a Clone dir belongs to
 // another Project root or was not created by wtx.
-var ErrCloneDirTaken = errors.New("wtx home directory is not available")
+var ErrCloneDirTaken = errors.New("clone directory is not available")
 
 // ValidateCloneName checks a Clone name, which names a Clone dir.
 func ValidateCloneName(name string) error {
 	switch {
 	case name == "", name == ".", name == "..":
-		return fmt.Errorf("invalid project name %q", name)
+		return fmt.Errorf("invalid clone name %q", name)
 	case strings.ContainsAny(name, `/\`):
-		return fmt.Errorf("invalid project name %q: must not contain path separators", name)
+		return fmt.Errorf("invalid clone name %q: must not contain path separators", name)
 	}
 	return nil
 }

@@ -24,8 +24,8 @@ import (
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-// migrateID is the finding and repair ID of the opt-in move of an in-repo
-// init project (.worktrees/) to ~/.wtx/<name>/.
+// migrateID is the finding and repair ID of the opt-in Migration of an
+// In-repo layout (.worktrees/) to a Clone dir (~/.wtx/<name>/).
 const migrateID = "home.migrate"
 
 // migration is the plan for one --migrate-home run. Source directories are
@@ -55,7 +55,7 @@ func (s *inspection) inRepo(p string) bool {
 	return p != s.root && ui.Within(s.root, p)
 }
 
-// planMigration plans moving an in-repo init project to ~/.wtx/<name>/.
+// planMigration plans the Migration of an In-repo layout to a Clone dir.
 // Every step is an operation repair that re-checks its own preconditions, so
 // the plan is safe to apply after a partial failure and is a no-op once done.
 //
@@ -141,7 +141,7 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		return
 	}
 	if cwd, err := os.Getwd(); err == nil && m.oldWT != "" && ui.Within(m.oldWT, ui.CanonicalPath(cwd)) {
-		s.add(migrateID, Fail, cwd, "The current directory is inside "+m.oldWT+", which the migration moves.", "Run wtx doctor --migrate-home from the main checkout: "+s.root)
+		s.add(migrateID, Fail, cwd, "The current directory is inside "+m.oldWT+", which the migration moves.", "Run wtx doctor --migrate-home from the Project root: "+s.root)
 		return
 	}
 	from := m.oldWT
@@ -191,7 +191,7 @@ func (m *migration) planMarker() {
 		return
 	}
 	root, cloneDir := m.s.root, m.cloneDir
-	m.step(filepath.Join(cloneDir, project.MarkerFileName), "write ownership marker",
+	m.step(filepath.Join(cloneDir, project.MarkerFileName), "write owner marker",
 		func(context.Context) error {
 			if err := project.CheckCloneDir(cloneDir, root); err != nil {
 				return err

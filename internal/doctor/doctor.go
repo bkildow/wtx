@@ -84,9 +84,9 @@ type Options struct {
 	User     bool
 	Fix      bool
 	DryRun   bool
-	// MigrateHome plans and (unless DryRun) applies only the opt-in move of
-	// an in-repo init project to ~/.wtx/<HomeName>/ (HomeName defaults to
-	// the repository directory name).
+	// MigrateHome plans and (unless DryRun) applies only the opt-in
+	// Migration of an In-repo layout to the Clone dir ~/.wtx/<HomeName>/
+	// (HomeName defaults to wtx.name, then the repository directory name).
 	MigrateHome bool
 	HomeName    string
 }

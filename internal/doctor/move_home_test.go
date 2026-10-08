@@ -86,7 +86,7 @@ func TestMigrateHome(t *testing.T) {
 		actions = append(actions, o.Action)
 	}
 	joined := strings.Join(actions, "\n")
-	for _, want := range []string{"write ownership marker", "move .worktrees/shared", "move .worktrees/bin", "git worktree move .worktrees/a", "git worktree move .worktrees/feat/x", "retarget shared symlinks", "git worktree repair", "remove .worktrees if empty", "set git config wtx.name proj", "remove worktree_dir, shared_dir"} {
+	for _, want := range []string{"write owner marker", "move .worktrees/shared", "move .worktrees/bin", "git worktree move .worktrees/a", "git worktree move .worktrees/feat/x", "retarget shared symlinks", "git worktree repair", "remove .worktrees if empty", "set git config wtx.name proj", "remove worktree_dir, shared_dir"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("dry run missing step %q in:\n%s", want, joined)
 		}

@@ -35,7 +35,7 @@
 - **Bare-repo workflow** — no `.git` at project root; all worktrees live under `worktrees/`
 - **Adopt an existing checkout** — `wtx init` keeps worktrees and shared files in `~/.wtx/<name>/`, outside the repository, and teammates' clones join with the same command
 - **Shared files** — copy per-worktree configs or symlink heavy directories (node_modules, vendor) once
-- **`.worktreeinclude`** — copy gitignored files such as `.env` from the main checkout into new worktrees
+- **`.worktreeinclude`** — copy gitignored files such as `.env` from the main worktree into new worktrees
 - **Reflink-aware copies** — near-instant copy-on-write clones on APFS, btrfs, and reflink-enabled XFS; transparent byte-copy fallback on other filesystems
 - **Template variables** — `${PROJECT_ROOT}`, `${WORKTREE_ID}`, `${BRANCH_NAME}`, etc. substituted in `.template` files
 - **Interactive by default** — branch/worktree pickers when arguments are omitted
@@ -56,14 +56,14 @@ wtx doctor --fix              # Apply safe repairs, then inspect again
 wtx doctor --json             # Structured report on stdout (schema_version: 1)
 wtx doctor --strict           # Warnings also produce exit code 1
 wtx doctor --user             # Inspect user settings, even outside a project
-wtx doctor --migrate-home     # Move an in-repo init project to ~/.wtx/<name>/
+wtx doctor --migrate-home     # Move an in-repo clone to ~/.wtx/<name>/
 ```
 
 Doctor checks Git compatibility, managed exclusions, setup state, existing Claude
 hooks, missing shared copies and managed links, worktree registrations, local
 orphaned branches, executable script targets, disk thresholds, Compose
-projects without teardown hooks, the worktree directory and `~/.wtx/<name>/`
-ownership marker, in-repo worktree layouts, and orphaned `~/.wtx` directories
+projects without teardown hooks, the worktree directory and the owner marker of
+`~/.wtx/<name>/`, in-repo worktree layouts, and orphaned `~/.wtx` directories
 whose project is gone (reported, never deleted). It never runs project scripts or setup hooks,
 fetches remotes, invokes Docker, deletes branches, or removes worktrees.
 Shared copies are checked for existence, including rendered `.template` names;
@@ -76,15 +76,15 @@ changed only when their sibling `wtx` is executable; bare commands require `wtx`
 on PATH. Linked settings inside the project are deduplicated by resolved path;
 external targets require manual attention.
 
-`--migrate-home [--name <name>]` moves an `init --in-repo` project's worktrees,
-`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the ownership marker, records
+`--migrate-home [--name <name>]` moves an `init --in-repo` clone's worktrees,
+`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the owner marker, records
 `<name>` as `wtx.name` in the local Git config, retargets shared symlinks, runs
 `git worktree repair`, and removes `worktree_dir`, `shared_dir`, and the
 `scripts` entries for files in `bin/` from `.worktree.yml`, so the paths resolve
 per clone and `wtx run` finds the scripts in `bin/` by name (the previous file
 is backed up under the Git directory). `<name>` defaults to `wtx.name`, then to
 the repository directory name. Run
-it from the main checkout and preview it with `wtx --dry-run doctor
+it from the project root and preview it with `wtx --dry-run doctor
 --migrate-home`. Locked worktrees, worktrees with submodules or running setup,
 and Git-tracked shared files stay in place and are reported; re-running resumes
 a partial migration. It cannot be combined with `--fix`, and bare/clone
@@ -641,7 +641,7 @@ each clone its own.
 
 ### .worktreeinclude
 
-`.worktreeinclude` lists gitignored files to copy from the main checkout into
+`.worktreeinclude` lists gitignored files to copy from the main worktree into
 each new worktree, such as `.env` files or local credentials. It uses gitignore
 syntax and lives at the root of the main worktree. Claude Code and Conductor
 read the same file. Commit it to the repository.
@@ -654,7 +654,7 @@ secrets/
 
 - **Only ignored files are copied.** A file must match a `.worktreeinclude`
   pattern and be ignored by git. Tracked files come from git, so a tracked
-  `.env.example` is never copied from the main checkout, even when it matches.
+  `.env.example` is never copied from the main worktree, even when it matches.
 - **Source.** For `wtx init` projects the source is the project root (your
   checkout). For `wtx clone` projects it is the worktree checked out on
   `main_branch`, and `.worktreeinclude` is read from that worktree.
@@ -664,7 +664,7 @@ secrets/
 - **Apply order.** `wtx add`, `wtx apply`, and the `wtx claude init`
   WorktreeCreate hook apply `.worktreeinclude` first, then `shared/copy/`, then
   `shared/symlink/`. Later layers win, so a file in `shared/copy/` replaces the
-  one copied from the main checkout.
+  one copied from the main worktree.
 - Files inside wtx's own directories (worktrees, `shared/`, `bin/`) are skipped.
   A missing `.worktreeinclude` is a no-op, and a failure to read it is a
   warning that does not block creating the worktree.
