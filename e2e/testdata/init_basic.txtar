@@ -15,8 +15,10 @@ stderr 'mkdir -p .*/\.wtx-home/myrepo/worktrees'
 stderr 'mkdir -p .*/\.wtx-home/myrepo/bin'
 stderr 'write .*/\.wtx-home/myrepo/bin/refresh'
 stderr 'write .*/myrepo/\.worktree\.yml'
+stderr 'git --git-dir .*/myrepo/\.git config --local wtx\.name myrepo'
 ! exists .worktree.yml
 ! exists $WTX_HOME/myrepo
+! exec git config --local wtx.name
 
 # wtx init keeps worktrees and shared files under WTX_HOME (~/.wtx)
 exec wtx init
@@ -35,20 +37,28 @@ exists $WTX_HOME/myrepo/bin/refresh
 exists $WTX_HOME/myrepo/project.yml
 grep 'root: .*myrepo' $WTX_HOME/myrepo/project.yml
 
-# Config keeps the literal ~ form
+# The committed config carries no machine-local paths: worktree_dir,
+# shared_dir and scripts are left out, and the name lives in local git config.
 grep 'version: 1' .worktree.yml
-grep 'worktree_dir: ~/.wtx/myrepo/worktrees' .worktree.yml
-grep 'shared_dir: ~/.wtx/myrepo/shared' .worktree.yml
-grep 'refresh: ~/.wtx/myrepo/bin/refresh' .worktree.yml
+grep 'git_dir: .git' .worktree.yml
+! grep '^worktree_dir:' .worktree.yml
+! grep '^shared_dir:' .worktree.yml
+! grep '^scripts:' .worktree.yml
+! grep 'myrepo' .worktree.yml
 ! grep 'wtx-home' .worktree.yml
+exec git config --local wtx.name
+stdout '^myrepo$'
 
-# The starter refresh script is a runnable no-op.
+# The starter refresh script runs from bin/ without a scripts entry.
 exec wtx run refresh
 stderr 'not implemented'
+stderr 'Running refresh: .*\.wtx-home/myrepo/bin/refresh'
 
-# Re-running init is refused
-! exec wtx init
-stderr 'already a wtx project'
+# Re-running init on a set-up clone is a friendly no-op
+cp .worktree.yml $WORK/config-before
+exec wtx init
+stderr 'already set up'
+cmp .worktree.yml $WORK/config-before
 
 # Worktrees are created under WTX_HOME
 exec wtx add --skip-setup feature

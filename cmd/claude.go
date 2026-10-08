@@ -138,6 +138,9 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	}
 
 	projectRoot, cfg := hctx.projectRoot, hctx.cfg
+	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+		return err
+	}
 	gitDir := project.GitDirPath(projectRoot, cfg)
 	runner := git.NewRunner(gitDir, false)
 	runner.BatchMode = true

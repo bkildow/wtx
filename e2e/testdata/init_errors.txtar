@@ -27,7 +27,9 @@ stderr 'wtx init --name'
 exec wtx init --name myrepo-b
 exists $WTX_HOME/myrepo-b/worktrees
 exists $WTX_HOME/myrepo-b/project.yml
-grep 'worktree_dir: ~/.wtx/myrepo-b/worktrees' .worktree.yml
+! grep 'myrepo-b' .worktree.yml
+exec git config --local wtx.name
+stdout '^myrepo-b$'
 grep 'root: .*b/myrepo' $WTX_HOME/myrepo-b/project.yml
 
 # Invalid names are rejected
@@ -50,3 +52,22 @@ cd $WORK/a/myrepo
 rm .worktree.yml
 exec wtx init
 stderr 'Initialized wtx project'
+
+# A config with explicit paths is refused; an explicit ~/.wtx directory
+# without an ownership marker points at wtx doctor --fix.
+exec git init $WORK/d/legacy
+cd $WORK/d/legacy
+cp $WORK/legacycfg .worktree.yml
+! exec wtx init
+stderr 'already a wtx project'
+! stderr 'doctor --fix'
+mkdir $WTX_HOME/legacy/worktrees
+! exec wtx init
+stderr 'already a wtx project'
+stderr 'has no project.yml; run .wtx doctor --fix.'
+
+-- legacycfg --
+version: 1
+git_dir: .git
+worktree_dir: ~/.wtx/legacy/worktrees
+shared_dir: ~/.wtx/legacy/shared

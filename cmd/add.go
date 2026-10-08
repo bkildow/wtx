@@ -39,6 +39,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+	// Refuse before creating anything under a ~/.wtx/<name> this clone does
+	// not own (or has not set up with wtx init).
+	if err := project.CheckCloneSetup(projectRoot, cfg); err != nil {
+		return err
+	}
 
 	// Warn before the new worktree starts consuming space.
 	warnLowDisk(projectRoot, cfg)

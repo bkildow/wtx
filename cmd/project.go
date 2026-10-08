@@ -46,18 +46,12 @@ func loadProject() (string, *config.Config, error) {
 	return root, cfg, nil
 }
 
-// loadProjectAt loads the config of the project at root and checks that its
-// paths expand. Every command entry point that loads a config goes through
-// it.
+// loadProjectAt loads the config of the project at root, resolves its
+// per-clone ~/.wtx/<name> defaults and checks that its paths expand (see
+// project.LoadConfig). Every command entry point that loads a config goes
+// through it.
 func loadProjectAt(root string) (*config.Config, error) {
-	cfg, err := config.Load(root)
-	if err != nil {
-		return nil, err
-	}
-	if err := project.ValidatePaths(root, cfg); err != nil {
-		return nil, err
-	}
-	return cfg, nil
+	return project.LoadConfig(context.Background(), root)
 }
 
 // filterManagedWorktrees returns the worktrees wtx manages: every linked

@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -10,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/doctor"
 	"github.com/bkildow/wtx/internal/project"
 )
@@ -46,14 +46,11 @@ func TestDoctorRealBinaries(t *testing.T) {
 	}
 	// Replace the starter's documented legacy fallback examples with a current
 	// script, so this fixture is also clean under the candidate scan.
-	cfg, err := config.Load(root)
+	cfg, err := project.LoadConfig(context.Background(), root)
 	if err != nil {
 		t.Fatal(err)
 	}
-	refresh, err := project.ExpandPath(root, cfg.Scripts["refresh"])
-	if err != nil {
-		t.Fatal(err)
-	}
+	refresh := filepath.Join(project.BinPath(root, cfg), project.StarterScriptName)
 	if err := os.WriteFile(refresh, []byte("#!/bin/sh\nexit 99\n"), 0o750); err != nil {
 		t.Fatal(err)
 	}

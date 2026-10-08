@@ -15,8 +15,10 @@ import (
 func newRunCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "run [name] [args...]",
-		Short: "Run a named project script from .worktree.yml",
-		Long: `Runs a script configured under the "scripts" key of .worktree.yml.
+		Short: "Run a named project script",
+		Long: `Runs a script configured under the "scripts" key of .worktree.yml, or an
+executable of that name in the project's bin directory (next to shared_dir,
+e.g. ~/.wtx/<name>/bin/). A scripts entry wins over a bin file of the same name.
 
 Script paths are resolved relative to the project root (absolute and ~/ paths are
 allowed). The script runs with the current worktree as its working directory
@@ -39,7 +41,7 @@ Because of this, wtx flags must come before the script name:
   wtx run refresh --no-cache        # --no-cache is passed to the script
   wtx run --dry-run refresh         # dry-run applies to wtx
 
-With no name, an interactive picker lists the configured scripts.`,
+With no name, an interactive picker lists the configured and bin scripts.`,
 		Args:              cobra.ArbitraryArgs,
 		ValidArgsFunction: completeScriptNames,
 		RunE:              runRun,
@@ -56,8 +58,9 @@ func runRun(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if len(cfg.Scripts) == 0 {
-		ui.Info("No scripts configured in .worktree.yml")
+	names := project.AvailableScriptNames(projectRoot, cfg)
+	if len(names) == 0 {
+		ui.Info("No scripts configured in .worktree.yml or found in " + ui.DisplayPath(projectRoot, project.BinPath(projectRoot, cfg)))
 		return nil
 	}
 
@@ -67,7 +70,7 @@ func runRun(cmd *cobra.Command, args []string) error {
 		name, scriptArgs = args[0], args[1:]
 	} else {
 		prompter := &ui.InteractivePrompter{}
-		name, err = prompter.SelectScript(project.ScriptNames(cfg))
+		name, err = prompter.SelectScript(names)
 		if err != nil {
 			if ui.IsUserAbort(err) {
 				return nil
@@ -182,7 +185,7 @@ func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) (
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	return project.ScriptNames(cfg), cobra.ShellCompDirectiveNoFileComp
+	return project.AvailableScriptNames(projectRoot, cfg), cobra.ShellCompDirectiveNoFileComp
 }
 
 // displayScriptPath shows scripts under the project root as a relative path
