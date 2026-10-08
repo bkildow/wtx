@@ -108,26 +108,25 @@ func prMerged(ctx context.Context, runner *git.Runner, pr *forge.PullRequest, wt
 func runPrune(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 
 	force, _ := cmd.Flags().GetBool("force")
 	yes, _ := cmd.Flags().GetBool("yes")
 	skipTeardown, _ := cmd.Flags().GetBool("skip-teardown")
 
 	cwd, _ := os.Getwd()
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), IsDryRun())
+	runner := clone.Runner()
 
 	defaultBranch := cfg.MainBranchOrDefault()
 
-	worktrees, err := runner.WorktreeList(ctx)
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return err
 	}
-
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	// Resolve current worktree path for comparison
 	currentPath := ui.CanonicalPath(cwd)

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -25,19 +24,16 @@ func runApply(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	dry := IsDryRun()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), dry)
-
-	worktrees, err := runner.WorktreeList(ctx)
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return err
 	}
-
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 
 	if len(filtered) == 0 {
 		return fmt.Errorf("no worktrees found")
@@ -46,7 +42,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	all, _ := cmd.Flags().GetBool("all")
 
 	if all {
-		include := resolveIncludeSource(ctx, projectRoot, cfg, worktrees)
+		include := resolveIncludeSource(ctx, clone)
 		var totalResult project.ApplyResult
 		for _, wt := range filtered {
 			ui.Step("Applying to: " + wt.Branch)
@@ -73,7 +69,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, selected.Path, selected.Branch)
-	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, resolveIncludeSource(ctx, projectRoot, cfg, worktrees))
+	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, resolveIncludeSource(ctx, clone))
 	if err != nil {
 		return err
 	}

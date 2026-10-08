@@ -404,8 +404,8 @@ variables are exported:
 | `WTX_SCRIPT_NAME` | Name of the script being run |
 | `WTX_PROJECT_ROOT` | Absolute project root |
 | `WTX_SHARED_PATH` | Absolute shared directory (`copy/` and `symlink/` live here) |
-| `WTX_MAIN_BRANCH` | `main_branch` from `.worktree.yml` |
-| `WTX_MAIN_WORKTREE_PATH` | Worktree checked out on the main branch (empty if none) |
+| `WTX_MAIN_BRANCH` | `main_branch` from `.worktree.yml` (`main` when unset) |
+| `WTX_MAIN_WORKTREE_PATH` | Main worktree: the project root for `wtx init` projects, otherwise the worktree checked out on the main branch (empty if none) |
 | `WTX_WORKTREE_PATH` | Absolute path of the current worktree (empty outside a worktree) |
 | `WTX_WORKTREE_ID` | Branch lowercased, `/` → `-` (empty outside a worktree) |
 | `WTX_BRANCH_NAME` | Branch of the current worktree (empty outside a worktree) |
