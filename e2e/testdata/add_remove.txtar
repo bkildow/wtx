@@ -34,6 +34,12 @@ stderr 'Removed worktree'
 # prints the exact delete command instead of git's hints
 exec wtx add --skip-setup wip
 exec git -C worktrees/wip commit --allow-empty -m wip
+# --dry-run proposes the safe delete and keeps both worktree and branch
+exec wtx --dry-run remove wip
+stderr '\[dry-run\] git --git-dir \S+ branch -d wip'
+! stderr 'kept'
+exists worktrees/wip
+
 exec wtx remove wip
 ! stdout .
 stderr 'Branch wip kept: git sees it as not fully merged'
@@ -42,6 +48,15 @@ stderr 'Removed worktree: wip \(branch kept\)'
 ! stderr 'hint:'
 ! exists worktrees/wip
 exec git --git-dir .bare rev-parse --verify --quiet refs/heads/wip
+
+# Removing it from inside keeps stdout to the project root for the shell wrapper
+exec wtx add --skip-setup wip2
+exec git -C worktrees/wip2 commit --allow-empty -m wip
+cd worktrees/wip2
+exec wtx remove wip2
+stdout '^\S+/project\n$'
+stderr 'Branch wip2 kept'
+cd $WORK/project
 
 # List should show only main
 exec wtx list

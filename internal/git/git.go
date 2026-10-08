@@ -91,6 +91,15 @@ func (r *Runner) Run(ctx context.Context, args ...string) (string, error) {
 	return r.Query(ctx, args...)
 }
 
+// runWithEnv is Run with extra environment variables, for mutating commands
+// whose output the caller has to parse.
+func (r *Runner) runWithEnv(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	if r.DryRun {
+		return r.Run(ctx, args...)
+	}
+	return r.queryWithEnv(ctx, extraEnv, args...)
+}
+
 // Query executes a read-only git command. Unlike Run, it executes even under
 // --dry-run: dry-run suppresses the changes, but the analysis that decides
 // *which* changes to propose still needs real answers. Stubbing queries out
@@ -447,7 +456,7 @@ func parseWorktreeList(output string) []WorktreeInfo {
 
 // ErrBranchNotMerged is returned by BranchDelete when `git branch -d` refuses
 // because the branch is not fully merged. It replaces git's own message, whose
-// hint lines suggest a command that doesn't run from a bare-layout root.
+// hint lines suggest a command that doesn't run from a Bare layout's Project root.
 var ErrBranchNotMerged = errors.New("branch is not fully merged")
 
 func (r *Runner) BranchDelete(ctx context.Context, branch string, force bool) error {
@@ -455,12 +464,8 @@ func (r *Runner) BranchDelete(ctx context.Context, branch string, force bool) er
 	if force {
 		flag = "-D"
 	}
-	if r.DryRun {
-		_, err := r.Run(ctx, "branch", flag, branch)
-		return err
-	}
 	// LC_ALL=C keeps git's refusal in English so isNotFullyMerged can spot it.
-	_, err := r.queryWithEnv(ctx, []string{"LC_ALL=C"}, "branch", flag, branch)
+	_, err := r.runWithEnv(ctx, []string{"LC_ALL=C"}, "branch", flag, branch)
 	if err != nil && isNotFullyMerged(err.Error()) {
 		return fmt.Errorf("%s: %w", branch, ErrBranchNotMerged)
 	}

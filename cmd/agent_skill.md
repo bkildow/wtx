@@ -67,7 +67,7 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 
 ## Removing worktrees
 
-- `wtx remove <name> --force` runs teardown hooks, then removes the worktree and its branch.
+- `wtx remove <name> --force` runs teardown hooks, then removes the worktree and its branch. A branch with unmerged commits is kept, and the output prints the exact `git --git-dir <dir> branch -D <name>` command to delete it. Run it only if the user wants those commits gone.
 - `wtx prune --yes` removes every worktree whose branch is merged, including squash, rebase and merged-PR merges. Merged worktrees with uncommitted changes are kept unless you add `--force`.
 - `--skip-teardown` skips teardown hooks on either command.
 

@@ -62,8 +62,8 @@ func TestDeleteBranchOrKeep(t *testing.T) {
 	t.Run("other failure", func(t *testing.T) {
 		out := captureOutput(t)
 		err := errors.New("git branch -d feature: exit status 1\nerror: branch 'feature' not found")
-		if kept := deleteBranchOrKeep(context.Background(), fakeBranchDeleter{err}, gitDir, "feature"); !kept {
-			t.Error("failed deletion not reported as kept")
+		if kept := deleteBranchOrKeep(context.Background(), fakeBranchDeleter{err}, gitDir, "feature"); kept {
+			t.Error("unrelated failure reported as kept; the branch may not exist")
 		}
 		got := out.String()
 		if !strings.Contains(got, "Could not delete branch") || !strings.Contains(got, "not found") {

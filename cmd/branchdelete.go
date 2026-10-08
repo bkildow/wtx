@@ -15,9 +15,11 @@ type branchDeleter interface {
 }
 
 // deleteBranchOrKeep deletes a removed worktree's branch with `git branch -d`
-// and reports whether the branch was kept. When git refuses because the branch
-// isn't fully merged, the user gets the exact command to delete it themselves
-// instead of git's hints, which assume a .git directory the root may not have.
+// and reports whether it kept the branch because git found it unmerged. Then
+// the user gets the exact command to delete it themselves instead of git's
+// hints, which assume a .git directory the Project root may not have. Other
+// failures warn with git's error and report false, since the branch may
+// already be gone.
 // remove, prune and the WorktreeRemove hook all share this message.
 func deleteBranchOrKeep(ctx context.Context, runner branchDeleter, gitDir, branch string) (kept bool) {
 	err := runner.BranchDelete(ctx, branch, false)
@@ -29,14 +31,15 @@ func deleteBranchOrKeep(ctx context.Context, runner branchDeleter, gitDir, branc
 			"Branch %s kept: git sees it as not fully merged.\n  To delete it anyway: %s",
 			branch, branchDeleteCommand(gitDir, branch),
 		))
+		return true
 	default:
 		ui.Warning("Could not delete branch: " + err.Error())
+		return false
 	}
-	return true
 }
 
 // branchDeleteCommand is the force-delete command for branch, with --git-dir
-// so it runs from anywhere, including a bare-layout root that has no .git.
+// so it runs from anywhere, including a Bare layout's Project root.
 func branchDeleteCommand(gitDir, branch string) string {
 	return fmt.Sprintf("git --git-dir %s branch -D %s", shellQuote(gitDir), shellQuote(branch))
 }
