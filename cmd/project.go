@@ -50,29 +50,6 @@ func printNotAProject() {
 	ui.Info("  Run 'wtx clone <repo-url>' to create one, or 'wtx init' inside an existing repo.")
 }
 
-// loadProject finds the project root and loads its config.
-// Prints a friendly error if no project is found.
-func loadProject() (string, *config.Config, error) {
-	root, err := findProjectRoot()
-	if err != nil {
-		return "", nil, err
-	}
-
-	cfg, err := loadProjectAt(root)
-	if err != nil {
-		return "", nil, err
-	}
-	return root, cfg, nil
-}
-
-// loadProjectAt loads the config of the project at root, resolves its
-// per-clone ~/.wtx/<name> defaults and checks that its paths expand (see
-// project.LoadConfig). Every command entry point that loads a config goes
-// through it.
-func loadProjectAt(root string) (*config.Config, error) {
-	return project.LoadConfig(context.Background(), root)
-}
-
 // filterManagedWorktrees returns the worktrees wtx manages: every linked
 // worktree of the repository, wherever it lives on disk (including ones
 // outside the project root or created by other tools). It excludes only bare
