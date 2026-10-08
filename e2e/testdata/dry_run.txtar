@@ -9,3 +9,15 @@ cd $WORK/project
 exec wtx add --dry-run --skip-setup main
 stderr 'dry-run'
 ! exists worktrees/main
+
+# claude init --dry-run writes no settings and applies nothing to worktrees
+exec wtx add --skip-setup main
+cp $WORK/copiedfile.txt shared/copy/config.json
+exec wtx claude init --dry-run
+stderr 'dry-run'
+! exists shared/symlink/.claude/settings.local.json
+! exists worktrees/main/.claude/settings.local.json
+! exists worktrees/main/config.json
+
+-- copiedfile.txt --
+{"key": "value"}
