@@ -50,9 +50,8 @@ go vet ./...                              # Lint
 
 1. Create `cmd/<name>.go` with `func new<Name>Cmd() *cobra.Command`
 2. Register it in `cmd/root.go` `init()` via `rootCmd.AddCommand(new<Name>Cmd())`
-3. Load project config with `loadProject()` / `loadProjectAt()` (not raw `config.Load()`, which skips the per-clone `~/.wtx/<name>` path resolution) and create a `git.NewRunner()` using the resolved git dir
-4. Use `project.FindRoot()` to locate the project root from the current directory (for commands that run inside a project, unlike `clone`)
-5. Document agent-relevant usage in `cmd/agent_skill.md` (the agent skill printed by `wtx skill`; it must not be named `SKILL.md` in any case, or `npx skills add` installs it instead of the wrapper). Keep its frontmatter identical to the installable wrapper in `skills/wtx/SKILL.md`; `cmd/skill_test.go` enforces this.
+3. Open the Clone with `openClone(ctx)` (from the current directory; prints a friendly error outside a project), or `project.Open(ctx, root, project.Options{...})` for an explicit root or silent shell completion. Use its accessors (`Root()`, `Config()`, `Runner()`, `WorktreesDir()`, `SharedDir()`, `ManagedWorktrees(ctx)`, `MainWorktree(ctx)`) instead of raw `config.Load()`, `git.NewRunner()` or path helpers; the Clone resolves the per-clone `~/.wtx/<name>` paths and threads `--dry-run` into its Runner (queries such as `WorktreeList` still run under dry-run)
+4. Document agent-relevant usage in `cmd/agent_skill.md` (the agent skill printed by `wtx skill`; it must not be named `SKILL.md` in any case, or `npx skills add` installs it instead of the wrapper). Keep its frontmatter identical to the installable wrapper in `skills/wtx/SKILL.md`; `cmd/skill_test.go` enforces this.
 
 ---
 

@@ -3,7 +3,6 @@ package cmd
 import (
 	"fmt"
 
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -26,25 +25,21 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	dry := IsDryRun()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 
 	if len(cfg.Setup) == 0 && len(cfg.ParallelSetup) == 0 {
 		ui.Info("No setup hooks configured in .worktree.yml")
 		return nil
 	}
 
-	// Resolve the target worktree with a non-dry runner: dry-run should
-	// only suppress hook execution, not the read-only lookup.
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), false)
-	worktrees, err := runner.WorktreeList(ctx)
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return err
 	}
-
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	if len(filtered) == 0 {
 		return fmt.Errorf("no worktrees found")
 	}
@@ -72,7 +67,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := project.EnsureGitExclude(project.GitDirPath(projectRoot, cfg), dry); err != nil {
+	if err := project.EnsureGitExclude(clone.GitDir(), dry); err != nil {
 		return err
 	}
 	if !dry {

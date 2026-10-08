@@ -5,7 +5,6 @@ import (
 	"os"
 	"time"
 
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -27,19 +26,18 @@ func newRemoveCmd() *cobra.Command {
 func runRemove(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 
-	projectRoot, cfg, err := loadProject()
+	clone, err := openClone(ctx)
 	if err != nil {
 		return err
 	}
+	projectRoot, cfg := clone.Root(), clone.Config()
 
-	runner := git.NewRunner(project.GitDirPath(projectRoot, cfg), IsDryRun())
+	runner := clone.Runner()
 
-	worktrees, err := runner.WorktreeList(ctx)
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return err
 	}
-
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	mainBranch := cfg.MainBranchOrDefault()
 
 	if len(filtered) == 0 {

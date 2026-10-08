@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/spf13/cobra"
 )
@@ -14,7 +13,7 @@ func completeWorktreeNames(cmd *cobra.Command, args []string, toComplete string)
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 
-	names, err := listWorktreeNames()
+	names, err := listWorktreeNames(cmd.Context())
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
@@ -22,18 +21,17 @@ func completeWorktreeNames(cmd *cobra.Command, args []string, toComplete string)
 	return names, cobra.ShellCompDirectiveNoFileComp
 }
 
-func listWorktreeNames() ([]string, error) {
-	runner, projectRoot, err := completionRunner()
+func listWorktreeNames(ctx context.Context) ([]string, error) {
+	clone, err := completionClone(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	worktrees, err := runner.WorktreeList(context.Background())
+	filtered, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	filtered := filterManagedWorktrees(worktrees, projectRoot)
 	names := make([]string, 0, len(filtered)+1)
 	names = append(names, ".")
 	for _, wt := range filtered {
@@ -45,31 +43,24 @@ func listWorktreeNames() ([]string, error) {
 
 // completeBranchNames completes flag values with the project's remote branches.
 func completeBranchNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
-	runner, _, err := completionRunner()
+	ctx := cmd.Context()
+	clone, err := completionClone(ctx)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	branches, err := runner.ListRemoteBranches(context.Background())
+	branches, err := clone.Runner().ListRemoteBranches(ctx)
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
 	return branches, cobra.ShellCompDirectiveNoFileComp
 }
 
-// completionRunner locates the project from the working directory and returns
-// a git runner for it, for use by shell completion functions.
-func completionRunner() (*git.Runner, string, error) {
+// completionClone opens the Clone containing the working directory for shell
+// completion functions. Unlike openClone it prints nothing.
+func completionClone(ctx context.Context) (*project.Clone, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
-		return nil, "", err
+		return nil, err
 	}
-	projectRoot, err := project.FindRoot(cwd)
-	if err != nil {
-		return nil, "", err
-	}
-	cfg, err := loadProjectAt(projectRoot)
-	if err != nil {
-		return nil, "", err
-	}
-	return git.NewRunner(project.GitDirPath(projectRoot, cfg), false), projectRoot, nil
+	return project.Open(ctx, cwd, project.Options{})
 }
