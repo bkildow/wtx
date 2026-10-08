@@ -74,14 +74,16 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
+		// Joining picks the Clone name itself (--name wins over wtx.name),
+		// so only a refusal resolves the Clone.
+		if !inRepo && cfg.HomeDefaults() {
+			return joinClone(ctx, runner, projectRoot, cfg, name, nameSet, dry)
+		}
 		clone, err := project.Resolve(ctx, projectRoot, cfg, project.Options{DryRun: dry})
 		if err != nil {
 			return err
 		}
-		if _, perClone := clone.CloneDir(); inRepo || !perClone {
-			return existingProjectError(clone)
-		}
-		return joinClone(ctx, runner, projectRoot, cfg, name, nameSet, dry)
+		return existingProjectError(clone)
 	}
 
 	cfg := config.DefaultConfig()
