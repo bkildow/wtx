@@ -272,11 +272,9 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("worktree remove failed: %w", err)
 	}
 
-	if err := runner.BranchDelete(ctx, branch, false); err != nil {
-		ui.Warning("Could not delete branch: " + err.Error())
-	}
+	branchKept := deleteBranchOrKeep(ctx, runner, runner.GitDir, branch)
 
-	ui.Success("Removed worktree: " + branch)
+	ui.Success(removedWorktreeMessage(branch, branchKept))
 	return nil
 }
 

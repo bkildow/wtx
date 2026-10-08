@@ -23,10 +23,25 @@ exec wtx list
 stderr 'main'
 stderr 'develop'
 
-# Remove one
+# Remove one; its branch is merged, so it is deleted without a kept notice
 exec wtx remove develop
 stderr 'Removed worktree'
+! stderr 'kept'
 ! exists worktrees/develop
+! exec git --git-dir .bare rev-parse --verify --quiet refs/heads/develop
+
+# Removing a worktree whose branch has unmerged commits keeps the branch and
+# prints the exact delete command instead of git's hints
+exec wtx add --skip-setup wip
+exec git -C worktrees/wip commit --allow-empty -m wip
+exec wtx remove wip
+! stdout .
+stderr 'Branch wip kept: git sees it as not fully merged'
+stderr 'git --git-dir \S+/\.bare branch -D wip'
+stderr 'Removed worktree: wip \(branch kept\)'
+! stderr 'hint:'
+! exists worktrees/wip
+exec git --git-dir .bare rev-parse --verify --quiet refs/heads/wip
 
 # List should show only main
 exec wtx list

@@ -445,13 +445,32 @@ func parseWorktreeList(output string) []WorktreeInfo {
 	return worktrees
 }
 
+// ErrBranchNotMerged is returned by BranchDelete when `git branch -d` refuses
+// because the branch is not fully merged. It replaces git's own message, whose
+// hint lines suggest a command that doesn't run from a bare-layout root.
+var ErrBranchNotMerged = errors.New("branch is not fully merged")
+
 func (r *Runner) BranchDelete(ctx context.Context, branch string, force bool) error {
 	flag := "-d"
 	if force {
 		flag = "-D"
 	}
-	_, err := r.Run(ctx, "branch", flag, branch)
+	if r.DryRun {
+		_, err := r.Run(ctx, "branch", flag, branch)
+		return err
+	}
+	// LC_ALL=C keeps git's refusal in English so isNotFullyMerged can spot it.
+	_, err := r.queryWithEnv(ctx, []string{"LC_ALL=C"}, "branch", flag, branch)
+	if err != nil && isNotFullyMerged(err.Error()) {
+		return fmt.Errorf("%s: %w", branch, ErrBranchNotMerged)
+	}
 	return err
+}
+
+// isNotFullyMerged reports whether git's output is the `branch -d` refusal
+// for an unmerged branch.
+func isNotFullyMerged(output string) bool {
+	return strings.Contains(strings.ToLower(output), "is not fully merged")
 }
 
 func (r *Runner) IsWorktreeDirty(ctx context.Context, worktreePath string) (bool, error) {
