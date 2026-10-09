@@ -355,7 +355,7 @@ wtx remove --force            # Skip uncommitted changes check
 wtx remove feature/auth --skip-teardown  # Remove without running teardown hooks
 ```
 
-Runs teardown hooks before removing the worktree directory.
+Runs teardown hooks before removing the worktree directory. Then deletes the branch with `git branch -d`. If git refuses because the branch isn't fully merged, the branch is kept and wtx prints the exact `git --git-dir <dir> branch -D <name>` command to delete it.
 
 <a id="wt-setup"></a>
 
@@ -504,7 +504,7 @@ wtx prune --force             # Also remove merged worktrees with uncommitted ch
 wtx prune --yes               # Skip confirmation
 ```
 
-Compares branches against the default branch (main/master). Detects regular, squash, and rebase merges, plus merged pull requests when `gh` is available. Merged worktrees with uncommitted changes are listed as `dirty` and kept unless you pass `--force`.
+Compares branches against the default branch (main/master). Detects regular, squash, and rebase merges, plus merged pull requests when `gh` is available. Merged worktrees with uncommitted changes are listed as `dirty` and kept unless you pass `--force`. Git calls squash- and rebase-merged branches unmerged, so prune removes their worktrees but keeps the branches, printing the command to delete each one.
 
 <a id="wt-skill"></a>
 

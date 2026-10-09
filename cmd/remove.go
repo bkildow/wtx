@@ -100,13 +100,12 @@ func runRemove(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	branchKept := false
 	if !isMainBranch {
-		if err := runner.BranchDelete(ctx, selected.Branch, false); err != nil {
-			ui.Warning("Could not delete branch: " + err.Error())
-		}
+		branchKept = deleteBranchOrKeep(ctx, runner, selected.Branch)
 	}
 
-	ui.Success("Removed worktree: " + selected.Branch)
+	ui.Success(removedWorktreeMessage(selected.Branch, branchKept))
 
 	// Print project root to stdout so the shell wrapper can cd the user there.
 	if relocating {
