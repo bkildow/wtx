@@ -58,8 +58,8 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	if state != nil && state.Status == project.SetupRunning {
-		return fmt.Errorf("setup already running for %s (PID %d) — check 'wtx status'",
-			selected.Branch, state.PID)
+		return fmt.Errorf("setup already running for %s (PID %d) — check 'wtx status' or 'wtx logs %s'",
+			selected.Branch, state.PID, selected.Branch)
 	}
 
 	background, err := resolveBackgroundMode(cmd, cfg)
@@ -78,7 +78,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 
 	msg := "Running setup for: " + selected.Branch
 	if background {
-		return runSetupBackground(projectRoot, selected.Path, cfg, dry, msg)
+		return runSetupBackground(projectRoot, selected.Path, selected.Branch, cfg, dry, msg)
 	}
 	return runSetupForeground(cmd, selected.Path, cfg, dry, msg)
 }

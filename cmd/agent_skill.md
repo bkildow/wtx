@@ -63,7 +63,7 @@ Run git commands inside a worktree. In a Bare layout the project root has no `.g
 
 `wtx add <branch>` checks out the remote branch if one exists and otherwise creates a new branch from `main_branch` (override with `--base-branch <ref>`). It then applies shared files and runs setup hooks.
 
-When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. The worktree is ready when `wtx cd <branch>` resolves and the SETUP column of `wtx status` reads Complete (or `-` when no hooks are configured). Failed means read the setup output before working there. `wtx setup <name> --foreground` re-runs setup.
+When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. The worktree is ready when `wtx cd <branch>` resolves and the SETUP column of `wtx status` reads Complete (or `-` when no hooks are configured). Failed means run `wtx logs <branch>` to read the setup output before working there. `wtx setup <name> --foreground` re-runs setup.
 
 ## Removing worktrees
 
@@ -108,7 +108,8 @@ Files ending in `.template` are copied with the suffix stripped and these variab
 
 ## Project health
 
-- `wtx status` shows every worktree's branch, dirty state, and setup state.
+- `wtx status` shows every worktree's branch, dirty state, and setup state, and names `wtx logs <branch>` for each failed background setup.
+- `wtx logs <name>` prints a worktree's background setup log to stdout. Foreground setup prints to the terminal and keeps no log.
 - `wtx doctor --json` reports project health and wt-to-wtx migration readiness, and changes nothing. `wtx doctor --help` covers repairs.
 - `wtx doctor --migrate-home` moves an in-repo project (`init --in-repo`, or `worktrees/` and `shared/` at the repository root) to `~/.wtx/<name>/`. Only run it when the user asks; preview with `wtx --dry-run doctor --migrate-home`.
 - `wtx repair` restores the per-worktree git config after a git or wtx upgrade. It is safe to re-run.

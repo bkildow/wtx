@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"strings"
+
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -40,6 +42,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT", "STATUS", "SETUP", "LAST COMMIT")
 	paths := ui.NewPathDisplay(projectRoot)
+	var hints []string
 	for _, wt := range filtered {
 		relPath := paths.Path(wt.Path)
 
@@ -63,18 +66,38 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			styledStatus = ui.StyleWarning.Render("dirty")
 		}
 
-		styledSetup := renderSetupStatus(wt.Path)
+		// An unreadable state renders as "-", like a missing one.
+		state, _ := project.ResolveSetupStatus(wt.Path)
+		styledSetup := renderSetupStatus(state)
+		if state != nil && state.Status == project.SetupFailed {
+			hints = append(hints, setupFailureHint(wt.Branch, wt.Path, state))
+		}
 
 		t.Row(wt.Branch, relPath, shortHead, styledStatus, styledSetup, age)
 	}
 	ui.PrintTable(t)
+	for _, hint := range hints {
+		ui.Warning(hint)
+	}
 	warnLowDisk(projectRoot, cfg)
 	return nil
 }
 
-func renderSetupStatus(worktreePath string) string {
-	state, err := project.ResolveSetupStatus(worktreePath)
-	if err != nil || state == nil {
+// setupFailureHint tells the user where to look after a failed setup. Only a
+// background run has a log; a foreground run printed its output to the terminal.
+func setupFailureHint(branch, worktreePath string, state *project.SetupState) string {
+	hint := "Setup failed for " + branch
+	if firstLine, _, _ := strings.Cut(state.Error, "\n"); firstLine != "" {
+		hint += ": " + firstLine
+	}
+	if project.SetupLog(worktreePath, state) != "" {
+		return hint + " — run 'wtx logs " + branch + "'"
+	}
+	return hint + " — re-run with 'wtx setup " + branch + " --foreground'"
+}
+
+func renderSetupStatus(state *project.SetupState) string {
+	if state == nil {
 		return ui.StyleMuted.Render("-")
 	}
 

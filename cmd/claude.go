@@ -232,7 +232,7 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	// runSetupBackground prints the worktree path to stdout on its own.
 	hasHooks := len(cfg.Setup) > 0 || len(cfg.ParallelSetup) > 0
 	if hasHooks {
-		if err := runSetupBackground(projectRoot, worktreePath, cfg, false, msg); err != nil {
+		if err := runSetupBackground(projectRoot, worktreePath, branch, cfg, false, msg); err != nil {
 			// Setup hook failure is non-fatal — the worktree is still usable.
 			ui.Warning("Background setup failed to start: " + err.Error())
 			fmt.Println(worktreePath)
