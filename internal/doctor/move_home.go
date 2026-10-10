@@ -295,7 +295,7 @@ func (m *migration) planWorktrees(worktrees []git.WorktreeInfo) (moved []string)
 		dest := filepath.Join(m.newWT, rel)
 		switch {
 		case wt.Locked:
-			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Worktree is locked; it was not moved.", fmt.Sprintf("Unlock it with git worktree unlock %q, then rerun wtx doctor --migrate-home.", wt.Path))
+			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Worktree is locked; it was not moved.", unlockRemedy(wt.Path))
 			continue
 		case wt.Prunable || !isDir(src):
 			m.s.addSubject(migrateID, wt.Path, wt.Branch, "Worktree directory is missing or prunable; it was not moved.", "Review git worktree prune --dry-run, then rerun wtx doctor --migrate-home.")

@@ -339,7 +339,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 			message, remedy := "Worktree directory is missing.", "Restore or review the missing worktree registration."
 			if wt.Prunable {
 				message += " Git marks it prunable."
-				remedy = fmt.Sprintf("Review git --git-dir=%q worktree prune --dry-run, then git --git-dir=%q worktree prune.", gitDir, gitDir)
+				remedy = pruneRemedy(gitDir)
 			}
 			if wt.Locked {
 				message += " Registration is locked."
@@ -358,7 +358,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		}
 		if wt.Prunable {
 			// The directory survives but Git no longer links it, so deeper checks would only fail.
-			remedy := fmt.Sprintf("Review git --git-dir=%q worktree prune --dry-run, then git --git-dir=%q worktree prune.", gitDir, gitDir)
+			remedy := pruneRemedy(gitDir)
 			if wt.Locked {
 				remedy = "Review the worktree lock before taking manual action."
 			}
