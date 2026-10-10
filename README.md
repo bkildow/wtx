@@ -15,20 +15,23 @@
 
 ---
 
-> ### Migrating from `wt` to `wtx` (v0.11.0)
+> ### Migrating from `wt` to `wtx` (v0.12.0)
 >
-> v0.11.0 is available through Homebrew and `go install` using the commands below.
+> v0.12.0 is the last release before v1.0.0 removes the `wt` shim, the `wt`
+> cask, and the legacy `WT_*` script variables. Migrate now:
 >
-> In v0.11.0, `wtx` is the primary command and a deprecated `wt` shim ships
-> alongside it. Existing `wt` commands keep working and print a migration warning.
-> Update your [shell startup line](#shell-integration) to use `wtx shell-init`.
-> Scripts receive both `WTX_*` and legacy `WT_*` variables; settings read `WTX_*`
-> first and fall back to `WT_*` when the new variable is unset.
+> - `wtx` is the command. The deprecated `wt` shim still works but prints a
+>   deprecation banner on every run (`WTX_NO_DEPRECATION_WARN=1` silences it).
+> - Update your [shell startup line](#shell-integration) to use `wtx shell-init`.
+> - Settings are read only from `WTX_THEME` and `WTX_NO_DISK_WARN`; `WT_THEME`
+>   and `WT_NO_DISK_WARN` are ignored.
+> - Scripts receive both `WTX_*` and legacy `WT_*` variables until v1.0.0.
+>   Switch script references to `WTX_*`.
+> - Run `wtx doctor --user` and `wtx doctor` to find remaining `wt` and `WT_*`
+>   references.
 >
-> In v0.12.0, the shim warning becomes stronger and legacy `WT_*` settings stop
-> being read (exports remain). In v1.0.0, the `wt` shim, cask, and `WT_*` exports
-> are removed. `.worktree.yml` and `${PROJECT_ROOT}`, `${WORKTREE_ID}`,
-> `${WORKTREE_PATH}`, and `${BRANCH_NAME}` template variables stay unchanged.
+> `.worktree.yml` and `${PROJECT_ROOT}`, `${WORKTREE_ID}`, `${WORKTREE_PATH}`,
+> and `${BRANCH_NAME}` template variables stay unchanged.
 
 ## Features
 
@@ -122,9 +125,9 @@ Matches include paths, line numbers, and identifiers, never full source lines.
 The user scan honors `ZDOTDIR` and `XDG_CONFIG_HOME`, checks standard Bash, Zsh, and
 Fish startup files, and never sources them or follows arbitrary shell includes.
 
-Replace legacy input settings `WT_THEME` and `WT_NO_DISK_WARN` with their `WTX_`
-names **before v0.12**. Replace `wt` command calls, shell startup invocations,
-and legacy `WT_*` script-variable references **before v1.0**. Installation alone
+Legacy input settings `WT_THEME` and `WT_NO_DISK_WARN` are no longer read;
+replace them with their `WTX_` names. Replace `wt` command calls, shell startup
+invocations, and legacy `WT_*` script-variable references **before v1.0**. Installation alone
 does not migrate binaries, shell initialization, or projects.
 
 Exit code is 0 when no failures remain, or 1 for failures, inspection errors, or
@@ -422,7 +425,7 @@ variables are exported:
 | `WTX_BRANCH_NAME` | Branch of the current worktree (empty outside a worktree) |
 
 Each variable is also exported under its legacy `WT_*` name with the same value
-through the transition. Prefer `WTX_*` in new scripts.
+until v1.0.0 removes them. Use `WTX_*` in scripts.
 
 A non-zero exit from the script is reported as an error.
 
@@ -735,8 +738,7 @@ Running many worktrees at once (each with its own containers, `node_modules`, DB
 
 The check warns when free space is below **either** bound (`disk_warn_percent` or `disk_warn_gb`); set a bound to `-1` to disable it individually. The last line only appears when no `teardown`/`parallel_teardown` hooks are configured, since without them `wtx prune` cannot reclaim resources living outside the worktree directory.
 
-Disable the warning permanently with `disk_warn: false` in `.worktree.yml`, or per-invocation with `WTX_NO_DISK_WARN=1`. The legacy `WT_NO_DISK_WARN`
-setting is used only when `WTX_NO_DISK_WARN` is unset.
+Disable the warning permanently with `disk_warn: false` in `.worktree.yml`, or per-invocation with `WTX_NO_DISK_WARN=1`.
 
 ### Template Variables
 

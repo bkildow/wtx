@@ -12,7 +12,7 @@ git_dir: .git
 # editor: cursor
 
 # Color theme for wtx output (available: default, catppuccin)
-# Can also be set globally via WTX_THEME env var (WT_THEME fallback when unset)
+# Can also be set globally via WTX_THEME env var
 # theme: catppuccin
 
 # Commands to run after creating a new worktree

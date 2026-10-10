@@ -6,7 +6,6 @@ import (
 	"os"
 
 	lipgloss "charm.land/lipgloss/v2"
-	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/charmbracelet/colorprofile"
 	"github.com/spf13/cobra"
@@ -28,7 +27,7 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-		if theme := config.LookupEnv("THEME"); theme != "" {
+		if theme := os.Getenv("WTX_THEME"); theme != "" {
 			ui.ApplyTheme(theme)
 		}
 		return nil

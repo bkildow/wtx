@@ -151,7 +151,7 @@ func TestDiskDisableEnvironmentPrecedence(t *testing.T) {
 	t.Setenv("WTX_NO_DISK_WARN", "")
 	r := Run(context.Background(), Options{StartDir: root})
 	if f := finding(r, "disk", ""); f == nil || f.Severity != "warn" {
-		t.Fatal("empty new variable must override legacy disable")
+		t.Fatal("legacy disable must be ignored")
 	}
 	t.Setenv("WTX_NO_DISK_WARN", "1")
 	r = Run(context.Background(), Options{StartDir: root})
