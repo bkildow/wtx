@@ -129,11 +129,7 @@ func resolveScriptContext(ctx context.Context, clone *project.Clone) (scriptCont
 		return scriptContext{}, err
 	}
 
-	filtered, err := clone.ManagedWorktrees(ctx)
-	if err != nil {
-		return scriptContext{}, err
-	}
-	main, hasMain, err := clone.MainWorktree(ctx)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		return scriptContext{}, err
 	}
@@ -143,10 +139,10 @@ func resolveScriptContext(ctx context.Context, clone *project.Clone) (scriptCont
 		dir:  cwd,
 		vars: project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)},
 	}
-	if hasMain {
-		sc.mainWorktreePath = main.Path
+	if wts.HasMain {
+		sc.mainWorktreePath = wts.Main.Path
 	}
-	if wt, ok := resolveCurrentWorktree(filtered); ok {
+	if wt, ok := resolveCurrentWorktree(wts.Managed); ok {
 		sc.dir = wt.Path
 		sc.vars = project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 	}

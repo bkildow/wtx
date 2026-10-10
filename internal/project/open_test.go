@@ -203,12 +203,12 @@ func assertClone(t *testing.T, ctx context.Context, c *Clone, want layoutFixture
 	}
 	same("Runner().GitDir", c.Runner().GitDir, want.gitDir)
 
-	managed, err := c.ManagedWorktrees(ctx)
+	wts, err := c.Worktrees(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var paths []string
-	for _, wt := range managed {
+	for _, wt := range wts.Managed {
 		paths = append(paths, ui.CanonicalPath(wt.Path))
 	}
 	var wantPaths []string
@@ -219,10 +219,7 @@ func assertClone(t *testing.T, ctx context.Context, c *Clone, want layoutFixture
 		t.Errorf("ManagedWorktrees = %v, want %v", paths, wantPaths)
 	}
 
-	mainWT, ok, err := c.MainWorktree(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
+	mainWT, ok := wts.Main, wts.HasMain
 	if ok != (want.main != "") {
 		t.Errorf("MainWorktree ok = %v, want %v", ok, want.main != "")
 	}
@@ -294,8 +291,8 @@ func TestOpenDryRunStillQueries(t *testing.T) {
 	if managed, err := c.ManagedWorktrees(ctx); err != nil || len(managed) != 2 {
 		t.Errorf("ManagedWorktrees under dry-run = %v, %v", managed, err)
 	}
-	if _, ok, err := c.MainWorktree(ctx); err != nil || !ok {
-		t.Errorf("MainWorktree under dry-run: ok=%v err=%v", ok, err)
+	if wts, err := c.Worktrees(ctx); err != nil || !wts.HasMain {
+		t.Errorf("Worktrees under dry-run: HasMain=%v err=%v", wts.HasMain, err)
 	}
 }
 

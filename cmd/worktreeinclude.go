@@ -15,17 +15,22 @@ import (
 // .worktreeinclude selects. It returns nil when there is no main worktree,
 // no .worktreeinclude, or nothing matches. Failures are reported as warnings
 // because a missing include layer should not block creating a worktree.
-// The source is the Clone's Main worktree (see project.Clone.MainWorktree).
+// The source is the Clone's Main worktree (see project.Worktrees).
 func resolveIncludeSource(ctx context.Context, clone *project.Clone) *project.IncludeSource {
-	main, ok, err := clone.MainWorktree(ctx)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		ui.Warning("Could not locate main worktree for .worktreeinclude: " + err.Error())
 		return nil
 	}
-	if !ok {
+	return includeSource(ctx, clone, wts)
+}
+
+// includeSource is resolveIncludeSource for a listing the caller already has.
+func includeSource(ctx context.Context, clone *project.Clone, wts project.Worktrees) *project.IncludeSource {
+	if !wts.HasMain {
 		return nil
 	}
-	mainPath := main.Path
+	mainPath := wts.Main.Path
 
 	files, err := git.ListWorktreeIncludes(ctx, mainPath)
 	if err != nil {

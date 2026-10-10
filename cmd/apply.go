@@ -30,10 +30,11 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 	projectRoot, cfg := clone.Root(), clone.Config()
 
-	filtered, err := clone.ManagedWorktrees(ctx)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		return err
 	}
+	filtered := wts.Managed
 
 	if len(filtered) == 0 {
 		return fmt.Errorf("no worktrees found")
@@ -42,7 +43,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	all, _ := cmd.Flags().GetBool("all")
 
 	if all {
-		include := resolveIncludeSource(ctx, clone)
+		include := includeSource(ctx, clone, wts)
 		var totalResult project.ApplyResult
 		for _, wt := range filtered {
 			ui.Step("Applying to: " + wt.Branch)
@@ -69,7 +70,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, selected.Path, selected.Branch)
-	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, resolveIncludeSource(ctx, clone))
+	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, includeSource(ctx, clone, wts))
 	if err != nil {
 		return err
 	}
