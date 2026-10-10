@@ -258,7 +258,7 @@ func (c *Clone) CheckOwned() error {
 	var unclaimed []string
 	for _, dir := range c.CloneDirs() {
 		if perClone && dir == cloneDir {
-			if err := c.checkMarker(dir, "run 'wtx init' in "+c.root+" to set it up"); err != nil {
+			if err := c.checkMarker(dir, true); err != nil {
 				return err
 			}
 			continue
@@ -269,7 +269,7 @@ func (c *Clone) CheckOwned() error {
 		case err != nil:
 			return err
 		default:
-			if err := c.checkMarker(dir, "run 'wtx doctor --fix' to record this clone as its owner"); err != nil {
+			if err := c.checkMarker(dir, false); err != nil {
 				return err
 			}
 		}
@@ -282,20 +282,27 @@ func (c *Clone) CheckOwned() error {
 	return nil
 }
 
-// checkMarker checks that the Owner marker in dir names the Project root;
-// remedy is the guidance when the marker is missing.
-func (c *Clone) checkMarker(dir, remedy string) error {
+// checkMarker checks that the Owner marker in dir names the Project root.
+// perClone says dir is the per-clone default, which wtx init sets up and
+// --name moves; an explicit Clone dir is fixed by .worktree.yml instead.
+func (c *Clone) checkMarker(dir string, perClone bool) error {
+	missing := "run 'wtx doctor --fix' to record this clone as its owner"
+	elsewhere := "point worktree_dir and shared_dir at a different ~/.wtx/<name> directory"
+	if perClone {
+		missing = "run 'wtx init' in " + c.root + " to set it up"
+		elsewhere = "give this clone its own directory with 'wtx init --name <other>'"
+	}
 	m, err := ReadMarker(dir)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("%w: %s has no %s\n  %s", ErrCloneNotSetUp, dir, MarkerFileName, remedy)
+		return fmt.Errorf("%w: %s has no %s\n  %s", ErrCloneNotSetUp, dir, MarkerFileName, missing)
 	case err != nil:
 		return fmt.Errorf("%w: %w\n  run 'wtx doctor' for details", ErrCloneNotSetUp, err)
 	case SamePath(m.Root, c.root):
 		return nil
 	case config.Exists(m.Root):
-		return fmt.Errorf("%w: %s belongs to %s\n  give this clone its own directory with 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
+		return fmt.Errorf("%w: %s belongs to %s\n  %s", ErrCloneNotSetUp, dir, m.Root, elsewhere)
 	default:
-		return fmt.Errorf("%w: %s belongs to %s, which is no longer a wtx project\n  run 'wtx doctor --fix' to record this clone as its owner, or 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
+		return fmt.Errorf("%w: %s belongs to %s, which is no longer a wtx project\n  run 'wtx doctor --fix' to record this clone as its owner, or %s", ErrCloneNotSetUp, dir, m.Root, elsewhere)
 	}
 }

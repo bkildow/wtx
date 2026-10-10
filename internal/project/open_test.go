@@ -543,7 +543,7 @@ func TestCloneCheckOwnedExplicitCloneDir(t *testing.T) {
 	if err := WriteMarker(dir, other, false); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "belongs to "+other) {
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "belongs to "+other) || !strings.Contains(err.Error(), "point worktree_dir and shared_dir") || strings.Contains(err.Error(), "wtx init --name") {
 		t.Errorf("other owner: err = %v", err)
 	}
 
@@ -551,7 +551,7 @@ func TestCloneCheckOwnedExplicitCloneDir(t *testing.T) {
 	if err := os.Remove(filepath.Join(other, config.ConfigFileName)); err != nil {
 		t.Fatal(err)
 	}
-	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "no longer a wtx project") {
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "no longer a wtx project") || strings.Contains(err.Error(), "wtx init --name") {
 		t.Errorf("orphaned: err = %v", err)
 	}
 }
