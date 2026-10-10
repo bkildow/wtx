@@ -168,56 +168,61 @@ func (c *Clone) Config() *config.Config { return c.cfg }
 // Runner runs git against GitDir, honoring Options.DryRun.
 func (c *Clone) Runner() *git.Runner { return c.runner }
 
-// ManagedWorktrees lists the Clone's Managed worktrees: every linked
-// worktree, wherever it lives on disk. Bare entries and, in a Checkout
-// layout, the Project root (the Main worktree) are left out. It runs under
-// dry-run.
-func (c *Clone) ManagedWorktrees(ctx context.Context) ([]git.WorktreeInfo, error) {
-	all, err := c.runner.WorktreeList(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return c.managed(all), nil
+// Worktrees is a Clone's worktrees, split from a single `git worktree list`.
+type Worktrees struct {
+	// Managed is every linked worktree, wherever it lives on disk. Bare
+	// entries and, in a Checkout or In-repo layout, the Project root are
+	// left out.
+	Managed []git.WorktreeInfo
+	// Main is the Main worktree when HasMain is true: in a Checkout or
+	// In-repo layout the Project root itself, in a Bare layout the Managed
+	// worktree checked out on the main branch.
+	Main    git.WorktreeInfo
+	HasMain bool
 }
 
-func (c *Clone) managed(all []git.WorktreeInfo) []git.WorktreeInfo {
-	root := ui.CanonicalPath(c.root)
-	var managed []git.WorktreeInfo
+// ClassifyWorktrees splits all, a `git worktree list` of the Clone at root,
+// into its Managed worktrees and its Main worktree. mainBranch picks the
+// Main worktree in a Bare layout (config.Config.MainBranchOrDefault).
+func ClassifyWorktrees(all []git.WorktreeInfo, root string, layout LayoutKind, mainBranch string) Worktrees {
+	canonicalRoot := ui.CanonicalPath(root)
+	var w Worktrees
+	if layout != BareLayout {
+		w.Main, w.HasMain = git.WorktreeInfo{Path: root}, true
+	}
 	for _, wt := range all {
-		if wt.Bare || wt.Path == c.root || ui.CanonicalPath(wt.Path) == root {
-			continue
-		}
-		managed = append(managed, wt)
-	}
-	return managed
-}
-
-// MainWorktree returns the Main worktree: in a Checkout or In-repo layout
-// the Project root itself, in a Bare layout the Managed worktree checked out
-// on the main branch (config.Config.MainBranchOrDefault), or false when
-// there is none. It runs under dry-run.
-func (c *Clone) MainWorktree(ctx context.Context) (git.WorktreeInfo, bool, error) {
-	all, err := c.runner.WorktreeList(ctx)
-	if err != nil {
-		return git.WorktreeInfo{}, false, err
-	}
-	if c.layout != BareLayout {
-		root := ui.CanonicalPath(c.root)
-		for _, wt := range all {
-			if !wt.Bare && ui.CanonicalPath(wt.Path) == root {
-				wt.Path = c.root
-				return wt, true, nil
+		switch {
+		case wt.Bare:
+		case wt.Path == root || ui.CanonicalPath(wt.Path) == canonicalRoot:
+			if layout != BareLayout {
+				wt.Path = root
+				w.Main = wt
+			}
+		default:
+			w.Managed = append(w.Managed, wt)
+			if layout == BareLayout && !w.HasMain && wt.Branch == mainBranch {
+				w.Main, w.HasMain = wt, true
 			}
 		}
-		return git.WorktreeInfo{Path: c.root}, true, nil
 	}
-	branch := c.cfg.MainBranchOrDefault()
-	for _, wt := range c.managed(all) {
-		if wt.Branch == branch {
-			return wt, true, nil
-		}
+	return w
+}
+
+// Worktrees lists the Clone's Managed worktrees and Main worktree with one
+// `git worktree list`. It runs under dry-run.
+func (c *Clone) Worktrees(ctx context.Context) (Worktrees, error) {
+	all, err := c.runner.WorktreeList(ctx)
+	if err != nil {
+		return Worktrees{}, err
 	}
-	return git.WorktreeInfo{}, false, nil
+	return ClassifyWorktrees(all, c.root, c.layout, c.cfg.MainBranchOrDefault()), nil
+}
+
+// ManagedWorktrees lists the Clone's Managed worktrees (see
+// Worktrees.Managed). It runs under dry-run.
+func (c *Clone) ManagedWorktrees(ctx context.Context) ([]git.WorktreeInfo, error) {
+	w, err := c.Worktrees(ctx)
+	return w.Managed, err
 }
 
 // CloneDirs returns the distinct Clone dirs that WorktreesDir and SharedDir
