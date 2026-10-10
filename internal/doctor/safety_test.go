@@ -144,11 +144,14 @@ func TestRepairRefusesRetargetedParentAndChecksVerification(t *testing.T) {
 	}
 }
 
-func TestDiskDisableEnvironmentPrecedence(t *testing.T) {
+func TestDiskDisableEnvironment(t *testing.T) {
 	root, _, _ := fixture(t, false)
 	write(t, filepath.Join(root, ".worktree.yml"), "git_dir: .git\ndisk_warn_percent: 101\n", 0o600)
 	t.Setenv("WT_NO_DISK_WARN", "1")
-	t.Setenv("WTX_NO_DISK_WARN", "")
+	t.Setenv("WTX_NO_DISK_WARN", "") // Restore the original value when the test finishes.
+	if err := os.Unsetenv("WTX_NO_DISK_WARN"); err != nil {
+		t.Fatal(err)
+	}
 	r := Run(context.Background(), Options{StartDir: root})
 	if f := finding(r, "disk", ""); f == nil || f.Severity != "warn" {
 		t.Fatal("legacy disable must be ignored")
