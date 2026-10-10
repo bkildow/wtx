@@ -187,13 +187,16 @@ type Worktrees struct {
 func ClassifyWorktrees(all []git.WorktreeInfo, root string, layout LayoutKind, mainBranch string) Worktrees {
 	canonicalRoot := ui.CanonicalPath(root)
 	var w Worktrees
+	if layout != BareLayout {
+		w.Main, w.HasMain = git.WorktreeInfo{Path: root}, true
+	}
 	for _, wt := range all {
 		switch {
 		case wt.Bare:
 		case wt.Path == root || ui.CanonicalPath(wt.Path) == canonicalRoot:
-			if layout != BareLayout && !w.HasMain {
+			if layout != BareLayout {
 				wt.Path = root
-				w.Main, w.HasMain = wt, true
+				w.Main = wt
 			}
 		default:
 			w.Managed = append(w.Managed, wt)
@@ -201,9 +204,6 @@ func ClassifyWorktrees(all []git.WorktreeInfo, root string, layout LayoutKind, m
 				w.Main, w.HasMain = wt, true
 			}
 		}
-	}
-	if layout != BareLayout && !w.HasMain {
-		w.Main, w.HasMain = git.WorktreeInfo{Path: root}, true
 	}
 	return w
 }

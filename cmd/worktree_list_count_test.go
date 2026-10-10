@@ -5,7 +5,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -13,9 +12,9 @@ import (
 )
 
 // spyGit puts a git wrapper first on PATH that logs each invocation's
-// arguments, one line per call, and returns a func counting the calls that
-// contain all of words.
-func spyGit(t *testing.T) func(words ...string) int {
+// arguments, one line per call, and returns a func counting the
+// `git worktree list` calls.
+func spyGit(t *testing.T) func() int {
 	t.Helper()
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
@@ -28,16 +27,9 @@ func spyGit(t *testing.T) func(words ...string) int {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return func(words ...string) int {
+	return func() int {
 		data, _ := os.ReadFile(log)
-		n := 0
-		for _, line := range strings.Split(string(data), "\n") {
-			fields := strings.Fields(line)
-			if len(fields) > 0 && !slices.ContainsFunc(words, func(w string) bool { return !slices.Contains(fields, w) }) {
-				n++
-			}
-		}
-		return n
+		return strings.Count(string(data), "worktree list")
 	}
 }
 
@@ -79,16 +71,15 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 	tests := []struct {
 		name string
 		cmd  func() *cobra.Command
-		run  func(*cobra.Command, []string) error
 		args []string
 	}{
-		{"run", newRunCmd, runRun, []string{"noop"}},
-		{"apply", newApplyCmd, runApply, []string{"feature"}},
+		{"run", newRunCmd, []string{"noop"}},
+		{"apply", newApplyCmd, []string{"feature"}},
 		{"apply --all", func() *cobra.Command {
 			c := newApplyCmd()
 			_ = c.Flags().Set("all", "true")
 			return c
-		}, runApply, nil},
+		}, nil},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -96,10 +87,10 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 			count := spyGit(t)
 			command := tt.cmd()
 			command.SetContext(context.Background())
-			if err := tt.run(command, tt.args); err != nil {
+			if err := command.RunE(command, tt.args); err != nil {
 				t.Fatal(err)
 			}
-			if n := count("worktree", "list"); n != 1 {
+			if n := count(); n != 1 {
 				t.Errorf("git worktree list ran %d times, want 1", n)
 			}
 		})
