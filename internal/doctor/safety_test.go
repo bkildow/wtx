@@ -8,7 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 )
 
@@ -20,7 +21,12 @@ func TestGitVersionThresholds(t *testing.T) {
 		severity Severity
 	}{{"2.19.9", "fail"}, {"2.20.0", "warn"}, {"2.47.9", "warn"}, {"2.48.0", "ok"}, {"3.0.0", "ok"}} {
 		write(t, filepath.Join(bin, "git"), "#!/bin/sh\necho 'git version "+tt.version+"'\n", 0o755)
-		s := &inspection{runner: git.NewRunner("", false)}
+		cfg := config.DefaultConfig()
+		clone, err := project.Resolve(context.Background(), t.TempDir(), &cfg, project.Options{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := &inspection{clone: clone}
 		s.gitVersion(context.Background())
 		if len(s.report.Findings) != 1 || s.report.Findings[0].Severity != tt.severity {
 			t.Fatalf("Git %s: %+v", tt.version, s.report)

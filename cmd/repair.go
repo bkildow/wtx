@@ -36,7 +36,7 @@ func runRepair(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	worktrees, err := runner.WorktreeList(ctx)
+	worktrees, err := clone.ManagedWorktrees(ctx)
 	if err != nil {
 		return err
 	}
@@ -44,9 +44,6 @@ func runRepair(cmd *cobra.Command, args []string) error {
 	inspected, repaired := 0, 0
 	paths := ui.NewPathDisplay(clone.Root())
 	for _, wt := range worktrees {
-		if wt.Bare {
-			continue
-		}
 		inspected++
 		ok, err := worktreeBareOverrideOK(ctx, wt.Path)
 		if err != nil {

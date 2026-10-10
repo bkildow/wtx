@@ -96,7 +96,19 @@ type ConfigPaths struct {
 // ~/.wtx/<name>/, spelled with a literal ~ so .worktree.yml stays portable.
 func HomeConfigPaths(name string) ConfigPaths {
 	dir := wtxHomePrefix + "/" + name
-	return newConfigPaths(dir+"/worktrees", dir+"/shared")
+	return newConfigPaths(dir+"/"+cloneWorktreesDir, dir+"/"+cloneSharedDir)
+}
+
+// The subdirectories of a Clone dir that hold its worktrees and shared files.
+const (
+	cloneWorktreesDir = "worktrees"
+	cloneSharedDir    = "shared"
+)
+
+// CloneDirPaths returns the worktree and shared directories inside cloneDir,
+// an expanded Clone dir: the paths HomeConfigPaths spells.
+func CloneDirPaths(cloneDir string) (worktrees, shared string) {
+	return filepath.Join(cloneDir, cloneWorktreesDir), filepath.Join(cloneDir, cloneSharedDir)
 }
 
 // InRepoConfigPaths are the config paths of an In-repo layout: .worktrees/

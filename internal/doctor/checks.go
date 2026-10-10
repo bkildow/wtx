@@ -16,14 +16,15 @@ import (
 )
 
 func (s *inspection) scripts() {
-	if len(s.cfg.Scripts) == 0 {
+	cfg, root := s.clone.Config(), s.clone.Root()
+	if len(cfg.Scripts) == 0 {
 		// Scripts are optional; their absence is not a health problem.
-		s.add("scripts", "ok", filepath.Join(s.root, config.ConfigFileName), "No project scripts are configured.", "")
+		s.add("scripts", "ok", filepath.Join(root, config.ConfigFileName), "No project scripts are configured.", "")
 		return
 	}
-	for _, name := range project.ScriptNames(s.cfg) {
-		path := project.ExpandOrJoin(s.root, s.cfg.Scripts[name])
-		if _, err := project.ResolveScript(s.cfg, s.root, name); err != nil {
+	for _, name := range project.ScriptNames(cfg) {
+		path := project.ExpandOrJoin(root, cfg.Scripts[name])
+		if _, err := project.ResolveScript(cfg, root, name); err != nil {
 			s.problem("scripts", path, err)
 		} else {
 			s.add("scripts", "ok", path, "Script "+name+" is executable.", "")
@@ -32,15 +33,16 @@ func (s *inspection) scripts() {
 }
 
 func (s *inspection) disk() {
+	root := s.clone.Root()
 	disable := config.LookupEnv("NO_DISK_WARN")
-	threshold := s.cfg.DiskThreshold()
+	threshold := s.clone.Config().DiskThreshold()
 	if disable != "" || threshold == nil {
-		s.add("disk", "ok", s.root, "Disk warnings disabled by configuration.", "")
+		s.add("disk", "ok", root, "Disk warnings disabled by configuration.", "")
 		return
 	}
-	u, err := disk.Stat(s.root)
+	u, err := disk.Stat(root)
 	if err != nil {
-		s.problem("disk", s.root, err)
+		s.problem("disk", root, err)
 		return
 	}
 	severity, remedy := OK, ""
@@ -48,11 +50,11 @@ func (s *inspection) disk() {
 		severity = "warn"
 		remedy = "Review disk usage and unused worktrees with wtx list before choosing cleanup actions."
 	}
-	s.add("disk", severity, s.root, fmt.Sprintf("%.1f%% free disk space (%d bytes).", u.PercentFree(), u.FreeBytes), remedy)
+	s.add("disk", severity, root, fmt.Sprintf("%.1f%% free disk space (%d bytes).", u.PercentFree(), u.FreeBytes), remedy)
 }
 
 func (s *inspection) teardown(root string) {
-	if len(s.cfg.Teardown) > 0 || len(s.cfg.ParallelTeardown) > 0 {
+	if cfg := s.clone.Config(); len(cfg.Teardown) > 0 || len(cfg.ParallelTeardown) > 0 {
 		return
 	}
 	for _, name := range []string{"compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml"} {
@@ -72,7 +74,7 @@ func (s *inspection) teardown(root string) {
 }
 
 func (s *inspection) gitVersion(ctx context.Context) {
-	v, err := s.runner.Version(ctx)
+	v, err := s.clone.Runner().Version(ctx)
 	if err != nil {
 		s.problem("git.version", "", err)
 		return
@@ -89,7 +91,7 @@ func (s *inspection) gitVersion(ctx context.Context) {
 }
 
 func (s *inspection) exclusions() {
-	path := filepath.Join(s.runner.GitDir, "info", "exclude")
+	path := filepath.Join(s.clone.Runner().GitDir, "info", "exclude")
 	file, err := takeSnapshot(path)
 	if err != nil {
 		s.problem("git.exclude", path, err)
@@ -105,7 +107,7 @@ func (s *inspection) exclusions() {
 }
 
 func (s *inspection) compatibility(ctx context.Context, worktrees []git.WorktreeInfo) {
-	common := filepath.Join(s.runner.GitDir, "config")
+	common := filepath.Join(s.clone.Runner().GitDir, "config")
 	bare, err := git.ConfigBool(ctx, common, "core.bare")
 	if err != nil {
 		s.problem("git.compatibility", common, err)
@@ -162,12 +164,13 @@ func (s *inspection) configRepair(ctx context.Context, path, key, want string, g
 }
 
 func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo) {
-	output, err := s.runner.Query(ctx, "for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/")
+	runner := s.clone.Runner()
+	output, err := runner.Query(ctx, "for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/")
 	if err != nil {
-		s.problem("git.branches", s.runner.GitDir, err)
+		s.problem("git.branches", runner.GitDir, err)
 		return
 	}
-	used := map[string]bool{s.cfg.MainBranchOrDefault(): true}
+	used := map[string]bool{s.clone.Config().MainBranchOrDefault(): true}
 	for _, wt := range worktrees {
 		used[wt.Branch] = true
 	}
@@ -180,7 +183,7 @@ func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo)
 	}
 	for _, ref := range refs {
 		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok && !used[branch] {
-			s.addSubject("git.branches", s.runner.GitDir, branch, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
+			s.addSubject("git.branches", runner.GitDir, branch, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
 		}
 	}
 }

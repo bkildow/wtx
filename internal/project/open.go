@@ -126,7 +126,7 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	switch {
 	case !resolved.IsCheckoutLayout():
 		c.layout = BareLayout
-	case insideRoot(root, c.worktrees):
+	case InsideRoot(root, c.worktrees):
 		c.layout = InRepoLayout
 	default:
 		c.layout = CheckoutLayout
@@ -134,8 +134,9 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	return c, nil
 }
 
-// insideRoot reports whether path lies strictly inside root.
-func insideRoot(root, path string) bool {
+// InsideRoot reports whether path lies strictly inside root, comparing
+// their canonical (symlink-resolved) spellings.
+func InsideRoot(root, path string) bool {
 	rel, ok := ui.RelWithin(ui.CanonicalPath(root), ui.CanonicalPath(path))
 	return ok && rel != "."
 }
@@ -223,7 +224,13 @@ func (c *Clone) Worktrees(ctx context.Context) (Worktrees, error) {
 	if err != nil {
 		return Worktrees{}, err
 	}
-	return ClassifyWorktrees(all, c.root, c.layout, c.cfg.MainBranchOrDefault()), nil
+	return c.Classify(all), nil
+}
+
+// Classify splits all, a `git worktree list` of this Clone the caller
+// already has, into its Managed worktrees and Main worktree.
+func (c *Clone) Classify(all []git.WorktreeInfo) Worktrees {
+	return ClassifyWorktrees(all, c.root, c.layout, c.cfg.MainBranchOrDefault())
 }
 
 // ManagedWorktrees lists the Clone's Managed worktrees (see
