@@ -39,7 +39,7 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 	ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 
-	clone, err := project.Open(ctx, projectRoot, project.Options{})
+	clone, err := project.OpenAt(ctx, projectRoot, project.Options{})
 	if err != nil {
 		return err
 	}
