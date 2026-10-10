@@ -126,7 +126,7 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	switch {
 	case !resolved.IsCheckoutLayout():
 		c.layout = BareLayout
-	case insideRoot(root, c.worktrees):
+	case InsideRoot(root, c.worktrees):
 		c.layout = InRepoLayout
 	default:
 		c.layout = CheckoutLayout
@@ -134,8 +134,9 @@ func Resolve(ctx context.Context, root string, cfg *config.Config, opts Options)
 	return c, nil
 }
 
-// insideRoot reports whether path lies strictly inside root.
-func insideRoot(root, path string) bool {
+// InsideRoot reports whether path lies strictly inside root, comparing
+// their canonical (symlink-resolved) spellings.
+func InsideRoot(root, path string) bool {
 	rel, ok := ui.RelWithin(ui.CanonicalPath(root), ui.CanonicalPath(path))
 	return ok && rel != "."
 }

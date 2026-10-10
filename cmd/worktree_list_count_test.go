@@ -75,14 +75,18 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 		name string
 		cmd  func() *cobra.Command
 		args []string
+		// reports means the command fails on this fixture's findings.
+		reports bool
 	}{
-		{"run", newRunCmd, []string{"noop"}},
-		{"apply", newApplyCmd, []string{"feature"}},
-		{"apply --all", func() *cobra.Command {
+		{name: "run", cmd: newRunCmd, args: []string{"noop"}},
+		{name: "apply", cmd: newApplyCmd, args: []string{"feature"}},
+		{name: "apply --all", cmd: func() *cobra.Command {
 			c := newApplyCmd()
 			_ = c.Flags().Set("all", "true")
 			return c
-		}, nil},
+		}},
+		{name: "repair", cmd: newRepairCmd},
+		{name: "doctor", cmd: newDoctorCmd, reports: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -90,7 +94,7 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 			count := spyGit(t)
 			command := tt.cmd()
 			command.SetContext(context.Background())
-			if err := command.RunE(command, tt.args); err != nil {
+			if err := command.RunE(command, tt.args); err != nil && !tt.reports {
 				t.Fatal(err)
 			}
 			if n := count(); n != 1 {

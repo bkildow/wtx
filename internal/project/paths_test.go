@@ -138,10 +138,37 @@ func TestConfigPaths(t *testing.T) {
 	if got, want := HomeConfigPaths("proj"), (ConfigPaths{"~/.wtx/proj/worktrees", "~/.wtx/proj/shared", "~/.wtx/proj/bin"}); got != want {
 		t.Errorf("HomeConfigPaths = %+v, want %+v", got, want)
 	}
+	cloneDir := filepath.FromSlash("/home/u/.wtx/proj")
+	if got, want := ClonePaths(cloneDir), (ConfigPaths{filepath.Join(cloneDir, "worktrees"), filepath.Join(cloneDir, "shared"), filepath.ToSlash(filepath.Join(cloneDir, "bin"))}); got != want {
+		t.Errorf("ClonePaths = %+v, want %+v", got, want)
+	}
 	if got, want := InRepoConfigPaths(), (ConfigPaths{".worktrees", ".worktrees/shared", ".worktrees/bin"}); got != want {
 		t.Errorf("InRepoConfigPaths = %+v, want %+v", got, want)
 	}
 	if got := BinFor("/a/b/shared"); got != "/a/b/bin" {
 		t.Errorf("BinFor = %q", got)
+	}
+}
+
+func TestInsideRoot(t *testing.T) {
+	root := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		path string
+		want bool
+	}{
+		{root, false},
+		{filepath.Join(root, ".worktrees", "shared"), true},
+		{filepath.Join(link, ".worktrees"), true},
+		{filepath.Dir(root), false},
+		{root + "-sibling", false},
+	}
+	for _, tt := range tests {
+		if got := InsideRoot(root, tt.path); got != tt.want {
+			t.Errorf("InsideRoot(%q, %q) = %v, want %v", root, tt.path, got, tt.want)
+		}
 	}
 }

@@ -84,8 +84,8 @@ func ExpandOrJoin(projectRoot, p string) string {
 	return filepath.Join(projectRoot, p)
 }
 
-// ConfigPaths holds the .worktree.yml spellings of a project's worktree, shared
-// and bin directories.
+// ConfigPaths holds a project's worktree, shared and bin directories: their
+// .worktree.yml spellings, or expanded paths from ClonePaths.
 type ConfigPaths struct {
 	WorktreeDir string
 	SharedDir   string
@@ -95,8 +95,14 @@ type ConfigPaths struct {
 // HomeConfigPaths are the config paths of a Clone kept in its Clone dir
 // ~/.wtx/<name>/, spelled with a literal ~ so .worktree.yml stays portable.
 func HomeConfigPaths(name string) ConfigPaths {
-	dir := wtxHomePrefix + "/" + name
-	return newConfigPaths(dir+"/worktrees", dir+"/shared")
+	p := ClonePaths(filepath.FromSlash(wtxHomePrefix + "/" + name))
+	return newConfigPaths(filepath.ToSlash(p.WorktreeDir), filepath.ToSlash(p.SharedDir))
+}
+
+// ClonePaths are the paths HomeConfigPaths spells, inside cloneDir, an
+// expanded Clone dir.
+func ClonePaths(cloneDir string) ConfigPaths {
+	return newConfigPaths(filepath.Join(cloneDir, "worktrees"), filepath.Join(cloneDir, "shared"))
 }
 
 // InRepoConfigPaths are the config paths of an In-repo layout: .worktrees/

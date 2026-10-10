@@ -11,7 +11,6 @@ import (
 	"sort"
 
 	"github.com/bkildow/wtx/internal/config"
-	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 )
@@ -93,9 +92,6 @@ type Options struct {
 
 type inspection struct {
 	report       Report
-	root         string
-	cfg          *config.Config
-	runner       *git.Runner
 	repairs      []repair
 	guards       []snapshot
 	seenSettings map[string]bool
@@ -110,7 +106,8 @@ type inspection struct {
 	// worktree_dir and the shared/bin parent, e.g. ~/.wtx/<name>), resolved.
 	managedDirs []string
 	paths       ui.PathDisplay // displays paths relative to root
-	// clone is the resolved Clone; cfg is its resolved config.
+	// clone is the resolved Clone. Its Root is canonical (symlinks
+	// resolved), so canonical worktree paths compare equal to it.
 	clone *project.Clone
 }
 
@@ -145,8 +142,8 @@ func Run(ctx context.Context, opts Options) Report {
 			}
 		}
 		// The working directory may have moved with a worktree.
-		if s.root != "" {
-			opts.StartDir = s.root
+		if s.clone != nil {
+			opts.StartDir = s.clone.Root()
 		}
 		s = inspect(ctx, opts)
 		s.recheck(ctx, repairs, outcomes)
@@ -259,31 +256,30 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	if err == nil {
 		start, err = filepath.Abs(start)
 	}
+	var root string
 	if err == nil {
-		s.root, err = project.FindRoot(start)
+		root, err = project.FindRoot(start)
 	}
 	if err == nil {
-		s.root, err = filepath.EvalSymlinks(s.root)
+		root, err = filepath.EvalSymlinks(root)
 	}
 	where := start
 	var guard snapshot
 	if err == nil {
-		where = filepath.Join(s.root, config.ConfigFileName)
+		where = filepath.Join(root, config.ConfigFileName)
 		guard, err = takeSnapshot(where)
 	}
+	var clone *project.Clone
 	if err == nil {
-		s.cfg, err = config.Load(s.root)
+		// Inspection only queries git, so the Clone is never dry-run;
+		// opts.DryRun only keeps Run from applying repairs.
+		clone, err = project.OpenAt(ctx, root, project.Options{Quiet: true})
 	}
 	if err == nil {
 		err = guard.unchanged()
 	}
-	if err == nil {
-		// Inspection only queries git, so the Clone is never dry-run;
-		// opts.DryRun only keeps Run from applying repairs.
-		s.clone, err = project.Resolve(ctx, s.root, s.cfg, project.Options{Quiet: true})
-	}
 	if errors.Is(err, project.ErrPathExpansion) {
-		s.report.Root = s.root
+		s.report.Root = root
 		s.add("project.config", OK, where, "Project configuration is readable.", "")
 		s.add("home.paths", Fail, where, "Configured directory cannot be expanded: "+err.Error()+".", "Set HOME (or WTX_HOME for ~/.wtx paths), or edit worktree_dir and shared_dir in "+config.ConfigFileName+".")
 		s.blocked(configChecks[1:]...)
@@ -294,43 +290,44 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.blocked(configChecks...)
 		return s
 	}
-	s.cfg = s.clone.Config()
+	s.clone = clone
 	s.guards = append(s.guards, guard)
-	s.report.Root = s.root
-	s.paths = ui.NewPathDisplay(s.root)
-	gitDir := s.clone.GitDir()
+	s.report.Root = root
+	s.paths = ui.NewPathDisplay(root)
+	gitDir := clone.GitDir()
 	s.gitDir = ui.CanonicalPath(gitDir)
 	s.backups = filepath.Join(gitDir, backupDirName)
-	defer s.scanLimitations(s.root)
+	defer s.scanLimitations(root)
 	s.add("project.config", "ok", where, "Project configuration is readable.", "")
 	s.homePaths()
 	s.homeMarker()
 	s.homeOrphans()
 	s.scripts()
 	s.disk()
-	s.teardown(s.root)
-	s.claudeSettings(s.root)
+	s.teardown(root)
+	s.claudeSettings(root)
 	s.scanProject()
-	s.runner = s.clone.Runner()
+	runner := clone.Runner()
 	s.gitVersion(ctx)
-	if _, err := s.runner.Query(ctx, "rev-parse", "--git-dir"); err != nil {
+	if _, err := runner.Query(ctx, "rev-parse", "--git-dir"); err != nil {
 		s.problem("project.git", gitDir, err)
 		s.blocked(gitChecks...)
 		return s
 	}
 	s.add("project.git", "ok", gitDir, "Git directory is usable.", "")
 	s.exclusions()
-	worktrees, err := s.runner.WorktreeList(ctx)
+	all, err := runner.WorktreeList(ctx)
 	if err != nil {
 		s.problem("git.worktrees", gitDir, err)
 		s.blocked(worktreeChecks...)
 		return s
 	}
-	s.homeLayout(worktrees)
-	s.compatibility(ctx, worktrees)
-	s.branches(ctx, worktrees)
-	facts := s.prefetch(ctx, worktrees)
-	for _, wt := range worktrees {
+	wts := project.ClassifyWorktrees(all, root, clone.Layout(), clone.Config().MainBranchOrDefault())
+	s.homeLayout(wts.Managed)
+	s.compatibility(ctx, all)
+	s.branches(ctx, all)
+	facts := s.prefetch(ctx, all, wts.Managed)
+	for _, wt := range all {
 		if wt.Bare {
 			continue
 		}
@@ -371,7 +368,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		if f == nil {
 			continue // directory appeared after prefetch
 		}
-		if ui.CanonicalPath(wt.Path) != s.root {
+		if f.managed {
 			s.shared(wt.Path, f)
 			s.teardown(wt.Path)
 		}
@@ -379,7 +376,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.scanTracked(wt.Path, f)
 	}
 	if opts.MigrateHome {
-		s.planMigration(ctx, worktrees, opts.HomeName)
+		s.planMigration(ctx, wts.Managed, opts.HomeName)
 	}
 	return s
 }
@@ -387,7 +384,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 // managed reports whether path lies in the project root or in a wtx-managed
 // directory outside it, such as an expanded ~/.wtx worktree_dir.
 func (s *inspection) managed(path string) bool {
-	if ui.Within(s.root, path) {
+	if ui.Within(s.clone.Root(), path) {
 		return true
 	}
 	for _, dir := range s.managedDirs {

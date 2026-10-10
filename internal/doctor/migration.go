@@ -128,18 +128,18 @@ func (s *inspection) claudeSettings(dir string) {
 }
 
 func (s *inspection) scanProject() {
-	s.add("migration.scan", "ok", s.root, "Bounded candidate scan: configuration, configured scripts, bin/, shared text, root agent instructions, and tracked worktree files only. Skips Git internals, dependency/build directories, symlinks, binary/non-UTF-8 files, and files over 1 MiB; arbitrary shell includes are not followed.", "")
+	s.add("migration.scan", "ok", s.clone.Root(), "Bounded candidate scan: configuration, configured scripts, bin/, shared text, root agent instructions, and tracked worktree files only. Skips Git internals, dependency/build directories, symlinks, binary/non-UTF-8 files, and files over 1 MiB; arbitrary shell includes are not followed.", "")
 	for _, name := range []string{config.ConfigFileName, "AGENTS.md", "CLAUDE.md"} {
-		s.scanFile(filepath.Join(s.root, name), scopeProject)
+		s.scanFile(filepath.Join(s.clone.Root(), name), scopeProject)
 	}
-	for _, path := range s.cfg.Scripts {
+	for _, path := range s.clone.Config().Scripts {
 		if !filepath.IsAbs(path) {
-			path = filepath.Join(s.root, path)
+			path = filepath.Join(s.clone.Root(), path)
 		}
 		s.scanFile(path, scopeProject)
 	}
-	s.scanDir(filepath.Join(s.root, "bin"), false)
-	if bin := s.clone.BinDir(); bin != filepath.Join(s.root, "bin") {
+	s.scanDir(filepath.Join(s.clone.Root(), "bin"), false)
+	if bin := s.clone.BinDir(); bin != filepath.Join(s.clone.Root(), "bin") {
 		s.scanDir(bin, false)
 	}
 	s.scanDir(s.clone.SharedDir(), true)

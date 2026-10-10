@@ -54,7 +54,7 @@ func (s *inspection) homePaths() {
 // it cannot widen the project to the whole home directory.
 func (s *inspection) addManaged(dir string) {
 	dir = ui.CanonicalPath(dir)
-	if ui.Within(s.root, dir) || ui.Within(dir, s.root) {
+	if ui.Within(s.clone.Root(), dir) || ui.Within(dir, s.clone.Root()) {
 		return
 	}
 	s.managedDirs = append(s.managedDirs, dir)
@@ -94,7 +94,7 @@ func (s *inspection) homeMarker() {
 			s.add("home.marker", OK, path, "Project directory does not exist yet; wtx creates it with the first worktree.", "")
 			continue
 		}
-		content, err := project.MarkerContent(s.root)
+		content, err := project.MarkerContent(s.clone.Root())
 		if err != nil {
 			s.problem("home.marker", path, err)
 			continue
@@ -107,7 +107,7 @@ func (s *inspection) homeMarker() {
 		case err != nil:
 			i := s.add("home.marker", Warn, path, "Owner marker is unreadable: "+err.Error()+".", "Run wtx doctor --fix to rewrite it (the old file is backed up).")
 			s.planMarker(i, path, content)
-		case project.SamePath(m.Root, s.root):
+		case project.SamePath(m.Root, s.clone.Root()):
 			s.add("home.marker", OK, path, "Owner marker names this project"+detail+".", "")
 		case config.Exists(m.Root):
 			s.add("home.marker", Warn, path, "Directory belongs to another wtx project: "+m.Root+detail+".", otherRemedy)
@@ -149,7 +149,7 @@ func (s *inspection) homeOrphans() {
 		}
 		dir := filepath.Join(home, entry.Name())
 		m, err := project.ReadMarker(dir)
-		if err != nil || project.SamePath(m.Root, s.root) || config.Exists(m.Root) {
+		if err != nil || project.SamePath(m.Root, s.clone.Root()) || config.Exists(m.Root) {
 			continue // not a wtx directory, ours, or owned by a live project
 		}
 		found = true
@@ -161,8 +161,9 @@ func (s *inspection) homeOrphans() {
 }
 
 // homeLayout hints at the migration for in-repo projects and warns about
-// worktrees left in the legacy in-repo directory after worktree_dir moved.
-func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
+// Managed worktrees left in the legacy in-repo directory after worktree_dir
+// moved.
+func (s *inspection) homeLayout(managed []git.WorktreeInfo) {
 	wtDir := ui.CanonicalPath(s.clone.WorktreesDir())
 	initLayout := s.clone.Layout() != project.BareLayout
 	if s.clone.Layout() == project.InRepoLayout {
@@ -172,11 +173,10 @@ func (s *inspection) homeLayout(worktrees []git.WorktreeInfo) {
 	// The in-repo directory written by wtx init --in-repo (and by wtx init
 	// before ~/.wtx became the default).
 	legacyDir := project.InRepoConfigPaths().WorktreeDir
-	legacy := filepath.Join(s.root, legacyDir)
+	legacy := filepath.Join(s.clone.Root(), legacyDir)
 	leftovers := 0
-	for _, wt := range worktrees {
-		path := ui.CanonicalPath(wt.Path)
-		if wt.Bare || path == s.root || !ui.Within(legacy, path) {
+	for _, wt := range managed {
+		if !ui.Within(legacy, ui.CanonicalPath(wt.Path)) {
 			continue
 		}
 		leftovers++

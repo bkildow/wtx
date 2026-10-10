@@ -35,6 +35,7 @@ type trackedFile struct {
 }
 
 type worktreeFacts struct {
+	managed      bool      // a Managed worktree, which gets shared files
 	copies       collected // shared.copy findings
 	danglingErrs collected // shared.symlink walk failures
 	dangling     []string  // links into the shared symlink tree whose targets are gone
@@ -90,14 +91,15 @@ func (s *inspection) listSharedCopies() sharedCopies {
 	return out
 }
 
-// prefetch gathers facts for every worktree concurrently, keyed by path.
-func (s *inspection) prefetch(ctx context.Context, worktrees []git.WorktreeInfo) map[string]*worktreeFacts {
+// prefetch gathers facts for every worktree in all concurrently, keyed by
+// path. Only the managed worktrees get shared-file facts.
+func (s *inspection) prefetch(ctx context.Context, all, managed []git.WorktreeInfo) map[string]*worktreeFacts {
 	copies := s.listSharedCopies()
 	symlinkRoot := ui.CanonicalPath(filepath.Join(s.clone.SharedDir(), "symlink"))
 	linkDirs := symlinkDirs(symlinkRoot)
 	facts := map[string]*worktreeFacts{}
 	var paths []string
-	for _, wt := range worktrees {
+	for _, wt := range all {
 		if wt.Bare || wt.Prunable || facts[wt.Path] != nil {
 			continue
 		}
@@ -106,6 +108,11 @@ func (s *inspection) prefetch(ctx context.Context, worktrees []git.WorktreeInfo)
 		}
 		facts[wt.Path] = &worktreeFacts{}
 		paths = append(paths, wt.Path)
+	}
+	for _, wt := range managed {
+		if f := facts[wt.Path]; f != nil {
+			f.managed = true
+		}
 	}
 	var wg sync.WaitGroup
 	// Directory reads contend in the kernel; more workers than this made
@@ -116,7 +123,7 @@ func (s *inspection) prefetch(ctx context.Context, worktrees []git.WorktreeInfo)
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			if ui.CanonicalPath(path) != s.root {
+			if f.managed {
 				f.copies = checkSharedCopies(path, copies)
 				f.dangling, f.danglingErrs = findDanglingLinks(path, symlinkRoot, linkDirs)
 			}
