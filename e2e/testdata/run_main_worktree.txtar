@@ -1,0 +1,48 @@
+[!exec:git] skip 'git not available'
+
+# In a Checkout layout (wtx init) the Main worktree is the Project root,
+# both from the root and from a linked worktree.
+exec git init -b master myrepo
+cd myrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init
+cp $WORK/probe.sh $WTX_HOME/myrepo/bin/probe
+chmod 755 $WTX_HOME/myrepo/bin/probe
+
+exec wtx run probe
+grep 'mainpath='$WORK'/myrepo$' probe-out.txt
+grep 'mainbranch=master$' probe-out.txt
+rm probe-out.txt
+
+exec wtx add --skip-setup feature
+cd $WTX_HOME/myrepo/worktrees/feature
+exec wtx run probe
+grep 'wtpath='$WTX_HOME'/myrepo/worktrees/feature$' probe-out.txt
+grep 'mainpath='$WORK'/myrepo$' probe-out.txt
+
+# In an In-repo layout (wtx init --in-repo) it is the Project root too.
+cd $WORK
+exec git init -b master inrepo
+cd inrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init --in-repo
+cp $WORK/probe.sh .worktrees/bin/probe
+chmod 755 .worktrees/bin/probe
+
+exec wtx run probe
+grep 'mainpath='$WORK'/inrepo$' probe-out.txt
+rm probe-out.txt
+
+exec wtx add --skip-setup feature
+cd .worktrees/feature
+exec wtx run probe
+grep 'wtpath='$WORK'/inrepo/.worktrees/feature$' probe-out.txt
+grep 'mainpath='$WORK'/inrepo$' probe-out.txt
+
+-- probe.sh --
+#!/bin/sh
+{
+  echo "wtpath=$WTX_WORKTREE_PATH"
+  echo "mainbranch=$WTX_MAIN_BRANCH"
+  echo "mainpath=$WTX_MAIN_WORKTREE_PATH"
+} > probe-out.txt

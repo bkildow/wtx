@@ -307,15 +307,13 @@ func ApplySymlinks(projectRoot, worktreePath string, cfg *config.Config, dryRun 
 		// symlink), symlink individual files inside instead of replacing the
 		// whole directory. This preserves worktree-local files like those in
 		// .claude/ while still symlinking shared config files.
-		if entry.IsDir() {
-			if info, err := os.Lstat(link); err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-				n, err := symlinkDirContents(target, link, worktreePath)
-				count += n
-				if err != nil {
-					return count, err
-				}
-				continue
+		if entry.IsDir() && isRealDir(link) {
+			n, err := symlinkDirContents(target, link, worktreePath)
+			count += n
+			if err != nil {
+				return count, err
 			}
+			continue
 		}
 
 		// Remove existing file/symlink at destination (error ignored; Symlink will fail if needed)
@@ -331,6 +329,27 @@ func ApplySymlinks(projectRoot, worktreePath string, cfg *config.Config, dryRun 
 	}
 
 	return count, nil
+}
+
+// isRealDir reports whether path is a directory and not a symlink to one.
+func isRealDir(path string) bool {
+	info, err := os.Lstat(path)
+	return err == nil && info.IsDir()
+}
+
+// PlannedSymlink returns the link ApplySymlinks makes in worktreePath for
+// rel, a file below symlinkDir that does not exist yet: the first entry along
+// rel that the worktree has no real directory for, or rel itself.
+func PlannedSymlink(symlinkDir, worktreePath, rel string) (link, target string) {
+	sub := ""
+	for _, part := range strings.Split(filepath.Clean(rel), string(filepath.Separator)) {
+		sub = filepath.Join(sub, part)
+		link = filepath.Join(worktreePath, sub)
+		if !isRealDir(link) {
+			break
+		}
+	}
+	return link, filepath.Join(symlinkDir, sub)
 }
 
 // symlinkDirContents symlinks individual entries from srcDir into destDir,
@@ -351,15 +370,13 @@ func symlinkDirContents(srcDir, destDir, worktreePath string) (int, error) {
 		dest := filepath.Join(destDir, entry.Name())
 
 		// Recurse if both source and destination are real directories.
-		if entry.IsDir() {
-			if info, err := os.Lstat(dest); err == nil && info.IsDir() && info.Mode()&os.ModeSymlink == 0 {
-				n, err := symlinkDirContents(src, dest, worktreePath)
-				count += n
-				if err != nil {
-					return count, err
-				}
-				continue
+		if entry.IsDir() && isRealDir(dest) {
+			n, err := symlinkDirContents(src, dest, worktreePath)
+			count += n
+			if err != nil {
+				return count, err
 			}
+			continue
 		}
 
 		_ = os.Remove(dest)

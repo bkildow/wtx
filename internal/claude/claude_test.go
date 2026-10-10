@@ -47,7 +47,7 @@ func TestConfigureHooks_newFile(t *testing.T) {
 
 func TestConfigureHooks_preservesExistingSettings(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, settingsFile)
+	settingsPath := filepath.Join(dir, SettingsFile)
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -176,7 +176,7 @@ func TestRemoveHooks(t *testing.T) {
 
 func TestRemoveHooks_preservesOtherHooks(t *testing.T) {
 	dir := t.TempDir()
-	settingsPath := filepath.Join(dir, settingsFile)
+	settingsPath := filepath.Join(dir, SettingsFile)
 	if err := os.MkdirAll(filepath.Dir(settingsPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestRemoveHooks_preservesOtherHooks(t *testing.T) {
 
 func readSettingsFile(t *testing.T, projectRoot string) map[string]any {
 	t.Helper()
-	path := filepath.Join(projectRoot, settingsFile)
+	path := filepath.Join(projectRoot, SettingsFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read settings: %v", err)
@@ -231,7 +231,7 @@ func TestConfigureHooks_migratesAndPreservesCustomHooks(t *testing.T) {
 		HookWorktreeRemove: buildHooksConfig("wt")[HookWorktreeRemove],
 		"PreToolUse":       []any{map[string]any{"matcher": "Bash", "hooks": []any{custom}}},
 	}}
-	if err := writeSettings(filepath.Join(dir, settingsFile), settings); err != nil {
+	if err := writeSettings(filepath.Join(dir, SettingsFile), settings); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
@@ -265,7 +265,7 @@ func TestConfigureHooks_preservesMalformedSettings(t *testing.T) {
 	for _, data := range []string{`{"hooks":[]}`, `{"hooks":{"WorktreeCreate":{}}}`, `{broken`} {
 		t.Run(data, func(t *testing.T) {
 			dir := t.TempDir()
-			path := filepath.Join(dir, settingsFile)
+			path := filepath.Join(dir, SettingsFile)
 			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 				t.Fatal(err)
 			}

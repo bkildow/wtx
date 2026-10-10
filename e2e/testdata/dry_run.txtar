@@ -10,14 +10,23 @@ exec wtx add --dry-run --skip-setup main
 stderr 'dry-run'
 ! exists worktrees/main
 
-# claude init --dry-run writes no settings and applies nothing to worktrees
+# claude init --dry-run previews the settings file and the symlink a real run
+# creates in each worktree, but writes no settings and applies nothing
 exec wtx add --skip-setup main
 cp $WORK/copiedfile.txt shared/copy/config.json
 exec wtx claude init --dry-run
-stderr 'dry-run'
-! exists shared/symlink/.claude/settings.local.json
-! exists worktrees/main/.claude/settings.local.json
+stderr '\[dry-run\] write .*/shared/symlink/\.claude/settings\.local\.json$'
+stderr '\[dry-run\] symlink .*/worktrees/main/\.claude -> .*/shared/symlink/\.claude$'
+! exists shared/symlink/.claude
+! exists worktrees/main/.claude
 ! exists worktrees/main/config.json
+
+# A worktree with its own .claude directory gets the settings file linked
+# into it instead
+mkdir worktrees/main/.claude
+exec wtx claude init --dry-run
+stderr '\[dry-run\] symlink .*/worktrees/main/\.claude/settings\.local\.json -> .*/shared/symlink/\.claude/settings\.local\.json$'
+! exists worktrees/main/.claude/settings.local.json
 
 -- copiedfile.txt --
 {"key": "value"}

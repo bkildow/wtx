@@ -390,3 +390,38 @@ func TestApplyCopyNonTemplateFilesCopiedAsIs(t *testing.T) {
 		t.Errorf("non-template file was modified: got %q, want %q", got, content)
 	}
 }
+
+func TestPlannedSymlink(t *testing.T) {
+	symlinkDir := filepath.Join(t.TempDir(), "symlink")
+	rel := filepath.Join(".claude", "settings.local.json")
+	tests := []struct {
+		name     string
+		setup    func(t *testing.T, wt string)
+		wantLink string // relative to the worktree
+	}{
+		{"no directory in the worktree", func(*testing.T, string) {}, ".claude"},
+		{"own directory in the worktree", func(t *testing.T, wt string) {
+			if err := os.Mkdir(filepath.Join(wt, ".claude"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, rel},
+		{"symlinked directory in the worktree", func(t *testing.T, wt string) {
+			if err := os.Symlink(t.TempDir(), filepath.Join(wt, ".claude")); err != nil {
+				t.Fatal(err)
+			}
+		}, ".claude"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wt := t.TempDir()
+			tt.setup(t, wt)
+			link, target := PlannedSymlink(symlinkDir, wt, rel)
+			if want := filepath.Join(wt, tt.wantLink); link != want {
+				t.Errorf("link = %q, want %q", link, want)
+			}
+			if want := filepath.Join(symlinkDir, tt.wantLink); target != want {
+				t.Errorf("target = %q, want %q", target, want)
+			}
+		})
+	}
+}

@@ -111,12 +111,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	hasLocal, err := runner.HasLocalBranch(ctx, branch)
-	if err != nil {
-		return err
-	}
-
-	exists := hasRemote || hasLocal
+	exists := hasRemote || runner.HasLocalBranch(ctx, branch)
 	startPoint, err := newBranchStartPoint(ctx, runner, cfg, branch, baseBranch, exists)
 	if err != nil {
 		return err

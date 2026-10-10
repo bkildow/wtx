@@ -13,7 +13,9 @@ import (
 	"strings"
 )
 
-const settingsFile = ".claude/settings.local.json"
+// SettingsFile is where the hooks live, relative to the directory
+// ConfigureHooks writes into.
+const SettingsFile = ".claude/settings.local.json"
 
 // ErrManualMigration marks recognized legacy hooks that cannot be rewritten
 // in place safely and need a manual edit.
@@ -125,7 +127,7 @@ const (
 // .claude/settings.local.json, deep-merging with any existing settings.
 // wtBinary is the command to invoke (e.g. "wtx" or "/opt/bin/wtx").
 func ConfigureHooks(projectRoot, wtBinary string) error {
-	path := filepath.Join(projectRoot, settingsFile)
+	path := filepath.Join(projectRoot, SettingsFile)
 
 	existing, err := readSettings(path)
 	if err != nil {
@@ -168,7 +170,7 @@ func ConfigureHooks(projectRoot, wtBinary string) error {
 
 // IsHooksConfigured checks whether both managed wt/wtx hooks are present.
 func IsHooksConfigured(projectRoot string) bool {
-	path := filepath.Join(projectRoot, settingsFile)
+	path := filepath.Join(projectRoot, SettingsFile)
 
 	settings, err := readSettings(path)
 	if err != nil {
@@ -208,7 +210,7 @@ func IsHooksConfigured(projectRoot string) bool {
 // RemoveHooks removes recognized wt/wtx worktree hooks from
 // .claude/settings.local.json, preserving custom hooks and other settings.
 func RemoveHooks(projectRoot string) error {
-	path := filepath.Join(projectRoot, settingsFile)
+	path := filepath.Join(projectRoot, SettingsFile)
 
 	settings, err := readSettings(path)
 	if err != nil {

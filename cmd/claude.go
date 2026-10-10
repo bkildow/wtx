@@ -105,9 +105,10 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		ui.Info("Claude Code hooks are already configured, updating...")
 	}
 
+	settingsPath := filepath.Join(sharedTarget, claude.SettingsFile)
 	dryRun := IsDryRun()
 	if dryRun {
-		ui.DryRunNotice("write " + filepath.Join(sharedTarget, ".claude", "settings.local.json"))
+		ui.DryRunNotice("write " + settingsPath)
 	} else {
 		if err := claude.ConfigureHooks(sharedTarget, wtBinary); err != nil {
 			return fmt.Errorf("failed to configure hooks: %w", err)
@@ -123,10 +124,21 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		ui.Warning("Could not list worktrees: " + err.Error())
 		return nil
 	}
+	// A dry run writes no settings, so Apply cannot preview the link to a
+	// .claude directory that shared/symlink does not hold yet.
+	previewLink := false
+	if dryRun {
+		_, err := os.Lstat(filepath.Dir(settingsPath))
+		previewLink = os.IsNotExist(err)
+	}
 	for _, wt := range filtered {
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))
+		}
+		if previewLink {
+			link, target := project.PlannedSymlink(sharedTarget, wt.Path, claude.SettingsFile)
+			ui.DryRunNotice(fmt.Sprintf("symlink %s -> %s", link, target))
 		}
 	}
 	if dryRun {
@@ -184,11 +196,7 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 	if err != nil {
 		return fmt.Errorf("branch check failed: %w", err)
 	}
-	hasLocal, err := runner.HasLocalBranch(ctx, branch)
-	if err != nil {
-		return fmt.Errorf("branch check failed: %w", err)
-	}
-	exists := hasRemote || hasLocal
+	exists := hasRemote || runner.HasLocalBranch(ctx, branch)
 	startPoint, err := newBranchStartPoint(ctx, runner, cfg, branch, "", exists)
 	if err != nil {
 		return err

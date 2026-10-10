@@ -267,18 +267,10 @@ func TestDryRunExecutesQueries(t *testing.T) {
 		t.Error("dry-run IsBranchMerged(unmerged, main) = true, want false")
 	}
 
-	hasLocal, err := runner.HasLocalBranch(ctx, "merged")
-	if err != nil {
-		t.Fatalf("dry-run HasLocalBranch returned error: %v", err)
-	}
-	if !hasLocal {
+	if !runner.HasLocalBranch(ctx, "merged") {
 		t.Error("dry-run HasLocalBranch(merged) = false, want true")
 	}
-	absent, err := runner.HasLocalBranch(ctx, "no-such-branch")
-	if err != nil {
-		t.Fatalf("dry-run HasLocalBranch returned error: %v", err)
-	}
-	if absent {
+	if runner.HasLocalBranch(ctx, "no-such-branch") {
 		t.Error("dry-run HasLocalBranch(no-such-branch) = true, want false")
 	}
 

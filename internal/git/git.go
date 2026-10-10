@@ -35,7 +35,7 @@ type Git interface {
 	Fetch(ctx context.Context, remote string) error
 	ListRemoteBranches(ctx context.Context) ([]string, error)
 	HasRemoteBranch(ctx context.Context, branch string) (bool, error)
-	HasLocalBranch(ctx context.Context, branch string) (bool, error)
+	HasLocalBranch(ctx context.Context, branch string) bool
 	WorktreeAdd(ctx context.Context, path, branch string) error
 	WorktreeAddNew(ctx context.Context, path, branch, baseBranch string) error
 	WorktreeRemove(ctx context.Context, path string, force bool) error
@@ -265,12 +265,11 @@ func (r *Runner) HasRemoteBranch(ctx context.Context, branch string) (bool, erro
 	return false, nil
 }
 
-func (r *Runner) HasLocalBranch(ctx context.Context, branch string) (bool, error) {
+// HasLocalBranch reports whether refs/heads/<branch> exists; a failed lookup
+// means there is no such branch.
+func (r *Runner) HasLocalBranch(ctx context.Context, branch string) bool {
 	_, err := r.Query(ctx, "rev-parse", "--verify", "refs/heads/"+branch)
-	if err != nil {
-		return false, nil
-	}
-	return true, nil
+	return err == nil
 }
 
 // Version returns the local git version as [major, minor, patch].

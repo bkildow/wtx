@@ -20,7 +20,7 @@ func TestBranchDeleteNotMerged(t *testing.T) {
 	if strings.Contains(err.Error(), "hint:") {
 		t.Errorf("BranchDelete error leaks git's hint lines: %q", err)
 	}
-	if ok, _ := r.runner().HasLocalBranch(context.Background(), "feature"); !ok {
+	if !r.runner().HasLocalBranch(context.Background(), "feature") {
 		t.Error("unmerged branch was deleted")
 	}
 }
@@ -32,7 +32,7 @@ func TestBranchDeleteMerged(t *testing.T) {
 	if err := r.runner().BranchDelete(context.Background(), "feature", false); err != nil {
 		t.Fatalf("BranchDelete on a merged branch: %v", err)
 	}
-	if ok, _ := r.runner().HasLocalBranch(context.Background(), "feature"); ok {
+	if r.runner().HasLocalBranch(context.Background(), "feature") {
 		t.Error("merged branch still exists")
 	}
 }
