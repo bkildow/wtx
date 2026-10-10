@@ -19,6 +19,14 @@ import (
 // "feat/x" (nested) carrying managed shared symlinks.
 func inRepoFixture(t *testing.T) (root, gitDir, wtxHome string) {
 	t.Helper()
+	return inRepoFixtureAt(t, ".worktrees", ".worktrees/shared")
+}
+
+// inRepoFixtureAt is inRepoFixture with the worktree and shared directories
+// at wtDir and sharedDir (relative to the repository), and the refresh
+// script in the bin directory next to sharedDir.
+func inRepoFixtureAt(t *testing.T, wtDir, sharedDir string) (root, gitDir, wtxHome string) {
+	t.Helper()
 	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
 	wtxHome = ui.CanonicalPath(t.TempDir())
 	t.Setenv("WTX_HOME", wtxHome)
@@ -27,23 +35,25 @@ func inRepoFixture(t *testing.T) (root, gitDir, wtxHome string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.WorktreeDir = ".worktrees"
-	cfg.SharedDir = ".worktrees/shared"
-	cfg.Scripts = map[string]string{"check": "bin/check", "refresh": ".worktrees/bin/refresh"}
+	cfg.WorktreeDir = wtDir
+	cfg.SharedDir = sharedDir
+	bin := filepath.ToSlash(project.BinFor(sharedDir))
+	cfg.Scripts = map[string]string{"check": "bin/check", "refresh": bin + "/refresh"}
 	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(root, ".worktrees", "shared", "copy", ".env"), "SECRET=1\n", 0o600)
-	write(t, filepath.Join(root, ".worktrees", "shared", "symlink", "notes.txt"), "shared notes\n", 0o644)
-	write(t, filepath.Join(root, ".worktrees", "bin", "refresh"), "#!/bin/sh\nexit 0\n", 0o755)
+	shared := filepath.Join(root, sharedDir)
+	write(t, filepath.Join(shared, "copy", ".env"), "SECRET=1\n", 0o600)
+	write(t, filepath.Join(shared, "symlink", "notes.txt"), "shared notes\n", 0o644)
+	write(t, filepath.Join(root, bin, "refresh"), "#!/bin/sh\nexit 0\n", 0o755)
 	for _, branch := range []string{"a", "feat/x"} {
-		wt := filepath.Join(root, ".worktrees", branch)
+		wt := filepath.Join(root, wtDir, branch)
 		gitRun(t, "--git-dir", gitDir, "worktree", "add", "-b", branch, wt)
-		if err := os.Symlink(filepath.Join(root, ".worktrees", "shared", "symlink", "notes.txt"), filepath.Join(wt, "notes.txt")); err != nil {
+		if err := os.Symlink(filepath.Join(shared, "symlink", "notes.txt"), filepath.Join(wt, "notes.txt")); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write(t, filepath.Join(root, ".worktrees", "a", "dirty.txt"), "uncommitted\n", 0o644)
+	write(t, filepath.Join(root, wtDir, "a", "dirty.txt"), "uncommitted\n", 0o644)
 	return root, gitDir, wtxHome
 }
 
@@ -271,29 +281,11 @@ func TestMigrateHomeLegacyLayout(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
 	}
-	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
-	wtxHome := ui.CanonicalPath(t.TempDir())
-	t.Setenv("WTX_HOME", wtxHome)
-	root, gitDir, _ := fixture(t, false)
+	root, _, wtxHome := inRepoFixtureAt(t, "worktrees", "shared")
 	ctx := context.Background()
 	home := filepath.Join(wtxHome, "proj")
-	cfg, err := config.Load(root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	cfg.WorktreeDir = "worktrees"
-	cfg.SharedDir = "shared"
-	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
-		t.Fatal(err)
-	}
 	gitRun(t, "-C", root, "add", "bin/check")
 	gitRun(t, "-C", root, "commit", "-m", "check script")
-	write(t, filepath.Join(root, "shared", "symlink", "notes.txt"), "shared notes\n", 0o644)
-	wt := filepath.Join(root, "worktrees", "feat", "x")
-	gitRun(t, "--git-dir", gitDir, "worktree", "add", "-b", "feat/x", wt)
-	if err := os.Symlink(filepath.Join(root, "shared", "symlink", "notes.txt"), filepath.Join(wt, "notes.txt")); err != nil {
-		t.Fatal(err)
-	}
 
 	r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
 	if f := finding(r, migrateID, filepath.Join(root, "bin")); f == nil || f.Severity != Warn || !strings.Contains(f.Remedy, "scripts entry") {
@@ -314,7 +306,7 @@ func TestMigrateHomeLegacyLayout(t *testing.T) {
 			t.Errorf("%s/ left in the repository", dir)
 		}
 	}
-	if !exists(filepath.Join(root, "bin", "check")) || exists(filepath.Join(home, "bin")) {
+	if !exists(filepath.Join(root, "bin", "check")) || !exists(filepath.Join(root, "bin", "refresh")) || exists(filepath.Join(home, "bin")) {
 		t.Error("project bin/ moved")
 	}
 	clone, err := project.Open(ctx, root, project.Options{})
@@ -322,7 +314,7 @@ func TestMigrateHomeLegacyLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := clone.Config()
-	if got.WorktreeDirSet() || got.SharedDirSet() || got.Scripts["check"] != "bin/check" {
+	if got.WorktreeDirSet() || got.SharedDirSet() || got.Scripts["check"] != "bin/check" || got.Scripts["refresh"] != "bin/refresh" {
 		t.Fatalf("config: %+v", got)
 	}
 }

@@ -92,8 +92,8 @@ a partial migration. In-repo clones are those set up with `wtx init --in-repo`
 both in the repository (`worktrees/` and `shared/`). A `bin/` outside
 `worktree_dir`, such as the repository-root `bin/` next to `shared/`, may belong
 to the project, so it stays and is reported; scripts that `wtx run` found
-there by name need a `scripts` entry afterwards. It cannot be combined with `--fix`, and bare/clone
-projects are skipped. Afterwards the old worktree directory can be dropped from
+there by name need a `scripts` entry afterwards. It cannot be combined with
+`--fix`, and bare/clone projects are skipped. Afterwards the old worktree directory can be dropped from
 `.gitignore`.
 
 Modified files receive unique `*.wtx-backup-*` backups under the Git directory's

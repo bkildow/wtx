@@ -42,12 +42,18 @@ type migration struct {
 	steps    []repair
 }
 
-// oldBin is the in-repo bin directory (next to oldShare), or "".
+// oldBin is the in-repo bin directory (next to oldShare) when it lies under
+// oldWT, or "". Elsewhere, such as the repository-root bin/ next to
+// shared_dir: shared (the layout wtx init wrote before --in-repo), it may
+// belong to the project and never moves.
 func (m *migration) oldBin() string {
-	if m.oldShare == "" {
+	if m.oldShare == "" || m.oldWT == "" {
 		return ""
 	}
-	return ui.CanonicalPath(project.BinFor(m.oldShare))
+	if bin := ui.CanonicalPath(project.BinFor(m.oldShare)); ui.Within(m.oldWT, bin) {
+		return bin
+	}
+	return ""
 }
 
 // inRepo reports whether p (canonical) lies strictly inside the repository.
@@ -93,10 +99,6 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		s.add(migrateID, Fail, cfgPath, "shared_dir is inside the repository but worktree_dir is not.", "Move the shared and bin directories manually and update shared_dir and scripts in "+config.ConfigFileName+".")
 		return
 	}
-	// bin/ is wtx's own only under worktree_dir. Elsewhere, such as the
-	// repository-root bin/ next to shared_dir: shared (the layout wtx init
-	// wrote before --in-repo), it may belong to the project and never moves.
-	ownBin := oldBin != "" && ui.Within(m.oldWT, oldBin)
 
 	// Destination: the ~/.wtx/<name> directory the config already names
 	// (re-run), else --name or the repository directory name.
@@ -158,18 +160,14 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	m.planName(ctx)
 	keepShare := m.planDir(ctx, "shared", m.oldShare, m.newShare)
 	// bin/ is resolved as a sibling of shared_dir, so it stays wherever shared/ stays.
-	keepBin := keepShare || !ownBin
-	switch {
-	case !ownBin:
-		if oldBin != "" && !noFiles(oldBin) {
-			s.addSubject(migrateID, oldBin, "bin", "The bin directory is outside worktree_dir and may belong to the project; it stays in the repository.", "Scripts that wtx run found there by name need a scripts entry in "+config.ConfigFileName+", or move them to "+ui.DisplayPath("", project.BinFor(m.newShare))+".")
-		}
-	case keepShare:
-		if exists(oldBin) {
-			s.addSubject(migrateID, oldBin, "bin", "The bin directory stays next to the shared directory, which stays in the repository.", "Untrack the shared files and rerun wtx doctor --migrate-home to move both.")
-		}
-	default:
+	keepBin := keepShare
+	if keepShare && oldBin != "" && exists(oldBin) {
+		s.addSubject(migrateID, oldBin, "bin", "The bin directory stays next to the shared directory, which stays in the repository.", "Untrack the shared files and rerun wtx doctor --migrate-home to move both.")
+	} else if !keepShare {
 		keepBin = m.planDir(ctx, "bin", oldBin, project.BinFor(m.newShare))
+	}
+	if projectBin := project.BinFor(m.oldShare); m.oldShare != "" && oldBin == "" && !noFiles(projectBin) {
+		s.addSubject(migrateID, ui.CanonicalPath(projectBin), "bin", "The bin directory is outside worktree_dir and may belong to the project; it stays in the repository.", "Scripts that wtx run found there by name need a scripts entry in "+config.ConfigFileName+", or move them to "+ui.DisplayPath("", project.BinFor(m.newShare))+".")
 	}
 	moved := m.planWorktrees(worktrees)
 	if m.oldShare != "" && !keepShare {
@@ -179,13 +177,13 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		m.planRepair(moved)
 	}
 	// Only a directory kept under worktree_dir blocks removing it.
-	keptInside := (keepShare && ui.Within(m.oldWT, m.oldShare)) || (keepBin && ownBin)
+	keptInside := (keepShare && ui.Within(m.oldWT, m.oldShare)) || (oldBin != "" && keepBin)
 	if m.oldWT != "" && !keptInside {
 		m.planCleanup()
 	}
 	moveShare = moveShare && !keepShare
 	if len(m.steps) > 0 || moveWT || moveShare {
-		m.planConfig(moveWT, moveShare, !keepBin)
+		m.planConfig(moveWT, moveShare, oldBin != "" && !keepBin)
 	}
 	if len(m.steps) > 0 {
 		s.report.Findings[finding].Repairable = true

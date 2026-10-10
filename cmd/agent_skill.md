@@ -110,6 +110,6 @@ Files ending in `.template` are copied with the suffix stripped and these variab
 
 - `wtx status` shows every worktree's branch, dirty state, and setup state.
 - `wtx doctor --json` reports project health and wt-to-wtx migration readiness, and changes nothing. `wtx doctor --help` covers repairs.
-- `wtx doctor --migrate-home` moves an in-repo (`init --in-repo`) project to `~/.wtx/<name>/`. Only run it when the user asks; preview with `wtx --dry-run doctor --migrate-home`.
+- `wtx doctor --migrate-home` moves an in-repo project (`init --in-repo`, or `worktrees/` and `shared/` at the repository root) to `~/.wtx/<name>/`. Only run it when the user asks; preview with `wtx --dry-run doctor --migrate-home`.
 - `wtx repair` restores the per-worktree git config after a git or wtx upgrade. It is safe to re-run.
 - `wtx sync` fetches and pulls every clean worktree (`--rebase` to rebase).
