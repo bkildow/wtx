@@ -46,5 +46,3 @@ plans/
 # bv (beads viewer) local config and caches
 .bv/
 
-# wt worktrees (created per-developer)
-worktrees/

@@ -7,12 +7,6 @@ version: 1
 # Path to the git directory (.bare for cloned projects, .git for initialized)
 git_dir: .git
 
-# Directory name for worktrees (relative to project root)
-worktree_dir: worktrees
-
-# Directory for shared files (copy/ and symlink/ subdirectories)
-shared_dir: shared
-
 # Editor for 'wtx open' (e.g. cursor, code, zed)
 # Falls back to $EDITOR, then auto-detects
 # editor: cursor
