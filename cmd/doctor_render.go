@@ -59,7 +59,7 @@ var doctorChecks = []doctorCheck{
 	{
 		id: "migration.references", title: "Legacy wt references",
 		about:  "Text matches for the old name; not every match is executed.",
-		remedy: "Replace wt with wtx and WT_* with WTX_* (WT_THEME and WT_NO_DISK_WARN before v0.12, the rest before v1.0).",
+		remedy: "Replace wt with wtx and WT_* with WTX_* (WT_THEME and WT_NO_DISK_WARN are no longer read; the rest before v1.0).",
 	},
 	{id: "migration.scan", title: "Reference scan", note: true},
 	{id: "user.repair", title: "User repairs"},

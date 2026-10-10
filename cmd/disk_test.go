@@ -108,9 +108,8 @@ func TestWarnLowDiskEnvOverride(t *testing.T) {
 		wantWarning     bool
 	}{
 		{name: "neither set", wantWarning: true},
-		{name: "legacy suppresses", legacy: envValue("1")},
+		{name: "legacy ignored", legacy: envValue("1"), wantWarning: true},
 		{name: "current suppresses", current: envValue("1")},
-		{name: "empty current enables", legacy: envValue("1"), current: envValue(""), wantWarning: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			unsetEnv(t, "WT_NO_DISK_WARN")

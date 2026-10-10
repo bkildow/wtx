@@ -258,14 +258,13 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 			}
 			seen[identifier] = true
 			replacement := strings.Replace(identifier, "WT_", "WTX_", 1)
-			deadline := "v1.0"
 			if identifier == "wt" {
 				replacement = "wtx"
 			}
+			remedy := fmt.Sprintf("Review candidate %s reference and replace with %s before v1.0.", identifier, replacement)
 			if identifier == "WT_THEME" || identifier == "WT_NO_DISK_WARN" {
-				deadline = "v0.12"
+				remedy = fmt.Sprintf("%s is no longer read since v0.12.0; replace it with %s.", identifier, replacement)
 			}
-			remedy := fmt.Sprintf("Review candidate %s reference and replace with %s before %s.", identifier, replacement, deadline)
 			if scope == scopeUser && identifier == "wt" {
 				if strings.Contains(text, "wt shell-init") {
 					remedy = "Replace the wt shell-init startup invocation with wtx shell-init before v1.0."
@@ -303,13 +302,8 @@ func (s *inspection) user() {
 		s.add("user.path", "ok", path, "wtx is available on PATH.", "")
 	}
 	for _, suffix := range []string{"THEME", "NO_DISK_WARN"} {
-		if value, exists := os.LookupEnv("WT_" + suffix); exists && value != "" {
-			_, overridden := os.LookupEnv("WTX_" + suffix)
-			message := "Active legacy input setting: WT_" + suffix
-			if overridden {
-				message = "Legacy input setting overridden by WTX_: WT_" + suffix
-			}
-			s.add("user.environment", "warn", "", message, "Replace WT_"+suffix+" with WTX_"+suffix+" before v0.12; values are intentionally omitted.")
+		if os.Getenv("WT_"+suffix) != "" {
+			s.add("user.environment", "warn", "", "Ignored legacy input setting: WT_"+suffix+" (no longer read since v0.12.0)", "Replace WT_"+suffix+" with WTX_"+suffix+"; values are intentionally omitted.")
 		}
 	}
 	home, err := os.UserHomeDir()

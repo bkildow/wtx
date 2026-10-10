@@ -453,6 +453,9 @@ func TestScanBoundsAndUserDiscovery(t *testing.T) {
 			t.Fatalf("startup file missed: %s", path)
 		}
 	}
+	if f := finding(r, "user.environment", ""); f == nil || !strings.Contains(f.Explanation, "Ignored legacy input setting: WT_THEME") {
+		t.Fatalf("ignored WT_THEME not reported: %+v", f)
+	}
 	data, _ = json.Marshal(r)
 	if bytes.Contains(data, []byte("secret-value")) {
 		t.Fatal("user environment value leaked")

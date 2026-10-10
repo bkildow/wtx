@@ -45,8 +45,8 @@
 #   WTX_WORKTREE_ID         Branch name sanitized for filesystem use
 #   WTX_SCRIPT_NAME         "refresh"
 #
-# Legacy WT_* aliases are also exported during the transition. The resolution
-# examples below prefer WTX_* and fall back to WT_* when unset or empty.
+# Legacy WT_* aliases are still exported until v1.0.0 removes them. The
+# examples below use WTX_* only.
 #
 # The examples use docker compose because it is common; substitute the
 # project's own tooling (ddev, lando, make, npm scripts, ...).
@@ -70,10 +70,10 @@ done
 #    Refreshes normally run against the main worktree, not the one you happen
 #    to be in, so the captured state is always "main + latest data".
 # ---------------------------------------------------------------------------
-# main="${WTX_MAIN_WORKTREE_PATH:-${WT_MAIN_WORKTREE_PATH:-}}"
-# shared="${WTX_SHARED_PATH:-${WT_SHARED_PATH:-}}"
-# : "${main:?main worktree is not checked out; run: wtx add ${WTX_MAIN_BRANCH:-${WT_MAIN_BRANCH:-main}}}"
-# : "${shared:?WTX_SHARED_PATH (or WT_SHARED_PATH) is not set; run this via: wtx run refresh}"
+# main="${WTX_MAIN_WORKTREE_PATH:-}"
+# shared="${WTX_SHARED_PATH:-}"
+# : "${main:?main worktree is not checked out; run: wtx add ${WTX_MAIN_BRANCH:-main}}"
+# : "${shared:?WTX_SHARED_PATH is not set; run this via: wtx run refresh}"
 # cd "$main"
 # echo "==> Refreshing from: $main"
 

@@ -141,12 +141,11 @@ func TestRefreshTemplateEnvironmentCompatibility(t *testing.T) {
 		fail bool
 	}{
 		{"new prefix", []string{"WTX_MAIN_WORKTREE_PATH=/new main", "WTX_SHARED_PATH=/new shared"}, "/new main\n/new shared\n", false},
-		{"legacy prefix", []string{"WT_MAIN_WORKTREE_PATH=/old main", "WT_SHARED_PATH=/old shared"}, "/old main\n/old shared\n", false},
+		{"legacy prefix ignored", []string{"WT_MAIN_WORKTREE_PATH=/old main", "WT_SHARED_PATH=/old shared"}, "run: wtx add main", true},
 		{"new prefix wins", []string{"WTX_MAIN_WORKTREE_PATH=/new", "WTX_SHARED_PATH=/new/shared", "WT_MAIN_WORKTREE_PATH=/old", "WT_SHARED_PATH=/old/shared"}, "/new\n/new/shared\n", false},
-		{"empty new prefix falls back", []string{"WTX_MAIN_WORKTREE_PATH=", "WTX_SHARED_PATH=", "WT_MAIN_WORKTREE_PATH=/old", "WT_SHARED_PATH=/old/shared"}, "/old\n/old/shared\n", false},
 		{"missing main", nil, "run: wtx add main", true},
-		{"new branch hint wins", []string{"WTX_MAIN_BRANCH=trunk", "WT_MAIN_BRANCH=master"}, "run: wtx add trunk", true},
-		{"legacy branch hint", []string{"WT_MAIN_BRANCH=master"}, "run: wtx add master", true},
+		{"branch hint", []string{"WTX_MAIN_BRANCH=trunk"}, "run: wtx add trunk", true},
+		{"legacy branch hint ignored", []string{"WT_MAIN_BRANCH=master"}, "run: wtx add main", true},
 		{"missing shared", []string{"WTX_MAIN_WORKTREE_PATH=/main"}, "run this via: wtx run refresh", true},
 	}
 	for _, tt := range tests {

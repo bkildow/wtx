@@ -32,7 +32,7 @@ func (s *inspection) scripts() {
 }
 
 func (s *inspection) disk() {
-	disable := config.LookupEnv("NO_DISK_WARN")
+	disable := os.Getenv("WTX_NO_DISK_WARN")
 	threshold := s.cfg.DiskThreshold()
 	if disable != "" || threshold == nil {
 		s.add("disk", "ok", s.root, "Disk warnings disabled by configuration.", "")

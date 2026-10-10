@@ -22,7 +22,7 @@ func newDoctorCmd() *cobra.Command {
 	var name string
 	cmd := &cobra.Command{
 		Use: "doctor", Short: "Check project health and migration readiness",
-		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings must migrate before v0.12; commands and script exports before v1.0. Output groups related findings; --verbose lists every finding, including passing checks.\n\n" +
+		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings (WT_THEME, WT_NO_DISK_WARN) are no longer read; commands and script exports must migrate before v1.0. Output groups related findings; --verbose lists every finding, including passing checks.\n\n" +
 			"--migrate-home moves an in-repo clone (wtx init --in-repo, or an older project with worktrees/ and shared/ at the repository root) to its clone directory ~/.wtx/<name>/: worktrees (git worktree move), shared/ and bin/, an owner marker and git config wtx.name; it removes worktree_dir, shared_dir and the bin/ scripts entries from .worktree.yml (backed up first) so the paths resolve per clone. Locked worktrees, worktrees with submodules, Git-tracked shared files and a bin/ outside worktree_dir stay put and are reported. Preview with --dry-run; rerunning resumes an interrupted migration.",
 		Args: cobra.NoArgs,
 		// Avoid theme/progress diagnostics in JSON mode, including --verbose.

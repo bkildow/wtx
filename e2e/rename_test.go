@@ -85,6 +85,11 @@ func TestRenameShellCompatibility(t *testing.T) {
 		if err != nil || strings.TrimSpace(out) != worktree || strings.Count(stderr, "wt is deprecated") != 1 {
 			t.Fatalf("out=%q stderr=%q err=%v", out, stderr, err)
 		}
+		for _, want := range []string{"removed in v1.0.0", "wtx shell-init <shell>", "wtx doctor --user"} {
+			if !strings.Contains(stderr, want) {
+				t.Fatalf("banner missing %q: %q", want, stderr)
+			}
+		}
 		out, stderr, err = run(t, project, filepath.Join(bin, "wtx"), "cd", "main")
 		if err != nil || strings.TrimSpace(out) != worktree || stderr != "" {
 			t.Fatalf("out=%q stderr=%q err=%v", out, stderr, err)
