@@ -264,6 +264,69 @@ func TestMigrateHomeLeftoverClone(t *testing.T) {
 	}
 }
 
+// The layout wtx init wrote before --in-repo keeps worktrees/ and shared/
+// at the repository root, so shared_dir's sibling bin/ is the project's own:
+// worktrees and shared files move, bin/ stays.
+func TestMigrateHomeLegacyLayout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
+	wtxHome := ui.CanonicalPath(t.TempDir())
+	t.Setenv("WTX_HOME", wtxHome)
+	root, gitDir, _ := fixture(t, false)
+	ctx := context.Background()
+	home := filepath.Join(wtxHome, "proj")
+	cfg, err := config.Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.WorktreeDir = "worktrees"
+	cfg.SharedDir = "shared"
+	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, "-C", root, "add", "bin/check")
+	gitRun(t, "-C", root, "commit", "-m", "check script")
+	write(t, filepath.Join(root, "shared", "symlink", "notes.txt"), "shared notes\n", 0o644)
+	wt := filepath.Join(root, "worktrees", "feat", "x")
+	gitRun(t, "--git-dir", gitDir, "worktree", "add", "-b", "feat/x", wt)
+	if err := os.Symlink(filepath.Join(root, "shared", "symlink", "notes.txt"), filepath.Join(wt, "notes.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+	if f := finding(r, migrateID, filepath.Join(root, "bin")); f == nil || f.Severity != Warn || !strings.Contains(f.Remedy, "scripts entry") {
+		t.Errorf("kept bin/ not reported: %+v", f)
+	}
+	r = Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj"})
+	if r.Unsuccessful(false) {
+		t.Fatalf("migration failed: repairs=%+v findings=%+v", r.Repairs, r.Findings)
+	}
+	if !exists(filepath.Join(home, "worktrees", "feat", "x", ".git")) {
+		t.Error("worktree not moved")
+	}
+	if target, err := os.Readlink(filepath.Join(home, "worktrees", "feat", "x", "notes.txt")); err != nil || target != filepath.Join(home, "shared", "symlink", "notes.txt") {
+		t.Errorf("symlink -> %q (%v)", target, err)
+	}
+	for _, dir := range []string{"worktrees", "shared"} {
+		if exists(filepath.Join(root, dir)) {
+			t.Errorf("%s/ left in the repository", dir)
+		}
+	}
+	if !exists(filepath.Join(root, "bin", "check")) || exists(filepath.Join(home, "bin")) {
+		t.Error("project bin/ moved")
+	}
+	clone, err := project.Open(ctx, root, project.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := clone.Config()
+	if got.WorktreeDirSet() || got.SharedDirSet() || got.Scripts["check"] != "bin/check" {
+		t.Fatalf("config: %+v", got)
+	}
+}
+
 func TestMigrateHomeRefusals(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")

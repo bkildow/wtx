@@ -76,7 +76,7 @@ changed only when their sibling `wtx` is executable; bare commands require `wtx`
 on PATH. Linked settings inside the project are deduplicated by resolved path;
 external targets require manual attention.
 
-`--migrate-home [--name <name>]` moves an `init --in-repo` clone's worktrees,
+`--migrate-home [--name <name>]` moves an in-repo clone's worktrees,
 `shared/`, and `bin/` to `~/.wtx/<name>/`, writes the owner marker, records
 `<name>` as `wtx.name` in the local Git config, retargets shared symlinks, runs
 `git worktree repair`, and removes `worktree_dir`, `shared_dir`, and the
@@ -87,8 +87,14 @@ the repository directory name. Run
 it from the project root and preview it with `wtx --dry-run doctor
 --migrate-home`. Locked worktrees, worktrees with submodules or running setup,
 and Git-tracked shared files stay in place and are reported; re-running resumes
-a partial migration. It cannot be combined with `--fix`, and bare/clone
-projects are skipped. Afterwards `.worktrees/` can be dropped from `.gitignore`.
+a partial migration. In-repo clones are those set up with `wtx init --in-repo`
+(`.worktrees/`) and older projects whose `worktree_dir` and `shared_dir` are
+both in the repository (`worktrees/` and `shared/`). A `bin/` outside
+`worktree_dir`, such as the repository-root `bin/` next to `shared/`, may belong
+to the project, so it stays and is reported; scripts that `wtx run` found
+there by name need a `scripts` entry afterwards. It cannot be combined with `--fix`, and bare/clone
+projects are skipped. Afterwards the old worktree directory can be dropped from
+`.gitignore`.
 
 Modified files receive unique `*.wtx-backup-*` backups under the Git directory's
 `wtx-doctor-backups/` (outside worktrees and `shared/`) without replacing previous
