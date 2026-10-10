@@ -262,7 +262,8 @@ func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) er
 		return err
 	}
 	if c.SetName() {
-		if c.Current != "" {
+		// An invalid wtx.name (overridden by --name) never named a Clone dir.
+		if c.Current != "" && project.ValidateCloneName(c.Current) == nil {
 			ui.Warning("Renaming this clone from " + c.Current + " to " + c.Name.Name + ": worktrees and shared files under " +
 				ui.DisplayPath(c.root, filepath.Join(filepath.Dir(c.CloneDir), c.Current)) + " stay there")
 		}
