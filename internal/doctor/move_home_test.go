@@ -19,6 +19,14 @@ import (
 // "feat/x" (nested) carrying managed shared symlinks.
 func inRepoFixture(t *testing.T) (root, gitDir, wtxHome string) {
 	t.Helper()
+	return inRepoFixtureAt(t, ".worktrees", ".worktrees/shared")
+}
+
+// inRepoFixtureAt is inRepoFixture with the worktree and shared directories
+// at wtDir and sharedDir (relative to the repository), and the refresh
+// script in the bin directory next to sharedDir.
+func inRepoFixtureAt(t *testing.T, wtDir, sharedDir string) (root, gitDir, wtxHome string) {
+	t.Helper()
 	t.Setenv("HOME", ui.CanonicalPath(t.TempDir()))
 	wtxHome = ui.CanonicalPath(t.TempDir())
 	t.Setenv("WTX_HOME", wtxHome)
@@ -27,23 +35,25 @@ func inRepoFixture(t *testing.T) (root, gitDir, wtxHome string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg.WorktreeDir = ".worktrees"
-	cfg.SharedDir = ".worktrees/shared"
-	cfg.Scripts = map[string]string{"check": "bin/check", "refresh": ".worktrees/bin/refresh"}
+	cfg.WorktreeDir = wtDir
+	cfg.SharedDir = sharedDir
+	bin := filepath.ToSlash(project.BinFor(sharedDir))
+	cfg.Scripts = map[string]string{"check": "bin/check", "refresh": bin + "/refresh"}
 	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(root, ".worktrees", "shared", "copy", ".env"), "SECRET=1\n", 0o600)
-	write(t, filepath.Join(root, ".worktrees", "shared", "symlink", "notes.txt"), "shared notes\n", 0o644)
-	write(t, filepath.Join(root, ".worktrees", "bin", "refresh"), "#!/bin/sh\nexit 0\n", 0o755)
+	shared := filepath.Join(root, sharedDir)
+	write(t, filepath.Join(shared, "copy", ".env"), "SECRET=1\n", 0o600)
+	write(t, filepath.Join(shared, "symlink", "notes.txt"), "shared notes\n", 0o644)
+	write(t, filepath.Join(root, bin, "refresh"), "#!/bin/sh\nexit 0\n", 0o755)
 	for _, branch := range []string{"a", "feat/x"} {
-		wt := filepath.Join(root, ".worktrees", branch)
+		wt := filepath.Join(root, wtDir, branch)
 		gitRun(t, "--git-dir", gitDir, "worktree", "add", "-b", branch, wt)
-		if err := os.Symlink(filepath.Join(root, ".worktrees", "shared", "symlink", "notes.txt"), filepath.Join(wt, "notes.txt")); err != nil {
+		if err := os.Symlink(filepath.Join(shared, "symlink", "notes.txt"), filepath.Join(wt, "notes.txt")); err != nil {
 			t.Fatal(err)
 		}
 	}
-	write(t, filepath.Join(root, ".worktrees", "a", "dirty.txt"), "uncommitted\n", 0o644)
+	write(t, filepath.Join(root, wtDir, "a", "dirty.txt"), "uncommitted\n", 0o644)
 	return root, gitDir, wtxHome
 }
 
@@ -264,6 +274,51 @@ func TestMigrateHomeLeftoverClone(t *testing.T) {
 	}
 }
 
+// The layout wtx init wrote before --in-repo keeps worktrees/ and shared/
+// at the repository root, so shared_dir's sibling bin/ is the project's own:
+// worktrees and shared files move, bin/ stays.
+func TestMigrateHomeLegacyLayout(t *testing.T) {
+	if testing.Short() {
+		t.Skip("integration test")
+	}
+	root, _, wtxHome := inRepoFixtureAt(t, "worktrees", "shared")
+	ctx := context.Background()
+	home := filepath.Join(wtxHome, "proj")
+	gitRun(t, "-C", root, "add", "bin/check")
+	gitRun(t, "-C", root, "commit", "-m", "check script")
+
+	r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+	if f := finding(r, migrateID, filepath.Join(root, "bin")); f == nil || f.Severity != Warn || !strings.Contains(f.Remedy, "scripts entry") {
+		t.Errorf("kept bin/ not reported: %+v", f)
+	}
+	r = Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj"})
+	if r.Unsuccessful(false) {
+		t.Fatalf("migration failed: repairs=%+v findings=%+v", r.Repairs, r.Findings)
+	}
+	if !exists(filepath.Join(home, "worktrees", "feat", "x", ".git")) {
+		t.Error("worktree not moved")
+	}
+	if target, err := os.Readlink(filepath.Join(home, "worktrees", "feat", "x", "notes.txt")); err != nil || target != filepath.Join(home, "shared", "symlink", "notes.txt") {
+		t.Errorf("symlink -> %q (%v)", target, err)
+	}
+	for _, dir := range []string{"worktrees", "shared"} {
+		if exists(filepath.Join(root, dir)) {
+			t.Errorf("%s/ left in the repository", dir)
+		}
+	}
+	if !exists(filepath.Join(root, "bin", "check")) || !exists(filepath.Join(root, "bin", "refresh")) || exists(filepath.Join(home, "bin")) {
+		t.Error("project bin/ moved")
+	}
+	clone, err := project.Open(ctx, root, project.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := clone.Config()
+	if got.WorktreeDirSet() || got.SharedDirSet() || got.Scripts["check"] != "bin/check" || got.Scripts["refresh"] != "bin/refresh" {
+		t.Fatalf("config: %+v", got)
+	}
+}
+
 func TestMigrateHomeRefusals(t *testing.T) {
 	if testing.Short() {
 		t.Skip("integration test")
@@ -320,6 +375,32 @@ func TestMigrateHomeRefusals(t *testing.T) {
 		cfg := clone.Config()
 		if cfg.WorktreeDirSet() || cfg.WorktreeDir != "~/.wtx/proj/worktrees" || cfg.SharedDir != ".worktrees/shared" {
 			t.Fatalf("config: %+v", cfg)
+		}
+	})
+
+	t.Run("worktree_dir inside shared_dir", func(t *testing.T) {
+		root, _, _ := inRepoFixtureAt(t, "dev/worktrees", "dev")
+		r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+		if f := finding(r, migrateID, ""); f == nil || f.Severity != Fail || len(r.Repairs) != 0 {
+			t.Fatalf("nested: %+v %+v", f, r.Repairs)
+		}
+	})
+
+	t.Run("current directory in a root-level shared_dir", func(t *testing.T) {
+		root, _, _ := inRepoFixtureAt(t, "worktrees", "shared")
+		t.Chdir(filepath.Join(root, "shared"))
+		r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+		if f := finding(r, migrateID, ""); f == nil || f.Severity != Fail || len(r.Repairs) != 0 {
+			t.Fatalf("cwd: %+v %+v", f, r.Repairs)
+		}
+	})
+
+	t.Run("tracked root-level shared files keep bin", func(t *testing.T) {
+		root, _, _ := inRepoFixtureAt(t, "worktrees", "shared")
+		gitRun(t, "-C", root, "add", "-f", "shared/copy/.env")
+		r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+		if f := finding(r, migrateID, filepath.Join(root, "bin")); f != nil {
+			t.Fatalf("bin reported although shared_dir stays: %+v", f)
 		}
 	})
 }

@@ -42,12 +42,18 @@ type migration struct {
 	steps    []repair
 }
 
-// oldBin is the in-repo bin directory (next to oldShare), or "".
+// oldBin is the in-repo bin directory (next to oldShare) when it lies under
+// oldWT, or "". Elsewhere, such as the repository-root bin/ next to
+// shared_dir: shared (the layout wtx init wrote before --in-repo), it may
+// belong to the project and never moves.
 func (m *migration) oldBin() string {
-	if m.oldShare == "" {
+	if m.oldShare == "" || m.oldWT == "" {
 		return ""
 	}
-	return ui.CanonicalPath(project.BinFor(m.oldShare))
+	if bin := ui.CanonicalPath(project.BinFor(m.oldShare)); ui.Within(m.oldWT, bin) {
+		return bin
+	}
+	return ""
 }
 
 // inRepo reports whether p (canonical) lies strictly inside the repository.
@@ -89,8 +95,14 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		m.oldShare = legacyShare
 	}
 	oldBin := m.oldBin()
-	if m.oldShare != "" && (m.oldWT == "" || !ui.Within(m.oldWT, m.oldShare) || !ui.Within(m.oldWT, oldBin)) {
-		s.add(migrateID, Fail, cfgPath, "shared_dir is inside the repository but not under worktree_dir; wtx cannot tell which files are its own.", "Move the shared and bin directories manually and update shared_dir and scripts in "+config.ConfigFileName+".")
+	if m.oldShare != "" && m.oldWT == "" {
+		s.add(migrateID, Fail, cfgPath, "shared_dir is inside the repository but worktree_dir is not.", "Move the shared and bin directories manually and update shared_dir and scripts in "+config.ConfigFileName+".")
+		return
+	}
+	if m.oldShare != "" && ui.Within(m.oldShare, m.oldWT) {
+		// Moving shared_dir would carry the worktrees along without git
+		// worktree move.
+		s.add(migrateID, Fail, cfgPath, "worktree_dir is inside shared_dir.", "Move the worktrees and shared directory manually and update worktree_dir and shared_dir in "+config.ConfigFileName+".")
 		return
 	}
 
@@ -140,9 +152,13 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 		s.add(migrateID, OK, m.cloneDir, "Worktrees and shared files already live outside the repository.", "")
 		return
 	}
-	if cwd, err := os.Getwd(); err == nil && m.oldWT != "" && ui.Within(m.oldWT, ui.CanonicalPath(cwd)) {
-		s.add(migrateID, Fail, cwd, "The current directory is inside "+m.oldWT+", which the migration moves.", "Run wtx doctor --migrate-home from the Project root: "+s.root)
-		return
+	if cwd, err := os.Getwd(); err == nil {
+		for _, dir := range []string{m.oldWT, m.oldShare} {
+			if dir != "" && ui.Within(dir, ui.CanonicalPath(cwd)) {
+				s.add(migrateID, Fail, cwd, "The current directory is inside "+dir+", which the migration moves.", "Run wtx doctor --migrate-home from the Project root: "+s.root)
+				return
+			}
+		}
 	}
 	from := m.oldWT
 	if from == "" {
@@ -160,6 +176,9 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	} else if !keepShare {
 		keepBin = m.planDir(ctx, "bin", oldBin, project.BinFor(m.newShare))
 	}
+	if projectBin := project.BinFor(m.oldShare); m.oldShare != "" && oldBin == "" && !keepShare && !noFiles(projectBin) {
+		s.addSubject(migrateID, ui.CanonicalPath(projectBin), "bin", "The bin directory is outside worktree_dir and may belong to the project; it stays in the repository.", "Scripts that wtx run found there by name need a scripts entry in "+config.ConfigFileName+", or move them to "+ui.DisplayPath("", project.BinFor(m.newShare))+".")
+	}
 	moved := m.planWorktrees(worktrees)
 	if m.oldShare != "" && !keepShare {
 		m.planRelink()
@@ -167,7 +186,9 @@ func (s *inspection) planMigration(ctx context.Context, worktrees []git.Worktree
 	if len(moved) > 0 {
 		m.planRepair(moved)
 	}
-	if m.oldWT != "" && !keepShare && !keepBin {
+	// Only a directory kept under worktree_dir blocks removing it.
+	keptInside := (keepShare && ui.Within(m.oldWT, m.oldShare)) || (oldBin != "" && keepBin)
+	if m.oldWT != "" && !keptInside {
 		m.planCleanup()
 	}
 	moveShare = moveShare && !keepShare
