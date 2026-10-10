@@ -68,6 +68,9 @@ func listingProject(t *testing.T) {
 }
 
 func TestCommandsListWorktreesOnce(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
 	tests := []struct {
 		name string
 		cmd  func() *cobra.Command

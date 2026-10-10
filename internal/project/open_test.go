@@ -216,16 +216,16 @@ func assertClone(t *testing.T, ctx context.Context, c *Clone, want layoutFixture
 		wantPaths = append(wantPaths, ui.CanonicalPath(p))
 	}
 	if !equalUnordered(paths, wantPaths) {
-		t.Errorf("ManagedWorktrees = %v, want %v", paths, wantPaths)
+		t.Errorf("Worktrees.Managed = %v, want %v", paths, wantPaths)
 	}
 
 	mainWT, ok := wts.Main, wts.HasMain
 	if ok != (want.main != "") {
-		t.Errorf("MainWorktree ok = %v, want %v", ok, want.main != "")
+		t.Errorf("Worktrees.HasMain = %v, want %v", ok, want.main != "")
 	}
-	same("MainWorktree", mainWT.Path, want.main)
+	same("Worktrees.Main", mainWT.Path, want.main)
 	if ok && mainWT.Branch != "main" {
-		t.Errorf("MainWorktree branch = %q, want main", mainWT.Branch)
+		t.Errorf("Worktrees.Main branch = %q, want main", mainWT.Branch)
 	}
 }
 
