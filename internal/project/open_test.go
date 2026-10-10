@@ -474,3 +474,109 @@ func TestClassifyWorktreesManaged(t *testing.T) {
 		})
 	}
 }
+
+func TestCloneCheckOwnedExplicitCloneDir(t *testing.T) {
+	requireGit(t)
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	t.Setenv("HOME", home)
+	t.Setenv(WtxHomeEnv, "")
+	dir := filepath.Join(home, ".wtx", "foo")
+	f := checkoutClone(t, base, "worktree_dir: "+filepath.Join(dir, "worktrees")+"\nshared_dir: "+filepath.Join(dir, "shared")+"\n", "")
+	ctx := context.Background()
+	open := func(dryRun bool) *Clone {
+		t.Helper()
+		c, err := Open(ctx, f.root, Options{DryRun: dryRun})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+
+	// Not created yet: a dry run claims nothing.
+	if err := open(true).CheckOwned(); err != nil {
+		t.Fatalf("dry-run claim: err = %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("dry-run created %s: %v", dir, err)
+	}
+
+	// Not created yet: the check claims it for this Project root.
+	c := open(false)
+	if err := c.CheckOwned(); err != nil {
+		t.Fatalf("claim: err = %v", err)
+	}
+	if m, err := ReadMarker(dir); err != nil || !SamePath(m.Root, f.root) {
+		t.Fatalf("claimed marker = %v, %v", m, err)
+	}
+	if err := c.CheckOwned(); err != nil {
+		t.Errorf("own Owner marker: err = %v", err)
+	}
+
+	// Exists without an Owner marker: refused, never claimed.
+	marker := filepath.Join(dir, MarkerFileName)
+	if err := os.Remove(marker); err != nil {
+		t.Fatal(err)
+	}
+	err := c.CheckOwned()
+	if !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), dir) || !strings.Contains(err.Error(), "wtx doctor --fix") {
+		t.Errorf("no Owner marker: err = %v", err)
+	}
+	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("refusal wrote %s: %v", marker, err)
+	}
+
+	// Unreadable Owner marker.
+	if err := os.WriteFile(marker, []byte("root: [\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "wtx doctor") {
+		t.Errorf("unreadable: err = %v", err)
+	}
+
+	// Another live Project owns it.
+	other := filepath.Join(base, "other")
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, other, "version: 1\ngit_dir: .git\n")
+	if err := WriteMarker(dir, other, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "belongs to "+other) {
+		t.Errorf("other owner: err = %v", err)
+	}
+
+	// The owner is no longer a Project.
+	if err := os.Remove(filepath.Join(other, config.ConfigFileName)); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "no longer a wtx project") {
+		t.Errorf("orphaned: err = %v", err)
+	}
+}
+
+func TestCloneCheckOwnedRefusesBeforeClaiming(t *testing.T) {
+	requireGit(t)
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	t.Setenv("HOME", home)
+	t.Setenv(WtxHomeEnv, "")
+	// worktree_dir is explicit; shared_dir is the per-clone default, which
+	// is not set up.
+	dir := filepath.Join(home, ".wtx", "foo")
+	f := checkoutClone(t, base, "worktree_dir: "+filepath.Join(dir, "worktrees")+"\n", "")
+	c, err := Open(context.Background(), f.root, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := len(c.CloneDirs()); got != 2 {
+		t.Fatalf("CloneDirs = %v, want 2 dirs", c.CloneDirs())
+	}
+	if err := c.CheckOwned(); !errors.Is(err, ErrCloneNotSetUp) || !strings.Contains(err.Error(), "wtx init") {
+		t.Errorf("per-clone default not set up: err = %v", err)
+	}
+	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("refusal claimed %s: %v", dir, err)
+	}
+}

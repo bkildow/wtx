@@ -246,18 +246,45 @@ func (c *Clone) CloneDirs() []string {
 	return dirs
 }
 
-// CheckOwned checks, before anything is created there, that the Clone dir
-// belongs to this Clone (its Owner marker names the Project root). Clones
-// without a Clone dir always pass.
+// CheckOwned checks, before anything is created there, that every Clone dir
+// belongs to this Clone (its Owner marker names the Project root). The
+// per-clone default must already be set up by wtx init. An explicitly
+// configured Clone dir that does not exist yet is claimed: created with an
+// Owner marker naming the Project root, or only previewed under dry-run.
+// Nothing is claimed unless every Clone dir passes. Clones without a Clone
+// dir always pass. Only commands that create things call it.
 func (c *Clone) CheckOwned() error {
-	dir, ok := c.CloneDir()
-	if !ok {
-		return nil
+	cloneDir, perClone := c.CloneDir()
+	var unclaimed []string
+	for _, dir := range c.CloneDirs() {
+		missing := "run 'wtx doctor --fix' to record this clone as its owner"
+		if perClone && dir == cloneDir {
+			missing = "run 'wtx init' in " + c.root + " to set it up"
+		} else if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
+			unclaimed = append(unclaimed, dir)
+			continue
+		} else if err != nil {
+			return err
+		}
+		if err := c.checkMarker(dir, missing); err != nil {
+			return err
+		}
 	}
+	for _, dir := range unclaimed {
+		if err := WriteMarker(dir, c.root, c.runner.DryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkMarker checks that the Owner marker in dir names the Project root;
+// remedy is the guidance when the marker is missing.
+func (c *Clone) checkMarker(dir, remedy string) error {
 	m, err := ReadMarker(dir)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("%w: %s has no %s\n  run 'wtx init' in %s to set it up", ErrCloneNotSetUp, dir, MarkerFileName, c.root)
+		return fmt.Errorf("%w: %s has no %s\n  %s", ErrCloneNotSetUp, dir, MarkerFileName, remedy)
 	case err != nil:
 		return fmt.Errorf("%w: %w\n  run 'wtx doctor' for details", ErrCloneNotSetUp, err)
 	case SamePath(m.Root, c.root):
