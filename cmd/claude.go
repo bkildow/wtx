@@ -125,20 +125,25 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 	// A dry run writes no settings, so Apply cannot preview the link to a
-	// .claude directory that shared/symlink does not hold yet.
+	// settings file (or the .claude directory holding it) that shared/symlink
+	// does not hold yet.
 	previewLink := false
 	if dryRun {
-		_, err := os.Lstat(filepath.Dir(settingsPath))
+		_, err := os.Lstat(settingsPath)
 		previewLink = os.IsNotExist(err)
 	}
 	for _, wt := range filtered {
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))
+			continue
 		}
 		if previewLink {
+			// A target that exists already got its link previewed by Apply.
 			link, target := project.PlannedSymlink(sharedTarget, wt.Path, claude.SettingsFile)
-			ui.DryRunNotice(fmt.Sprintf("symlink %s -> %s", link, target))
+			if _, err := os.Lstat(target); os.IsNotExist(err) {
+				ui.DryRunNotice(fmt.Sprintf("symlink %s -> %s", link, target))
+			}
 		}
 	}
 	if dryRun {

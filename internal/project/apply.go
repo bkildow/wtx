@@ -298,21 +298,21 @@ func ApplySymlinks(projectRoot, worktreePath string, cfg *config.Config, dryRun 
 		target := filepath.Join(symlinkDir, entry.Name())
 		link := filepath.Join(worktreePath, entry.Name())
 
-		if dryRun {
-			ui.DryRunNotice(fmt.Sprintf("symlink %s -> %s", link, target))
-			continue
-		}
-
 		// If source is a directory and destination is a real directory (not a
 		// symlink), symlink individual files inside instead of replacing the
 		// whole directory. This preserves worktree-local files like those in
 		// .claude/ while still symlinking shared config files.
 		if entry.IsDir() && isRealDir(link) {
-			n, err := symlinkDirContents(target, link, worktreePath)
+			n, err := symlinkDirContents(target, link, worktreePath, dryRun)
 			count += n
 			if err != nil {
 				return count, err
 			}
+			continue
+		}
+
+		if dryRun {
+			ui.DryRunNotice(fmt.Sprintf("symlink %s -> %s", link, target))
 			continue
 		}
 
@@ -354,9 +354,12 @@ func PlannedSymlink(symlinkDir, worktreePath, rel string) (link, target string) 
 
 // symlinkDirContents symlinks individual entries from srcDir into destDir,
 // recursing into subdirectories that already exist at the destination.
-func symlinkDirContents(srcDir, destDir, worktreePath string) (int, error) {
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return 0, err
+// Under dryRun it only prints the links it would make.
+func symlinkDirContents(srcDir, destDir, worktreePath string, dryRun bool) (int, error) {
+	if !dryRun {
+		if err := os.MkdirAll(destDir, 0o755); err != nil {
+			return 0, err
+		}
 	}
 
 	entries, err := os.ReadDir(srcDir)
@@ -371,11 +374,16 @@ func symlinkDirContents(srcDir, destDir, worktreePath string) (int, error) {
 
 		// Recurse if both source and destination are real directories.
 		if entry.IsDir() && isRealDir(dest) {
-			n, err := symlinkDirContents(src, dest, worktreePath)
+			n, err := symlinkDirContents(src, dest, worktreePath, dryRun)
 			count += n
 			if err != nil {
 				return count, err
 			}
+			continue
+		}
+
+		if dryRun {
+			ui.DryRunNotice(fmt.Sprintf("symlink %s -> %s", dest, src))
 			continue
 		}
 

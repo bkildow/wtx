@@ -28,5 +28,16 @@ exec wtx claude init --dry-run
 stderr '\[dry-run\] symlink .*/worktrees/main/\.claude/settings\.local\.json -> .*/shared/symlink/\.claude/settings\.local\.json$'
 ! exists worktrees/main/.claude/settings.local.json
 
+# With shared/symlink/.claude already holding other files, a worktree's own
+# .claude directory gets each of them linked into it, settings file included
+mkdir shared/symlink/.claude/commands
+cp $WORK/copiedfile.txt shared/symlink/.claude/commands/review.md
+exec wtx claude init --dry-run
+stderr '\[dry-run\] symlink .*/worktrees/main/\.claude/commands -> .*/shared/symlink/\.claude/commands$'
+stderr '\[dry-run\] symlink .*/worktrees/main/\.claude/settings\.local\.json -> .*/shared/symlink/\.claude/settings\.local\.json$'
+! stderr '\[dry-run\] symlink .*/worktrees/main/\.claude -> '
+! exists worktrees/main/.claude/commands
+! exists shared/symlink/.claude/settings.local.json
+
 -- copiedfile.txt --
 {"key": "value"}
