@@ -322,11 +322,11 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.blocked(worktreeChecks...)
 		return s
 	}
-	wts := project.ClassifyWorktrees(all, root, clone.Layout(), clone.Config().MainBranchOrDefault())
-	s.homeLayout(wts.Managed)
+	managed := clone.Classify(all).Managed
+	s.homeLayout(managed)
 	s.compatibility(ctx, all)
 	s.branches(ctx, all)
-	facts := s.prefetch(ctx, all, wts.Managed)
+	facts := s.prefetch(ctx, all, managed)
 	for _, wt := range all {
 		if wt.Bare {
 			continue
@@ -376,7 +376,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		s.scanTracked(wt.Path, f)
 	}
 	if opts.MigrateHome {
-		s.planMigration(ctx, wts.Managed, opts.HomeName)
+		s.planMigration(ctx, managed, opts.HomeName)
 	}
 	return s
 }

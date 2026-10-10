@@ -97,6 +97,10 @@ func (s *inspection) prefetch(ctx context.Context, all, managed []git.WorktreeIn
 	copies := s.listSharedCopies()
 	symlinkRoot := ui.CanonicalPath(filepath.Join(s.clone.SharedDir(), "symlink"))
 	linkDirs := symlinkDirs(symlinkRoot)
+	isManaged := map[string]bool{}
+	for _, wt := range managed {
+		isManaged[wt.Path] = true
+	}
 	facts := map[string]*worktreeFacts{}
 	var paths []string
 	for _, wt := range all {
@@ -106,13 +110,8 @@ func (s *inspection) prefetch(ctx context.Context, all, managed []git.WorktreeIn
 		if info, err := os.Stat(wt.Path); err != nil || !info.IsDir() {
 			continue
 		}
-		facts[wt.Path] = &worktreeFacts{}
+		facts[wt.Path] = &worktreeFacts{managed: isManaged[wt.Path]}
 		paths = append(paths, wt.Path)
-	}
-	for _, wt := range managed {
-		if f := facts[wt.Path]; f != nil {
-			f.managed = true
-		}
 	}
 	var wg sync.WaitGroup
 	// Directory reads contend in the kernel; more workers than this made

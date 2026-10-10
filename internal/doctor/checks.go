@@ -16,14 +16,15 @@ import (
 )
 
 func (s *inspection) scripts() {
-	if len(s.clone.Config().Scripts) == 0 {
+	cfg, root := s.clone.Config(), s.clone.Root()
+	if len(cfg.Scripts) == 0 {
 		// Scripts are optional; their absence is not a health problem.
-		s.add("scripts", "ok", filepath.Join(s.clone.Root(), config.ConfigFileName), "No project scripts are configured.", "")
+		s.add("scripts", "ok", filepath.Join(root, config.ConfigFileName), "No project scripts are configured.", "")
 		return
 	}
-	for _, name := range project.ScriptNames(s.clone.Config()) {
-		path := project.ExpandOrJoin(s.clone.Root(), s.clone.Config().Scripts[name])
-		if _, err := project.ResolveScript(s.clone.Config(), s.clone.Root(), name); err != nil {
+	for _, name := range project.ScriptNames(cfg) {
+		path := project.ExpandOrJoin(root, cfg.Scripts[name])
+		if _, err := project.ResolveScript(cfg, root, name); err != nil {
 			s.problem("scripts", path, err)
 		} else {
 			s.add("scripts", "ok", path, "Script "+name+" is executable.", "")
@@ -32,15 +33,16 @@ func (s *inspection) scripts() {
 }
 
 func (s *inspection) disk() {
+	root := s.clone.Root()
 	disable := config.LookupEnv("NO_DISK_WARN")
 	threshold := s.clone.Config().DiskThreshold()
 	if disable != "" || threshold == nil {
-		s.add("disk", "ok", s.clone.Root(), "Disk warnings disabled by configuration.", "")
+		s.add("disk", "ok", root, "Disk warnings disabled by configuration.", "")
 		return
 	}
-	u, err := disk.Stat(s.clone.Root())
+	u, err := disk.Stat(root)
 	if err != nil {
-		s.problem("disk", s.clone.Root(), err)
+		s.problem("disk", root, err)
 		return
 	}
 	severity, remedy := OK, ""
@@ -48,7 +50,7 @@ func (s *inspection) disk() {
 		severity = "warn"
 		remedy = "Review disk usage and unused worktrees with wtx list before choosing cleanup actions."
 	}
-	s.add("disk", severity, s.clone.Root(), fmt.Sprintf("%.1f%% free disk space (%d bytes).", u.PercentFree(), u.FreeBytes), remedy)
+	s.add("disk", severity, root, fmt.Sprintf("%.1f%% free disk space (%d bytes).", u.PercentFree(), u.FreeBytes), remedy)
 }
 
 func (s *inspection) teardown(root string) {
@@ -162,9 +164,10 @@ func (s *inspection) configRepair(ctx context.Context, path, key, want string, g
 }
 
 func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo) {
-	output, err := s.clone.Runner().Query(ctx, "for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/")
+	runner := s.clone.Runner()
+	output, err := runner.Query(ctx, "for-each-ref", "--format=%(refname)", "refs/heads/", "refs/remotes/")
 	if err != nil {
-		s.problem("git.branches", s.clone.Runner().GitDir, err)
+		s.problem("git.branches", runner.GitDir, err)
 		return
 	}
 	used := map[string]bool{s.clone.Config().MainBranchOrDefault(): true}
@@ -180,7 +183,7 @@ func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo)
 	}
 	for _, ref := range refs {
 		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok && !used[branch] {
-			s.addSubject("git.branches", s.clone.Runner().GitDir, branch, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
+			s.addSubject("git.branches", runner.GitDir, branch, "Local branch "+branch+" has no worktree or matching remote-tracking branch.", "Review the branch locally; doctor never deletes branches or fetches remotes.")
 		}
 	}
 }

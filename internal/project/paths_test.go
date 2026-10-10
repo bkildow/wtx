@@ -139,8 +139,8 @@ func TestConfigPaths(t *testing.T) {
 		t.Errorf("HomeConfigPaths = %+v, want %+v", got, want)
 	}
 	cloneDir := filepath.FromSlash("/home/u/.wtx/proj")
-	if got, want := ClonePaths(cloneDir), (ConfigPaths{filepath.Join(cloneDir, "worktrees"), filepath.Join(cloneDir, "shared"), filepath.ToSlash(filepath.Join(cloneDir, "bin"))}); got != want {
-		t.Errorf("ClonePaths = %+v, want %+v", got, want)
+	if wt, shared := CloneDirPaths(cloneDir); wt != filepath.Join(cloneDir, "worktrees") || shared != filepath.Join(cloneDir, "shared") {
+		t.Errorf("CloneDirPaths = %q, %q", wt, shared)
 	}
 	if got, want := InRepoConfigPaths(), (ConfigPaths{".worktrees", ".worktrees/shared", ".worktrees/bin"}); got != want {
 		t.Errorf("InRepoConfigPaths = %+v, want %+v", got, want)

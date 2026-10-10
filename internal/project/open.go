@@ -224,7 +224,13 @@ func (c *Clone) Worktrees(ctx context.Context) (Worktrees, error) {
 	if err != nil {
 		return Worktrees{}, err
 	}
-	return ClassifyWorktrees(all, c.root, c.layout, c.cfg.MainBranchOrDefault()), nil
+	return c.Classify(all), nil
+}
+
+// Classify splits all, a `git worktree list` of this Clone the caller
+// already has, into its Managed worktrees and Main worktree.
+func (c *Clone) Classify(all []git.WorktreeInfo) Worktrees {
+	return ClassifyWorktrees(all, c.root, c.layout, c.cfg.MainBranchOrDefault())
 }
 
 // ManagedWorktrees lists the Clone's Managed worktrees (see
