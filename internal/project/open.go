@@ -257,17 +257,21 @@ func (c *Clone) CheckOwned() error {
 	cloneDir, perClone := c.CloneDir()
 	var unclaimed []string
 	for _, dir := range c.CloneDirs() {
-		missing := "run 'wtx doctor --fix' to record this clone as its owner"
 		if perClone && dir == cloneDir {
-			missing = "run 'wtx init' in " + c.root + " to set it up"
-		} else if _, err := os.Stat(dir); errors.Is(err, os.ErrNotExist) {
-			unclaimed = append(unclaimed, dir)
+			if err := c.checkMarker(dir, "run 'wtx init' in "+c.root+" to set it up"); err != nil {
+				return err
+			}
 			continue
-		} else if err != nil {
-			return err
 		}
-		if err := c.checkMarker(dir, missing); err != nil {
+		switch _, err := os.Stat(dir); {
+		case errors.Is(err, os.ErrNotExist):
+			unclaimed = append(unclaimed, dir)
+		case err != nil:
 			return err
+		default:
+			if err := c.checkMarker(dir, "run 'wtx doctor --fix' to record this clone as its owner"); err != nil {
+				return err
+			}
 		}
 	}
 	for _, dir := range unclaimed {
