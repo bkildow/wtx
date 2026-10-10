@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -357,5 +358,72 @@ func TestCloneCheckOwned(t *testing.T) {
 	}
 	if err := bare.CheckOwned(); err != nil {
 		t.Errorf("bare layout: err = %v", err)
+	}
+}
+
+func TestOpenAtSkipsRootDetection(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses a shell script as git")
+	}
+	// A git on PATH that logs every call: OpenAt must not run any.
+	bin := t.TempDir()
+	log := filepath.Join(bin, "calls")
+	writeScript(t, filepath.Join(bin, "git"), "echo \"$@\" >> '"+log+"'\nexit 1\n", 0o755)
+	t.Setenv("PATH", bin)
+
+	root := t.TempDir()
+	writeConfig(t, root, "version: 1\ngit_dir: .bare\n")
+	c, err := OpenAt(context.Background(), root, Options{DryRun: true, Quiet: true, BatchMode: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Root() != root || c.Layout() != BareLayout {
+		t.Errorf("Root, Layout = %q, %v; want %q, bare", c.Root(), c.Layout(), root)
+	}
+	if r := c.Runner(); !r.DryRun || !r.Quiet || !r.BatchMode {
+		t.Errorf("Runner DryRun, Quiet, BatchMode = %v, %v, %v; want all true", r.DryRun, r.Quiet, r.BatchMode)
+	}
+	if calls, err := os.ReadFile(log); err == nil {
+		t.Errorf("OpenAt ran git:\n%s", calls)
+	}
+	// Open's root detection does call git, so the spy above can see a call.
+	if _, err := Open(context.Background(), root, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.ReadFile(log); err != nil {
+		t.Errorf("Open ran no git through the spy: %v", err)
+	}
+}
+
+func TestOpenAtUsesGivenRoot(t *testing.T) {
+	requireGit(t)
+	base := t.TempDir()
+	t.Setenv("HOME", filepath.Join(base, "home"))
+	t.Setenv(WtxHomeEnv, "")
+	f := checkoutClone(t, base, "", "")
+	// A nested .worktree.yml that root detection would pass over in favor of
+	// the repository's root.
+	inner := filepath.Join(f.root, "inner")
+	if err := os.Mkdir(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, inner, "version: 1\ngit_dir: .bare\n")
+	ctx := context.Background()
+	if c, err := Open(ctx, inner, Options{}); err != nil || c.Root() != f.root {
+		t.Fatalf("Open(inner) root = %v, %v; want %q", c, err, f.root)
+	}
+	c, err := OpenAt(ctx, inner, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Root() != inner {
+		t.Errorf("OpenAt(inner).Root() = %q, want %q", c.Root(), inner)
+	}
+}
+
+func TestOpenAtWithoutConfig(t *testing.T) {
+	_, err := OpenAt(context.Background(), t.TempDir(), Options{})
+	if !errors.Is(err, config.ErrConfigNotFound) {
+		t.Errorf("err = %v, want ErrConfigNotFound", err)
 	}
 }

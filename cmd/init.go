@@ -136,12 +136,7 @@ func writtenPaths(ctx context.Context, projectRoot string, cfg *config.Config, d
 	if dry {
 		return planned
 	}
-	written, err := config.Load(projectRoot)
-	if err != nil {
-		ui.Warning("Could not reload " + config.ConfigFileName + ": " + err.Error())
-		return planned
-	}
-	clone, err := project.Resolve(ctx, projectRoot, written, project.Options{})
+	clone, err := project.OpenAt(ctx, projectRoot, project.Options{})
 	if err != nil {
 		ui.Warning("Could not resolve the new clone: " + err.Error())
 		return planned

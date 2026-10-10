@@ -77,6 +77,14 @@ func Open(ctx context.Context, startDir string, opts Options) (*Clone, error) {
 	if err != nil {
 		return nil, err
 	}
+	return OpenAt(ctx, root, opts)
+}
+
+// OpenAt loads the .worktree.yml at root, a Project root the caller already
+// knows, and resolves the Clone (see Resolve) without running root
+// detection. Without a .worktree.yml at root it returns
+// config.ErrConfigNotFound. It prints nothing.
+func OpenAt(ctx context.Context, root string, opts Options) (*Clone, error) {
 	cfg, err := config.Load(root)
 	if err != nil {
 		return nil, err
