@@ -203,6 +203,9 @@ func TestMigrateHomeResumesAfterSkippedWorktree(t *testing.T) {
 	if !exists(filepath.Join(locked, ".git")) {
 		t.Fatal("locked worktree moved")
 	}
+	if f := finding(r, migrateID, locked); f == nil || f.Remedy != unlockRemedy(locked) {
+		t.Fatalf("unlock remedy: %+v", f)
+	}
 	// Config moved on; the leftover is reported as a layout warning.
 	if f := finding(r, "home.layout", locked); f == nil || f.Severity != Warn {
 		t.Fatalf("leftover not reported: %+v", f)
