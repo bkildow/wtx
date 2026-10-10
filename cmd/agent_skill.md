@@ -49,7 +49,7 @@ Initialized project (`wtx init` inside an existing repo), where the root is itse
       worktrees/
         feature/auth/
 
-`<name>` is the clone's `git config wtx.name`, else the repo directory name. Each clone runs `wtx init` once to set up its `~/.wtx/<name>/`; in a clone whose committed `.worktree.yml` omits `worktree_dir`/`shared_dir`, `wtx init` only does that and leaves the config alone. If `wtx add` says the clone is not set up, run `wtx init`; if it says the directory belongs to another repo, run `wtx init --name <other>`. Explicit `worktree_dir`/`shared_dir` values override the per-clone default.
+`<name>` is the clone's `git config wtx.name`, else the repo directory name. Each clone runs `wtx init` once to set up its `~/.wtx/<name>/`; in a clone whose committed `.worktree.yml` omits `worktree_dir`/`shared_dir`, `wtx init` only does that and leaves the config alone. If `wtx add` says the clone is not set up, run `wtx init`; if it says the directory belongs to another repo, run `wtx init --name <other>`. Explicit `worktree_dir`/`shared_dir` values override the per-clone default; an explicit `~/.wtx/...` directory that exists without `project.yml` makes `wtx add` refuse until `wtx doctor --fix` records the owner, and one that does not exist yet is created with its marker by `wtx add`.
 
 `wtx init --in-repo` puts worktrees, `shared/` and `bin/` under `project/.worktrees/` instead. Find a project's worktrees with `wtx list` or `wtx cd <name>` rather than assuming a path.
 

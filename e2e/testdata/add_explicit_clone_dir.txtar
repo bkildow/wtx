@@ -1,0 +1,50 @@
+[!exec:git] skip 'git not available'
+
+# A config that spells out a ~/.wtx directory which does not exist yet
+exec git init myrepo
+cd myrepo
+exec git commit --allow-empty -m 'initial'
+cp $WORK/explicitcfg .worktree.yml
+
+# --dry-run previews claiming the directory and writes nothing
+exec wtx --dry-run add --skip-setup feature
+stderr 'mkdir -p .*/\.wtx-home/explicit$'
+stderr 'write .*/\.wtx-home/explicit/project\.yml'
+! exists $WTX_HOME/explicit
+
+# wtx add claims it with an Owner marker, then creates the worktree
+exec wtx add --skip-setup feature
+grep 'root: .*myrepo' $WTX_HOME/explicit/project.yml
+exists $WTX_HOME/explicit/worktrees/feature/.git
+
+# The next add passes the check
+exec wtx add --skip-setup other
+exists $WTX_HOME/explicit/worktrees/other/.git
+
+# An existing directory without an Owner marker is refused, never claimed
+rm $WTX_HOME/explicit/project.yml
+! exec wtx add --skip-setup third
+stderr 'not set up for wtx: .*/\.wtx-home/explicit has no project\.yml'
+stderr 'wtx doctor --fix'
+! exists $WTX_HOME/explicit/project.yml
+! exists $WTX_HOME/explicit/worktrees/third
+
+# wtx claude init claims a fresh directory the same way
+exec git init $WORK/hooks
+cd $WORK/hooks
+exec git commit --allow-empty -m 'initial'
+cp $WORK/hookscfg .worktree.yml
+exec wtx claude init
+grep 'root: .*hooks' $WTX_HOME/hooksdir/project.yml
+exists $WTX_HOME/hooksdir/shared/symlink/.claude/settings.local.json
+
+-- explicitcfg --
+version: 1
+git_dir: .git
+worktree_dir: ~/.wtx/explicit/worktrees
+shared_dir: ~/.wtx/explicit/shared
+-- hookscfg --
+version: 1
+git_dir: .git
+worktree_dir: ~/.wtx/hooksdir/worktrees
+shared_dir: ~/.wtx/hooksdir/shared

@@ -246,25 +246,63 @@ func (c *Clone) CloneDirs() []string {
 	return dirs
 }
 
-// CheckOwned checks, before anything is created there, that the Clone dir
-// belongs to this Clone (its Owner marker names the Project root). Clones
-// without a Clone dir always pass.
+// CheckOwned checks, before anything is created there, that every Clone dir
+// belongs to this Clone (its Owner marker names the Project root). The
+// per-clone default must already be set up by wtx init. An explicitly
+// configured Clone dir that does not exist yet is claimed: created with an
+// Owner marker naming the Project root, or only previewed under dry-run.
+// Nothing is claimed unless every Clone dir passes. Clones without a Clone
+// dir always pass. Only commands that create things call it.
 func (c *Clone) CheckOwned() error {
-	dir, ok := c.CloneDir()
-	if !ok {
-		return nil
+	cloneDir, perClone := c.CloneDir()
+	var unclaimed []string
+	for _, dir := range c.CloneDirs() {
+		if perClone && dir == cloneDir {
+			if err := c.checkMarker(dir, true); err != nil {
+				return err
+			}
+			continue
+		}
+		switch _, err := os.Stat(dir); {
+		case errors.Is(err, os.ErrNotExist):
+			unclaimed = append(unclaimed, dir)
+		case err != nil:
+			return err
+		default:
+			if err := c.checkMarker(dir, false); err != nil {
+				return err
+			}
+		}
+	}
+	for _, dir := range unclaimed {
+		if err := WriteMarker(dir, c.root, c.runner.DryRun); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// checkMarker checks that the Owner marker in dir names the Project root.
+// perClone says dir is the per-clone default, which wtx init sets up and
+// --name moves; an explicit Clone dir is fixed by .worktree.yml instead.
+func (c *Clone) checkMarker(dir string, perClone bool) error {
+	missing := "run 'wtx doctor --fix' to record this clone as its owner"
+	elsewhere := "point worktree_dir and shared_dir at a different ~/.wtx/<name> directory"
+	if perClone {
+		missing = "run 'wtx init' in " + c.root + " to set it up"
+		elsewhere = "give this clone its own directory with 'wtx init --name <other>'"
 	}
 	m, err := ReadMarker(dir)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return fmt.Errorf("%w: %s has no %s\n  run 'wtx init' in %s to set it up", ErrCloneNotSetUp, dir, MarkerFileName, c.root)
+		return fmt.Errorf("%w: %s has no %s\n  %s", ErrCloneNotSetUp, dir, MarkerFileName, missing)
 	case err != nil:
 		return fmt.Errorf("%w: %w\n  run 'wtx doctor' for details", ErrCloneNotSetUp, err)
 	case SamePath(m.Root, c.root):
 		return nil
 	case config.Exists(m.Root):
-		return fmt.Errorf("%w: %s belongs to %s\n  give this clone its own directory with 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
+		return fmt.Errorf("%w: %s belongs to %s\n  %s", ErrCloneNotSetUp, dir, m.Root, elsewhere)
 	default:
-		return fmt.Errorf("%w: %s belongs to %s, which is no longer a wtx project\n  run 'wtx doctor --fix' to record this clone as its owner, or 'wtx init --name <other>'", ErrCloneNotSetUp, dir, m.Root)
+		return fmt.Errorf("%w: %s belongs to %s, which is no longer a wtx project\n  run 'wtx doctor --fix' to record this clone as its owner, or %s", ErrCloneNotSetUp, dir, m.Root, elsewhere)
 	}
 }

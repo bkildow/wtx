@@ -317,7 +317,10 @@ A `.worktree.yml` with explicit `worktree_dir` and `shared_dir` (an `--in-repo`
 project, or an older config with `~/.wtx/...` paths) is already complete, and
 `wtx init` reports it as an existing project. For an explicit `~/.wtx/<name>`
 directory that lacks `project.yml`, it points at `wtx doctor --fix`, which
-records the clone as the owner.
+records the clone as the owner; `wtx add` and `wtx claude init` refuse to
+create anything there until then. When the explicit directory does not exist
+yet, `wtx add` and `wtx claude init` create it with a `project.yml` naming this
+clone.
 
 `--in-repo` keeps worktrees, shared files, and scripts in `.worktrees/` inside
 the repository and writes those paths into `.worktree.yml`
