@@ -377,6 +377,32 @@ func TestMigrateHomeRefusals(t *testing.T) {
 			t.Fatalf("config: %+v", cfg)
 		}
 	})
+
+	t.Run("worktree_dir inside shared_dir", func(t *testing.T) {
+		root, _, _ := inRepoFixtureAt(t, "dev/worktrees", "dev")
+		r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+		if f := finding(r, migrateID, ""); f == nil || f.Severity != Fail || len(r.Repairs) != 0 {
+			t.Fatalf("nested: %+v %+v", f, r.Repairs)
+		}
+	})
+
+	t.Run("current directory in a root-level shared_dir", func(t *testing.T) {
+		root, _, _ := inRepoFixtureAt(t, "worktrees", "shared")
+		t.Chdir(filepath.Join(root, "shared"))
+		r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+		if f := finding(r, migrateID, ""); f == nil || f.Severity != Fail || len(r.Repairs) != 0 {
+			t.Fatalf("cwd: %+v %+v", f, r.Repairs)
+		}
+	})
+
+	t.Run("tracked root-level shared files keep bin", func(t *testing.T) {
+		root, _, _ := inRepoFixtureAt(t, "worktrees", "shared")
+		gitRun(t, "-C", root, "add", "-f", "shared/copy/.env")
+		r := Run(ctx, Options{StartDir: root, MigrateHome: true, HomeName: "proj", DryRun: true})
+		if f := finding(r, migrateID, filepath.Join(root, "bin")); f != nil {
+			t.Fatalf("bin reported although shared_dir stays: %+v", f)
+		}
+	})
 }
 
 // copyTree is the cross-device fallback of moveDir; rename never hits it
