@@ -174,7 +174,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	if background {
-		return runSetupBackground(projectRoot, worktreePath, cfg, dry, msg)
+		return runSetupBackground(projectRoot, worktreePath, branch, cfg, dry, msg)
 	}
 
 	return runSetupForeground(cmd, worktreePath, cfg, dry, msg)
@@ -261,7 +261,7 @@ func runSetupForeground(cmd *cobra.Command, worktreePath string, cfg *config.Con
 	return nil
 }
 
-func runSetupBackground(projectRoot, worktreePath string, cfg *config.Config, dry bool, msg string) error {
+func runSetupBackground(projectRoot, worktreePath, branch string, cfg *config.Config, dry bool, msg string) error {
 	hooksTotal := len(cfg.Setup) + len(cfg.ParallelSetup)
 
 	if dry {
@@ -312,7 +312,7 @@ func runSetupBackground(projectRoot, worktreePath string, cfg *config.Config, dr
 	}
 
 	ui.Success(msg)
-	ui.Step("Setup is running in the background. Run 'wtx status' to check progress.")
+	ui.Step("Setup is running in the background. Run 'wtx logs " + branch + "' to see its output or 'wtx status' to check progress.")
 	fmt.Println(worktreePath)
 	return nil
 }

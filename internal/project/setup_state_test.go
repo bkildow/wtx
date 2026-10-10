@@ -270,3 +270,45 @@ func TestReconcileStaleLegacyState(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSetupLog(t *testing.T) {
+	tests := []struct {
+		name     string
+		noState  bool   // no state file, as when setup never ran
+		logFile  string // state's LogFile, relative to the worktree ("" for foreground)
+		writeLog string // log file present on disk, relative to the worktree
+		want     string // expected log, relative to the worktree ("" for none)
+	}{
+		{name: "state log file exists", logFile: SetupLogFile, writeLog: SetupLogFile, want: SetupLogFile},
+		{name: "legacy log file", logFile: legacySetupLogFile, writeLog: legacySetupLogFile, want: legacySetupLogFile},
+		{name: "state log file missing", logFile: SetupLogFile},
+		{name: "worktree moved since setup", logFile: filepath.Join("..", "old-location", SetupLogFile), writeLog: SetupLogFile, want: SetupLogFile},
+		{name: "foreground state ignores stale log", writeLog: SetupLogFile},
+		{name: "no state falls back to default log", noState: true, writeLog: SetupLogFile, want: SetupLogFile},
+		{name: "no state and no log", noState: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			abs := func(name string) string {
+				if name == "" {
+					return ""
+				}
+				return filepath.Join(dir, name)
+			}
+			if tt.writeLog != "" {
+				if err := os.WriteFile(abs(tt.writeLog), []byte("log"), 0o644); err != nil {
+					t.Fatal(err)
+				}
+			}
+			var state *SetupState
+			if !tt.noState {
+				state = &SetupState{Status: SetupFailed, LogFile: abs(tt.logFile)}
+			}
+			if got := SetupLog(dir, state); got != abs(tt.want) {
+				t.Errorf("SetupLog() = %q, want %q", got, abs(tt.want))
+			}
+		})
+	}
+}

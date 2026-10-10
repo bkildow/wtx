@@ -52,13 +52,33 @@ func SetupLogPath(worktreePath string) string {
 	return filepath.Join(worktreePath, SetupLogFile)
 }
 
-// WriteSetupState atomically writes the setup state to the worktree directory.
+// SetupLog returns the setup log for a worktree, given its resolved state, or
+// "" when there is none. A state without a LogFile was written by a foreground
+// run, which logs to the terminal, so any log on disk is stale. Without a
+// state, the default log location is used. Only the base name of LogFile is
+// used: the log lives in the worktree, and the recorded absolute path goes
+// stale when the worktree moves (wtx doctor --migrate-home).
+func SetupLog(worktreePath string, state *SetupState) string {
+	path := SetupLogPath(worktreePath)
+	if state != nil {
+		if state.LogFile == "" {
+			return ""
+		}
+		path = filepath.Join(worktreePath, filepath.Base(state.LogFile))
+	}
+	if _, err := os.Stat(path); err != nil {
+		return ""
+	}
+	return path
+}
+
 // EncodeSetupState returns the on-disk form of a setup state.
 func EncodeSetupState(state *SetupState) ([]byte, error) {
 	data, err := json.MarshalIndent(state, "", "  ")
 	return append(data, '\n'), err
 }
 
+// WriteSetupState atomically writes the setup state to the worktree directory.
 func WriteSetupState(worktreePath string, state *SetupState) error {
 	data, err := EncodeSetupState(state)
 	if err != nil {

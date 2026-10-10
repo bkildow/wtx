@@ -61,6 +61,7 @@ func init() {
 	rootCmd.AddCommand(newShellInitCmd())
 	rootCmd.AddCommand(newOpenCmd())
 	rootCmd.AddCommand(newStatusCmd())
+	rootCmd.AddCommand(newLogsCmd())
 	rootCmd.AddCommand(newSyncCmd())
 	rootCmd.AddCommand(newPruneCmd())
 	rootCmd.AddCommand(newRepairCmd())

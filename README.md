@@ -217,6 +217,7 @@ wtx prune
 | `wtx apply [name]` | Apply shared files to a worktree |
 | `wtx open [name]` | Open a worktree in an IDE |
 | `wtx status` | Show status of all worktrees |
+| `wtx logs [name]` | Print a worktree's background setup log |
 | `wtx doctor` | Check project health and migration readiness |
 | `wtx sync` | Fetch and pull all worktrees |
 | `wtx prune` | Remove worktrees with fully merged branches |
@@ -372,7 +373,8 @@ Re-runs the `setup:` and `parallel_setup:` hooks from `.worktree.yml` against an
 existing worktree. The primary use case is bootstrapping a worktree that was
 created with `wtx add --skip-setup`, but it can also be used to re-run hooks
 after editing `.worktree.yml`. Refuses to run when a setup is already in
-progress for the target worktree (check with `wtx status`).
+progress for the target worktree (check with `wtx status`, or read its output so far
+with `wtx logs`).
 
 <a id="wt-run"></a>
 
@@ -479,9 +481,23 @@ Editor resolution order: `editor` field in `.worktree.yml` > `$EDITOR` env var >
 wtx status
 ```
 
-Shows branch, path, commit hash, dirty/clean status, and last commit age for all worktrees.
+Shows branch, path, commit hash, dirty/clean status, setup state, and last commit age for all worktrees.
+
+When a worktree's setup failed, a line after the table names the error and points at `wtx logs <branch>`, or at `wtx setup <branch> --foreground` when the failed run was in the foreground and left no log.
 
 Also warns when the project's filesystem is running low on space — see [Low Disk Space Warnings](#low-disk-space-warnings).
+
+### wtx logs
+
+```bash
+wtx logs feature/auth         # Print the setup log for a worktree
+wtx logs .                    # Target the worktree containing $PWD
+wtx logs                      # Interactive picker
+```
+
+Prints the log of a worktree's background setup to stdout, including the output of
+any failing hook. Foreground setup prints to the terminal and keeps no log, so for
+those worktrees `wtx logs` says there is no log and exits successfully.
 
 <a id="wt-sync"></a>
 
