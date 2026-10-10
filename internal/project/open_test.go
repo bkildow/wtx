@@ -6,10 +6,12 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/ui"
 )
 
@@ -425,5 +427,50 @@ func TestOpenAtWithoutConfig(t *testing.T) {
 	_, err := OpenAt(context.Background(), t.TempDir(), Options{})
 	if !errors.Is(err, config.ErrConfigNotFound) {
 		t.Errorf("err = %v, want ErrConfigNotFound", err)
+	}
+}
+
+// TestClassifyWorktreesManaged drives the Managed worktree filter without
+// git: the bare entry and the Project root (by exact or symlinked path) are
+// dropped and every other worktree is kept in order.
+func TestClassifyWorktreesManaged(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "proj")
+	if err := os.Mkdir(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(base, "link")
+	if err := os.Symlink(root, link); err != nil {
+		t.Fatal(err)
+	}
+	feature := filepath.Join(root, "worktrees", "feature")
+	external := filepath.Join(base, "elsewhere", "fix")
+
+	tests := []struct {
+		name string
+		all  []git.WorktreeInfo
+		want []string
+	}{
+		{"empty list", nil, nil},
+		{"bare entry", []git.WorktreeInfo{{Path: filepath.Join(root, ".bare"), Bare: true}}, nil},
+		{"project root", []git.WorktreeInfo{{Path: root, Branch: "main"}}, nil},
+		{"symlinked project root", []git.WorktreeInfo{{Path: link, Branch: "main"}}, nil},
+		{"linked worktrees", []git.WorktreeInfo{
+			{Path: filepath.Join(root, ".bare"), Bare: true},
+			{Path: root, Branch: "main"},
+			{Path: feature, Branch: "feature"},
+			{Path: external, Branch: "fix"},
+		}, []string{feature, external}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []string
+			for _, wt := range ClassifyWorktrees(tt.all, root, CheckoutLayout, "main").Managed {
+				got = append(got, wt.Path)
+			}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("managed = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
