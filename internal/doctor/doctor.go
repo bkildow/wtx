@@ -274,9 +274,10 @@ func inspect(ctx context.Context, opts Options) *inspection {
 		// Inspection only queries git, so the Clone is never dry-run;
 		// opts.DryRun only keeps Run from applying repairs.
 		clone, err = project.OpenAt(ctx, root, project.Options{Quiet: true})
-	}
-	if err == nil {
-		err = guard.unchanged()
+		// An edit since the snapshot explains any failure to resolve it.
+		if changed := guard.unchanged(); changed != nil {
+			err = changed
+		}
 	}
 	if errors.Is(err, project.ErrPathExpansion) {
 		s.report.Root = root

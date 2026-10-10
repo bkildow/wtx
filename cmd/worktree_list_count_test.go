@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,7 +76,7 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 		name string
 		cmd  func() *cobra.Command
 		args []string
-		// reports means the command fails on this fixture's findings.
+		// reports means the command reports this fixture unhealthy.
 		reports bool
 	}{
 		{name: "run", cmd: newRunCmd, args: []string{"noop"}},
@@ -94,7 +95,7 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 			count := spyGit(t)
 			command := tt.cmd()
 			command.SetContext(context.Background())
-			if err := command.RunE(command, tt.args); err != nil && !tt.reports {
+			if err := command.RunE(command, tt.args); err != nil && (!tt.reports || !errors.Is(err, ErrDoctorUnhealthy)) {
 				t.Fatal(err)
 			}
 			if n := count(); n != 1 {

@@ -54,7 +54,7 @@ func (s *inspection) disk() {
 }
 
 func (s *inspection) teardown(root string) {
-	if len(s.clone.Config().Teardown) > 0 || len(s.clone.Config().ParallelTeardown) > 0 {
+	if cfg := s.clone.Config(); len(cfg.Teardown) > 0 || len(cfg.ParallelTeardown) > 0 {
 		return
 	}
 	for _, name := range []string{"compose.yml", "compose.yaml", "docker-compose.yml", "docker-compose.yaml"} {
