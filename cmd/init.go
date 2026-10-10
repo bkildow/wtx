@@ -46,10 +46,13 @@ repository and records those paths in .worktree.yml.`,
 func runInit(cmd *cobra.Command, args []string) error {
 	ctx := cmd.Context()
 	dry := IsDryRun()
-	name, _ := cmd.Flags().GetString("name")
-	nameSet := cmd.Flags().Changed("name")
+	var name *string
+	if cmd.Flags().Changed("name") {
+		value, _ := cmd.Flags().GetString("name")
+		name = &value
+	}
 	inRepo, _ := cmd.Flags().GetBool("in-repo")
-	if inRepo && nameSet {
+	if inRepo && name != nil {
 		return errors.New("--name cannot be used with --in-repo")
 	}
 
@@ -74,12 +77,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		// Joining picks the Clone name itself (--name wins over wtx.name),
-		// so only a refusal resolves the Clone.
-		if !inRepo && cfg.HomeDefaults() {
-			return joinClone(ctx, runner, projectRoot, cfg, name, nameSet, dry)
+		if inRepo {
+			return existingProjectError(ctx, projectRoot, cfg)
 		}
-		return existingProjectError(ctx, projectRoot, cfg)
+		setup, err := planCloneSetup(ctx, runner, projectRoot, cfg, name)
+		if errors.Is(err, project.ErrNoCloneDir) {
+			return existingProjectError(ctx, projectRoot, cfg)
+		}
+		if err != nil {
+			return err
+		}
+		return joinClone(ctx, runner, setup, dry)
 	}
 
 	cfg := config.DefaultConfig()
@@ -89,8 +97,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return initInRepo(ctx, projectRoot, &cfg, dry)
 	}
 
-	setup, err := planCloneSetup(ctx, runner, projectRoot, &cfg, name, nameSet)
+	setup, err := planCloneSetup(ctx, runner, projectRoot, &cfg, name)
 	if err != nil {
+		if !errors.Is(err, project.ErrCloneDirTaken) {
+			err = fmt.Errorf("%w (or use --in-repo)", err)
+		}
 		return err
 	}
 	ui.Step("Writing " + config.ConfigFileName)
@@ -100,13 +111,13 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if err := setup.apply(ctx, runner, dry); err != nil {
 		return err
 	}
-	paths := writtenPaths(ctx, projectRoot, &cfg, dry)
+	paths := writtenPaths(ctx, projectRoot, setup.Config, dry)
 
 	ui.Success("Initialized wtx project in: " + projectRoot)
 	ui.Info("  Your existing checkout is the main worktree.")
 	ui.Info("  Use 'wtx add <branch>' to create additional worktrees.")
 	ui.Info("")
-	ui.Info("  Name:           " + setup.name + " (git config " + project.NameConfigKey + ")")
+	ui.Info("  Name:           " + setup.Name.Name + " (git config " + project.NameConfigKey + ")")
 	paths.print(projectRoot)
 	ui.Info("")
 	ui.Info("  Commit " + config.ConfigFileName + "; teammates run 'wtx init' in their clone to set it up.")
@@ -182,75 +193,52 @@ func existingProjectError(ctx context.Context, projectRoot string, cfg *config.C
 
 // joinClone sets up this clone of a project whose committed .worktree.yml
 // leaves its paths to the per-clone default. It never rewrites the config.
-func joinClone(ctx context.Context, runner *git.Runner, projectRoot string, cfg *config.Config, name string, nameSet, dry bool) error {
-	setup, err := planCloneSetup(ctx, runner, projectRoot, cfg, name, nameSet)
-	if err != nil {
-		return err
-	}
+func joinClone(ctx context.Context, runner *git.Runner, setup *cloneSetup, dry bool) error {
 	if setup.done() {
-		ui.Success("This clone is already set up: " + ui.DisplayPath(projectRoot, setup.cloneDir))
+		ui.Success("This clone is already set up: " + ui.DisplayPath(setup.root, setup.CloneDir))
 		setup.printPaths()
 		return nil
 	}
 	if err := setup.apply(ctx, runner, dry); err != nil {
 		return err
 	}
-	ui.Success("Joined wtx project: set up this clone in " + ui.DisplayPath(projectRoot, setup.cloneDir))
+	ui.Success("Joined wtx project: set up this clone in " + ui.DisplayPath(setup.root, setup.CloneDir))
 	ui.Info("  " + config.ConfigFileName + " is unchanged. Use 'wtx add <branch>' to create worktrees.")
 	ui.Info("")
 	setup.printPaths()
 	return nil
 }
 
-// cloneSetup is the per-clone part of wtx init: the ~/.wtx/<name>
-// directory with its marker, scaffold and starter script, and wtx.name.
+// cloneSetup performs the per-clone part of wtx init that project.PlanClone
+// planned: the ~/.wtx/<name> directory with its marker, scaffold and starter
+// script, and wtx.name.
 type cloneSetup struct {
-	root     string
-	cfg      *config.Config // resolved to the ~/.wtx/<name> layout
-	name     string
-	cloneDir string
-	setName  bool   // wtx.name must be written
-	oldName  string // wtx.name before this run, or ""
+	*project.ClonePlan
+	root string
 }
 
-// planCloneSetup picks the clone's name (--name, else wtx.name, else the
-// repository directory name), checks that ~/.wtx/<name> is free for this
-// clone, and resolves cfg's omitted paths to it.
-func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *config.Config, name string, nameSet bool) (*cloneSetup, error) {
-	current, _, err := runner.LocalConfig(ctx, project.NameConfigKey)
+// planCloneSetup plans the clone's setup (see project.PlanClone), pointing
+// at --name when the Clone dir is taken.
+func planCloneSetup(ctx context.Context, runner *git.Runner, root string, cfg *config.Config, name *string) (*cloneSetup, error) {
+	plan, err := project.PlanClone(ctx, runner, root, cfg, name)
+	if errors.Is(err, project.ErrCloneDirTaken) {
+		return nil, fmt.Errorf("%w\n  choose another directory with 'wtx init --name <other>'", err)
+	}
 	if err != nil {
 		return nil, err
 	}
-	switch {
-	case nameSet:
-	case current != "":
-		name = current
-	default:
-		name = filepath.Base(root)
-	}
-	cloneDir, err := project.SelectCloneDir(root, name)
-	if cloneDir == "" {
-		if config.Exists(root) {
-			return nil, err
-		}
-		return nil, fmt.Errorf("%w (or use --in-repo)", err)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("%w\n  choose another directory with 'wtx init --name <other>'", err)
-	}
-	project.ApplyHomeConfigPaths(cfg, name)
-	return &cloneSetup{root: root, cfg: cfg, name: name, cloneDir: cloneDir, setName: current != name, oldName: current}, nil
+	return &cloneSetup{ClonePlan: plan, root: root}, nil
 }
 
 // done reports whether the clone is fully set up already.
 func (c *cloneSetup) done() bool {
-	if c.setName {
+	if c.SetName() {
 		return false
 	}
-	if m, err := project.ReadMarker(c.cloneDir); err != nil || !project.SamePath(m.Root, c.root) {
+	if m, err := project.ReadMarker(c.CloneDir); err != nil || !project.SamePath(m.Root, c.root) {
 		return false
 	}
-	for _, dir := range project.ScaffoldDirs(c.root, c.cfg) {
+	for _, dir := range project.ScaffoldDirs(c.root, c.Config) {
 		if info, err := os.Stat(dir); err != nil || !info.IsDir() {
 			return false
 		}
@@ -261,25 +249,26 @@ func (c *cloneSetup) done() bool {
 // apply creates ~/.wtx/<name> with its marker, scaffold and starter
 // script, records wtx.name and configures git excludes.
 func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) error {
-	ui.Step("Setting up " + ui.DisplayPath(c.root, c.cloneDir))
-	if m, err := project.ReadMarker(c.cloneDir); err != nil || !project.SamePath(m.Root, c.root) {
-		if err := project.WriteMarker(c.cloneDir, c.root, dry); err != nil {
+	ui.Step("Setting up " + ui.DisplayPath(c.root, c.CloneDir))
+	if m, err := project.ReadMarker(c.CloneDir); err != nil || !project.SamePath(m.Root, c.root) {
+		if err := project.WriteMarker(c.CloneDir, c.root, dry); err != nil {
 			return err
 		}
 	}
-	if err := project.CreateScaffold(c.root, c.cfg, dry); err != nil {
+	if err := project.CreateScaffold(c.root, c.Config, dry); err != nil {
 		return err
 	}
-	if err := project.WriteStarterScripts(c.root, c.cfg, dry); err != nil {
+	if err := project.WriteStarterScripts(c.root, c.Config, dry); err != nil {
 		return err
 	}
-	if c.setName {
-		if c.oldName != "" {
-			ui.Warning("Renaming this clone from " + c.oldName + " to " + c.name + ": worktrees and shared files under " +
-				ui.DisplayPath(c.root, filepath.Join(filepath.Dir(c.cloneDir), c.oldName)) + " stay there")
+	if c.SetName() {
+		// An invalid wtx.name (overridden by --name) never named a Clone dir.
+		if c.Current != "" && project.ValidateCloneName(c.Current) == nil {
+			ui.Warning("Renaming this clone from " + c.Current + " to " + c.Name.Name + ": worktrees and shared files under " +
+				ui.DisplayPath(c.root, filepath.Join(filepath.Dir(c.CloneDir), c.Current)) + " stay there")
 		}
-		ui.Step("Recording " + project.NameConfigKey + " " + c.name + " in local git config")
-		if err := runner.SetLocalConfig(ctx, project.NameConfigKey, c.name); err != nil {
+		ui.Step("Recording " + project.NameConfigKey + " " + c.Name.Name + " in local git config")
+		if err := runner.SetLocalConfig(ctx, project.NameConfigKey, c.Name.Name); err != nil {
 			return err
 		}
 	}
@@ -288,8 +277,8 @@ func (c *cloneSetup) apply(ctx context.Context, runner *git.Runner, dry bool) er
 }
 
 func (c *cloneSetup) printPaths() {
-	ui.Info("  Name:           " + c.name + " (git config " + project.NameConfigKey + ")")
-	configuredPaths(c.root, c.cfg).print(c.root)
+	ui.Info("  Name:           " + c.Name.Name + " (git config " + project.NameConfigKey + ")")
+	configuredPaths(c.root, c.Config).print(c.root)
 }
 
 // initInRepo initializes a project that keeps everything in .worktrees/
