@@ -129,7 +129,11 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	}
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
-	include := resolveIncludeSource(ctx, clone)
+	wts, err := clone.Worktrees(ctx)
+	if err != nil {
+		ui.Warning("Could not list worktrees: " + err.Error())
+	}
+	include := includeSource(ctx, clone, wts)
 	result, err := project.Apply(projectRoot, worktreePath, cfg, dry, &vars, include)
 	if err != nil {
 		return err
@@ -172,7 +176,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return runSetupBackground(projectRoot, worktreePath, branch, cfg, dry, msg)
 	}
 
-	return runSetupForeground(cmd, clone, worktreePath, branch, dry, msg)
+	return runSetupForeground(cmd, cfg, clone.ProjectEnv(vars, wts), dry, msg)
 }
 
 // newBranchStartPoint picks the ref a new branch is created from. An explicit
@@ -219,15 +223,10 @@ func resolveBackgroundMode(cmd *cobra.Command, cfg *config.Config) (bool, error)
 	return cfg.BackgroundSetup, nil
 }
 
-func runSetupForeground(cmd *cobra.Command, clone *project.Clone, worktreePath, branch string, dry bool, msg string) error {
+func runSetupForeground(cmd *cobra.Command, cfg *config.Config, env project.ProjectEnv, dry bool, msg string) error {
 	ctx := cmd.Context()
-	cfg := clone.Config()
+	worktreePath := env.Vars.WorktreePath
 	startedAt := time.Now()
-
-	env, err := clone.HookEnv(ctx, worktreePath, branch)
-	if err != nil {
-		return err
-	}
 
 	var setupErr error
 	setupErr = project.RunSetupHooks(ctx, cfg, env, dry, nil)

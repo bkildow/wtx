@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
 
+	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -82,12 +84,7 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	skipTeardown, _ := cmd.Flags().GetBool("skip-teardown")
 	if !skipTeardown {
 		env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, selected.Path, selected.Branch), wts)
-		if err := project.RunTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
-			ui.Warning("Teardown hooks failed: " + err.Error())
-		}
-		if err := project.RunParallelTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
-			ui.Warning("Parallel teardown hooks failed: " + err.Error())
-		}
+		runTeardownHooks(ctx, cfg, env, IsDryRun())
 	}
 
 	isMainBranch := selected.Branch == mainBranch
@@ -115,6 +112,17 @@ func runRemove(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// runTeardownHooks runs the serial then the parallel teardown hooks for the
+// worktree env describes. Failures are warnings: removal goes ahead.
+func runTeardownHooks(ctx context.Context, cfg *config.Config, env project.ProjectEnv, dryRun bool) {
+	if err := project.RunTeardownHooks(ctx, cfg, env, dryRun); err != nil {
+		ui.Warning("Teardown hooks failed for " + env.Vars.BranchName + ": " + err.Error())
+	}
+	if err := project.RunParallelTeardownHooks(ctx, cfg, env, dryRun); err != nil {
+		ui.Warning("Parallel teardown hooks failed for " + env.Vars.BranchName + ": " + err.Error())
+	}
 }
 
 // terminateBackgroundSetup kills an in-progress background setup process.

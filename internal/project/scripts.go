@@ -127,9 +127,9 @@ type ProjectEnv struct {
 	MainWorktreePath string       // absolute path of the Main worktree, or "" if not checked out
 }
 
-// environ returns the variables under each prefix, e.g. WTX_PROJECT_ROOT.
-func (e ProjectEnv) environ(prefixes ...string) []string {
-	return prefixEnv(prefixes, []string{
+// environ returns the variables as NAME=value, without a prefix.
+func (e ProjectEnv) environ() []string {
+	return []string{
 		"PROJECT_ROOT=" + e.Vars.ProjectRoot,
 		"SHARED_PATH=" + e.SharedPath,
 		"MAIN_BRANCH=" + e.MainBranch,
@@ -137,17 +137,7 @@ func (e ProjectEnv) environ(prefixes ...string) []string {
 		"WORKTREE_PATH=" + e.Vars.WorktreePath,
 		"WORKTREE_ID=" + e.Vars.WorktreeID,
 		"BRANCH_NAME=" + e.Vars.BranchName,
-	})
-}
-
-func prefixEnv(prefixes, values []string) []string {
-	env := make([]string, 0, len(prefixes)*len(values))
-	for _, value := range values {
-		for _, prefix := range prefixes {
-			env = append(env, prefix+value)
-		}
 	}
-	return env
 }
 
 // ScriptRun describes a single script invocation.
@@ -161,8 +151,12 @@ type ScriptRun struct {
 
 // ScriptEnv returns the WTX_* and legacy WT_* variables exported to a script.
 func ScriptEnv(run ScriptRun) []string {
-	prefixes := []string{"WTX_", "WT_"}
-	return append(prefixEnv(prefixes, []string{"SCRIPT_NAME=" + run.Name}), run.environ(prefixes...)...)
+	values := append([]string{"SCRIPT_NAME=" + run.Name}, run.environ()...)
+	env := make([]string, 0, 2*len(values))
+	for _, value := range values {
+		env = append(env, "WTX_"+value, "WT_"+value)
+	}
+	return env
 }
 
 // RunScript executes the script with stdin/stdout/stderr attached. The

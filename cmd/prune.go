@@ -250,12 +250,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 		wt := p.worktree
 		if !skipTeardown {
 			env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, wt.Path, wt.Branch), wts)
-			if err := project.RunTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
-				ui.Warning("Teardown hooks failed for " + wt.Branch + ": " + err.Error())
-			}
-			if err := project.RunParallelTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
-				ui.Warning("Parallel teardown hooks failed for " + wt.Branch + ": " + err.Error())
-			}
+			runTeardownHooks(ctx, cfg, env, IsDryRun())
 		}
 
 		ui.Step("Removing worktree: " + wt.Branch)

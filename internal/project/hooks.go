@@ -55,7 +55,10 @@ func hookCommand(ctx context.Context, cmdStr string, env ProjectEnv) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 	cmd.Dir = env.Vars.WorktreePath
 	cmd.Stdin = os.Stdin
-	cmd.Env = append(os.Environ(), env.environ("WTX_")...)
+	cmd.Env = os.Environ()
+	for _, value := range env.environ() {
+		cmd.Env = append(cmd.Env, "WTX_"+value)
+	}
 	return cmd
 }
 

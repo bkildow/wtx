@@ -82,7 +82,7 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
-	env, err := clone.HookEnv(ctx, worktreePath, branch)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		state.Status = project.SetupFailed
 		state.Error = err.Error()
@@ -90,6 +90,8 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 		_ = project.WriteSetupState(worktreePath, state)
 		return err
 	}
+
+	env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, worktreePath, branch), wts)
 
 	var setupErr error
 

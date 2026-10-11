@@ -36,15 +36,15 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	filtered, err := clone.ManagedWorktrees(ctx)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		return err
 	}
-	if len(filtered) == 0 {
+	if len(wts.Managed) == 0 {
 		return fmt.Errorf("no worktrees found")
 	}
 
-	selected, err := selectWorktree(args, filtered)
+	selected, err := selectWorktree(args, wts.Managed)
 	if err != nil {
 		if ui.IsUserAbort(err) {
 			return nil
@@ -80,5 +80,6 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if background {
 		return runSetupBackground(projectRoot, selected.Path, selected.Branch, cfg, dry, msg)
 	}
-	return runSetupForeground(cmd, clone, selected.Path, selected.Branch, dry, msg)
+	env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, selected.Path, selected.Branch), wts)
+	return runSetupForeground(cmd, cfg, env, dry, msg)
 }
