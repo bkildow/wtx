@@ -123,10 +123,11 @@ func runPrune(cmd *cobra.Command, args []string) error {
 
 	defaultBranch := cfg.MainBranchOrDefault()
 
-	filtered, err := clone.ManagedWorktrees(ctx)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		return err
 	}
+	filtered := wts.Managed
 
 	// Resolve current worktree path for comparison
 	currentPath := ui.CanonicalPath(cwd)
@@ -248,12 +249,8 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	for _, p := range toRemove {
 		wt := p.worktree
 		if !skipTeardown {
-			if err := project.RunTeardownHooks(ctx, cfg, wt.Path, IsDryRun()); err != nil {
-				ui.Warning("Teardown hooks failed for " + wt.Branch + ": " + err.Error())
-			}
-			if err := project.RunParallelTeardownHooks(ctx, cfg, wt.Path, IsDryRun()); err != nil {
-				ui.Warning("Parallel teardown hooks failed for " + wt.Branch + ": " + err.Error())
-			}
+			env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, wt.Path, wt.Branch), wts)
+			runTeardownHooks(ctx, cfg, env, IsDryRun())
 		}
 
 		ui.Step("Removing worktree: " + wt.Branch)

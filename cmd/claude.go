@@ -272,12 +272,9 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	terminateBackgroundSetup(worktreePath, branch, false)
 
 	// Run teardown hooks.
-	if err := project.RunTeardownHooks(ctx, cfg, worktreePath, false); err != nil {
-		ui.Warning("Teardown hooks failed: " + err.Error())
-	}
-	if err := project.RunParallelTeardownHooks(ctx, cfg, worktreePath, false); err != nil {
-		ui.Warning("Parallel teardown hooks failed: " + err.Error())
-	}
+	all := project.ClassifyWorktrees(worktrees, clone.Root(), clone.Layout(), cfg.MainBranchOrDefault())
+	env := clone.ProjectEnv(project.NewTemplateVars(clone.Root(), worktreePath, branch), all)
+	runTeardownHooks(ctx, cfg, env, false)
 
 	// Force remove — Claude agents may have uncommitted changes.
 	ui.Step("Removing worktree: " + branch)

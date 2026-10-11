@@ -703,8 +703,9 @@ secrets/
 | `WTX_NO_DISK_WARN` | Any non-empty value disables [low disk space warnings](#low-disk-space-warnings) |
 | `WTX_THEME` | Color theme for terminal output |
 
-Scripts run by `wtx run` also receive the [`WTX_*` variables](#wt-run) listed
-under `wtx run`.
+Scripts run by `wtx run` also receive the [`WTX_*` variables](#wtx-run) listed
+under `wtx run`, and hooks receive them as described under
+[Setup & Teardown Hooks](#setup--teardown-hooks).
 
 ### Setup & Teardown Hooks
 
@@ -713,6 +714,14 @@ Hooks run in the worktree directory via `sh -c`. Serial hooks (`setup`/`teardown
 - **Setup hooks** run after worktree creation and shared file application. If any hook fails, `wtx add` reports the error (the worktree is still created).
 - **Teardown hooks** run before worktree removal. Hook failures are logged as warnings and do not prevent removal.
 - Both respect `--dry-run` (prints what would run without executing).
+
+Every hook gets the [`WTX_*` variables](#wtx-run) that `wtx run` exports, except
+`WTX_SCRIPT_NAME`, describing the worktree being set up or torn down:
+`WTX_PROJECT_ROOT`, `WTX_SHARED_PATH`, `WTX_MAIN_BRANCH`,
+`WTX_MAIN_WORKTREE_PATH`, `WTX_WORKTREE_PATH`, `WTX_WORKTREE_ID` and
+`WTX_BRANCH_NAME`. Hooks have no legacy `WT_*` names. Naming resources after
+the worktree rather than relying on the working directory keeps a hook
+unambiguous, for example `docker compose -p "$WTX_WORKTREE_ID" down -v`.
 
 ### Parallel Hooks
 

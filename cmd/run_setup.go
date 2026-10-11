@@ -24,12 +24,14 @@ func newRunSetupCmd() *cobra.Command {
 	}
 	cmd.Flags().String("worktree-path", "", "Path to the worktree")
 	cmd.Flags().String("project-root", "", "Path to the project root")
+	cmd.Flags().String("branch", "", "Branch checked out in the worktree")
 	return cmd
 }
 
 func runRunSetup(cmd *cobra.Command, _ []string) error {
 	worktreePath, _ := cmd.Flags().GetString("worktree-path")
 	projectRoot, _ := cmd.Flags().GetString("project-root")
+	branch, _ := cmd.Flags().GetString("branch")
 
 	if worktreePath == "" || projectRoot == "" {
 		return fmt.Errorf("--worktree-path and --project-root are required")
@@ -80,6 +82,14 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
+	// A listing failure only loses WTX_MAIN_WORKTREE_PATH; setup still runs.
+	wts, err := clone.Worktrees(ctx)
+	if err != nil {
+		ui.Warning("Could not list worktrees: " + err.Error())
+	}
+
+	env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, worktreePath, branch), wts)
+
 	var setupErr error
 
 	// Run serial hooks with progress tracking.
@@ -87,10 +97,10 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 		state.HooksCompleted = index + 1
 		_ = project.WriteSetupState(worktreePath, state)
 	}
-	setupErr = project.RunSetupHooks(ctx, cfg, worktreePath, false, onProgress)
+	setupErr = project.RunSetupHooks(ctx, cfg, env, false, onProgress)
 
 	// Run parallel hooks as a batch.
-	if pErr := project.RunParallelSetupHooks(ctx, cfg, worktreePath, false); pErr != nil {
+	if pErr := project.RunParallelSetupHooks(ctx, cfg, env, false); pErr != nil {
 		setupErr = errors.Join(setupErr, pErr)
 	}
 	state.HooksCompleted = hooksTotal

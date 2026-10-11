@@ -106,6 +106,8 @@ Files ending in `.template` are copied with the suffix stripped and these variab
 
 `wtx config init --update` rewrites the file with documentation comments and keeps existing values.
 
+Hooks run in the worktree via `sh -c` with the `WTX_*` variables `wtx run --help` lists, except `WTX_SCRIPT_NAME`. When writing a hook that acts on per-worktree resources, name them from `$WTX_WORKTREE_ID` (e.g. `docker compose -p "$WTX_WORKTREE_ID" down -v`) instead of relying on the working directory.
+
 ## Project health
 
 - `wtx status` shows every worktree's branch, dirty state, and setup state, and names `wtx logs <branch>` for each failed background setup.

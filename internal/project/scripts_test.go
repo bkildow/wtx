@@ -141,14 +141,16 @@ func TestRunScriptArgsEnvAndCwd(t *testing.T) {
 
 	mainWT := filepath.Join(root, "worktrees", "main")
 	err := RunScript(context.Background(), ScriptRun{
-		Name:             "probe",
-		Path:             script,
-		Args:             []string{"--flag", "value with space"},
-		Dir:              wt,
-		Vars:             NewTemplateVars(root, wt, "feature/x"),
-		SharedPath:       filepath.Join(root, "shared"),
-		MainBranch:       "main",
-		MainWorktreePath: mainWT,
+		Name: "probe",
+		Path: script,
+		Args: []string{"--flag", "value with space"},
+		Dir:  wt,
+		ProjectEnv: ProjectEnv{
+			Vars:             NewTemplateVars(root, wt, "feature/x"),
+			SharedPath:       filepath.Join(root, "shared"),
+			MainBranch:       "main",
+			MainWorktreePath: mainWT,
+		},
 	}, false)
 	if err != nil {
 		t.Fatalf("RunScript error: %v", err)
@@ -241,9 +243,11 @@ func TestRunScriptDualEnvironment(t *testing.T) {
 			script := filepath.Join(root, "probe")
 			run := ScriptRun{
 				Name: "probe", Path: script, Dir: root,
-				Vars:       NewTemplateVars(root, filepath.Join(root, "feature"), "feature/x"),
-				SharedPath: filepath.Join(root, "shared"), MainBranch: "main",
-				MainWorktreePath: filepath.Join(root, "main"),
+				ProjectEnv: ProjectEnv{
+					Vars:       NewTemplateVars(root, filepath.Join(root, "feature"), "feature/x"),
+					SharedPath: filepath.Join(root, "shared"), MainBranch: "main",
+					MainWorktreePath: filepath.Join(root, "main"),
+				},
 			}
 			if outside {
 				run.Vars.WorktreePath = ""
