@@ -492,16 +492,11 @@ func loadHerdrContext() (herdrContext, error) {
 }
 
 // runHerdrOpenRemove is the remove action. Actions run without a terminal, so
-// it opens the remove pane, which has one, over the focused workspace.
+// it opens the remove pane, which has one. herdr opens overlay panes over the
+// active pane and rejects a target, so the pane lands in the workspace the
+// action was invoked from.
 func runHerdrOpenRemove(cmd *cobra.Command, _ []string) error {
-	hc, err := loadHerdrContext()
-	if err != nil {
-		return err
-	}
 	args := []string{"plugin", "pane", "open", "--plugin", herdrPluginID, "--entrypoint", herdrRemovePane, "--focus"}
-	if hc.WorkspaceID != "" {
-		args = append(args, "--workspace", hc.WorkspaceID)
-	}
 	out, err := exec.CommandContext(cmd.Context(), herdrBin(), args...).CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("herdr plugin pane open failed: %w\n%s", err, strings.TrimSpace(string(out)))
