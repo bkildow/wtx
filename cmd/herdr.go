@@ -203,23 +203,11 @@ func herdrBinary() (string, error) {
 		return "", fmt.Errorf("cannot determine wtx binary path: %w", err)
 	}
 	if onPath, err := exec.LookPath("wtx"); err == nil {
-		if abs, err := filepath.Abs(onPath); err == nil && sameFile(abs, exe) {
+		if abs, err := filepath.Abs(onPath); err == nil && project.SamePath(abs, exe) {
 			return abs, nil
 		}
 	}
 	return exe, nil
-}
-
-func sameFile(a, b string) bool {
-	ai, err := os.Stat(a)
-	if err != nil {
-		return false
-	}
-	bi, err := os.Stat(b)
-	if err != nil {
-		return false
-	}
-	return os.SameFile(ai, bi)
 }
 
 func runHerdrInit(cmd *cobra.Command, _ []string) error {
@@ -259,7 +247,7 @@ func runHerdrInit(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	herdrBin, err := exec.LookPath("herdr")
+	herdrPath, err := exec.LookPath("herdr")
 	if err != nil {
 		ui.Warning("herdr not found in PATH; link the plugin with: herdr plugin link " + dir)
 		return nil
@@ -268,7 +256,7 @@ func runHerdrInit(cmd *cobra.Command, _ []string) error {
 	if legacy, err := legacyHerdrPluginDir(); err == nil && generatedByWt(filepath.Join(legacy, herdrManifestName)) {
 		if dry {
 			ui.DryRunNotice("exec: herdr plugin unlink " + herdrLegacyPluginID)
-		} else if exec.CommandContext(ctx, herdrBin, "plugin", "unlink", herdrLegacyPluginID).Run() == nil {
+		} else if runHerdr(ctx, herdrPath, "plugin", "unlink", herdrLegacyPluginID) == nil {
 			ui.Success("Unlinked the legacy '" + herdrLegacyPluginID + "' herdr plugin (" + legacy + ")")
 		}
 	}
@@ -279,10 +267,9 @@ func runHerdrInit(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Relink so an existing registration picks up the new manifest.
-	_ = exec.CommandContext(ctx, herdrBin, "plugin", "unlink", herdrPluginID).Run()
-	link := exec.CommandContext(ctx, herdrBin, "plugin", "link", dir)
-	if out, err := link.CombinedOutput(); err != nil {
-		return fmt.Errorf("herdr plugin link failed: %w\n%s", err, strings.TrimSpace(string(out)))
+	_ = runHerdr(ctx, herdrPath, "plugin", "unlink", herdrPluginID)
+	if err := runHerdr(ctx, herdrPath, "plugin", "link", dir); err != nil {
+		return err
 	}
 	ui.Success("Linked herdr plugin: " + herdrPluginID)
 	ui.Info("Bind the remove action so teardown hooks run before herdr deletes a checkout;")
@@ -297,15 +284,14 @@ func generatedByWt(path string) bool {
 }
 
 // herdrProjectRoot finds the wtx Project for a herdr checkout from its
-// repo_key, the shared git dir (.bare or .git inside the Project root). It
-// does not walk up from the checkout: herdr puts checkouts outside the
-// Project, and an ancestor's .worktree.yml must not claim an unrelated repo.
+// repo_key, the shared git dir. It does not walk up from the checkout: herdr
+// puts checkouts outside the Project, and an ancestor's .worktree.yml must
+// not claim an unrelated repo.
 func herdrProjectRoot(repoKey string) (string, bool) {
 	if repoKey == "" {
 		return "", false
 	}
-	root := filepath.Dir(filepath.Clean(repoKey))
-	return root, config.Exists(root)
+	return project.RootFromCommonDir(repoKey)
 }
 
 func parseHerdrEvent(raw, want string) (herdrEvent, error) {
@@ -384,14 +370,8 @@ func runHerdrWorktreeCreated(cmd *cobra.Command, _ []string) error {
 
 	// herdr runs a plain 'git worktree add', which leaves a checkout of a bare
 	// repository unusable; finish it the way 'wtx add' does.
-	if clone.Layout() == project.BareLayout {
-		runner := clone.Runner()
-		if err := runner.EnableWorktreeConfig(ctx); err != nil {
-			return err
-		}
-		if err := runner.SetWorktreeBareFalse(ctx, worktreePath); err != nil {
-			return err
-		}
+	if err := clone.Runner().FinishWorktree(ctx, worktreePath, branch); err != nil {
+		return err
 	}
 
 	if err := project.EnsureGitExclude(clone.GitDir(), false); err != nil {
@@ -472,6 +452,15 @@ func notifyHerdr(title, body string) {
 	_ = exec.Command(herdrBin(), "notification", "show", title, "--body", body).Run()
 }
 
+// runHerdr runs herdr at bin, putting its output in the error when it fails.
+func runHerdr(ctx context.Context, bin string, args ...string) error {
+	out, err := exec.CommandContext(ctx, bin, args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("herdr %s failed: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+	return nil
+}
+
 func herdrBin() string {
 	if bin := os.Getenv(herdrBinEnv); bin != "" {
 		return bin
@@ -496,12 +485,7 @@ func loadHerdrContext() (herdrContext, error) {
 // active pane and rejects a target, so the pane lands in the workspace the
 // action was invoked from.
 func runHerdrOpenRemove(cmd *cobra.Command, _ []string) error {
-	args := []string{"plugin", "pane", "open", "--plugin", herdrPluginID, "--entrypoint", herdrRemovePane, "--focus"}
-	out, err := exec.CommandContext(cmd.Context(), herdrBin(), args...).CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("herdr plugin pane open failed: %w\n%s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
+	return runHerdr(cmd.Context(), herdrBin(), "plugin", "pane", "open", "--plugin", herdrPluginID, "--entrypoint", herdrRemovePane, "--focus")
 }
 
 // runHerdrRemove runs in the remove pane. Errors stay on screen until the
@@ -570,12 +554,7 @@ func herdrRemove(ctx context.Context, prompter ui.Prompter) error {
 
 	cfg := clone.Config()
 	env := clone.ProjectEnv(project.NewTemplateVars(root, wt.Path, wt.Branch), wts)
-	if err := project.RunTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
-		ui.Warning("Teardown hooks failed: " + err.Error())
-	}
-	if err := project.RunParallelTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
-		ui.Warning("Parallel teardown hooks failed: " + err.Error())
-	}
+	runTeardownHooks(ctx, cfg, env, IsDryRun())
 
 	args := []string{"worktree", "remove", "--workspace", hc.WorkspaceID}
 	if force {
@@ -594,19 +573,17 @@ func herdrRemove(ctx context.Context, prompter ui.Prompter) error {
 		ui.Warning("Could not record teardown: " + err.Error())
 	}
 	ui.Step("Removing worktree: " + wt.Branch)
-	if out, err := exec.CommandContext(ctx, herdrBin(), args...).CombinedOutput(); err != nil {
+	if err := runHerdr(ctx, herdrBin(), args...); err != nil {
 		_ = os.Remove(herdrStatePath("removed", wt.Path))
-		return fmt.Errorf("teardown ran, but herdr worktree remove failed: %w\n%s", err, strings.TrimSpace(string(out)))
+		return fmt.Errorf("teardown ran, but %w", err)
 	}
 	return nil
 }
 
-// findWorktreeByPath returns the worktree checked out at path, comparing
-// canonical paths so /tmp and /private/tmp match.
+// findWorktreeByPath returns the worktree checked out at path.
 func findWorktreeByPath(worktrees []git.WorktreeInfo, path string) (git.WorktreeInfo, bool) {
-	want := ui.CanonicalPath(path)
 	for _, wt := range worktrees {
-		if ui.CanonicalPath(wt.Path) == want {
+		if project.SamePath(wt.Path, path) {
 			return wt, true
 		}
 	}

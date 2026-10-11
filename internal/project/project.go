@@ -38,11 +38,18 @@ func rootFromGitCommonDir(startDir string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
-	candidate := filepath.Dir(commonDir)
-	if !config.Exists(candidate) {
+	candidate, ok := RootFromCommonDir(commonDir)
+	if !ok {
 		return "", false
 	}
 	return preferLexicalAncestor(startDir, candidate), true
+}
+
+// RootFromCommonDir returns the Project root for a git common dir (.bare or
+// .git inside the root): its parent, when that holds a .worktree.yml.
+func RootFromCommonDir(commonDir string) (string, bool) {
+	root := filepath.Dir(filepath.Clean(commonDir))
+	return root, config.Exists(root)
 }
 
 // preferLexicalAncestor returns the ancestor of startDir (as the caller
