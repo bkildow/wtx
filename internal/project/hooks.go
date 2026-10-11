@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/bkildow/wtx/internal/config"
@@ -50,13 +52,25 @@ func (pw *prefixWriter) flush() {
 type HookProgressFunc func(index int, cmdStr string, err error)
 
 // hookCommand builds the shell command for one hook: it runs inside the
-// worktree with the WTX_* variables from env exported.
+// worktree with the WTX_* variables from env exported. Script-only variables
+// inherited from an enclosing 'wtx run' (WTX_SCRIPT_NAME and the legacy WT_*
+// names) are dropped, so a hook never sees another worktree's values.
 func hookCommand(ctx context.Context, cmdStr string, env ProjectEnv) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 	cmd.Dir = env.Vars.WorktreePath
 	cmd.Stdin = os.Stdin
-	cmd.Env = os.Environ()
-	for _, value := range env.environ() {
+
+	values := env.environ()
+	drop := []string{"WTX_SCRIPT_NAME=", "WT_SCRIPT_NAME="}
+	for _, value := range values {
+		drop = append(drop, "WT_"+value[:strings.IndexByte(value, '=')+1])
+	}
+	for _, kv := range os.Environ() {
+		if !slices.ContainsFunc(drop, func(prefix string) bool { return strings.HasPrefix(kv, prefix) }) {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	for _, value := range values {
 		cmd.Env = append(cmd.Env, "WTX_"+value)
 	}
 	return cmd

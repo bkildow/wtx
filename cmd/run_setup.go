@@ -82,13 +82,10 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 		}
 	}()
 
+	// A listing failure only loses WTX_MAIN_WORKTREE_PATH; setup still runs.
 	wts, err := clone.Worktrees(ctx)
 	if err != nil {
-		state.Status = project.SetupFailed
-		state.Error = err.Error()
-		state.CompletedAt = time.Now()
-		_ = project.WriteSetupState(worktreePath, state)
-		return err
+		ui.Warning("Could not list worktrees: " + err.Error())
 	}
 
 	env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, worktreePath, branch), wts)
