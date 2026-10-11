@@ -41,6 +41,7 @@
 - **Interactive by default** — branch/worktree pickers when arguments are omitted
 - **Setup/teardown hooks** — run commands automatically when creating or removing worktrees
 - **Claude Code integration** — automatic worktree creation/removal via Claude Code hooks
+- **herdr integration** — worktrees created in [herdr](https://herdr.dev) get shared files and setup hooks, and a herdr action removes them with teardown
 - **Agent skill** — teaches any skills-aware coding agent to drive `wtx` non-interactively ([install](#agent-skill))
 - **Editor integration** — open worktrees in your preferred editor ($EDITOR, config, or auto-detect)
 - **Shell completions** — tab-complete worktree names in bash, zsh, and fish
@@ -229,6 +230,7 @@ wtx prune
 | `wtx prune` | Remove worktrees with fully merged branches |
 | `wtx config init` | Generate annotated `.worktree.yml` with documentation |
 | `wtx claude init` | Configure Claude Code hooks for automatic worktree management |
+| `wtx herdr init` | Install the wtx plugin into herdr |
 | `wtx skill` | Print the agent skill for AI coding agents |
 | `wtx shell-init <shell>` | Print shell startup config (wrapper + completions) |
 | `wtx completion <shell>` | Generate shell completion script |
@@ -557,6 +559,34 @@ This enables two hooks:
 - **WorktreeRemove** — when the subagent finishes, `wtx` runs teardown hooks and cleans up the worktree and branch
 
 Run `wtx claude init` once per project. The hooks propagate to all worktrees automatically.
+
+### wtx herdr init
+
+```bash
+wtx herdr init                        # Write the plugin manifest and link it with herdr
+wtx herdr init --binary /path/to/wtx  # Use a specific wtx binary path
+wtx herdr init --no-link              # Write the manifest only
+```
+
+Installs a [herdr](https://herdr.dev) plugin, written to `~/.wtx/herdr-plugin/`, so worktrees created and removed from herdr behave like ones from `wtx add` and `wtx remove`. The plugin is global to herdr: run it once per machine. It ignores repositories without a `.worktree.yml` and replaces the plugin installed by the deprecated `wt herdr init`.
+
+herdr keeps ownership of its checkouts, which live in its own directory (`~/.herdr/worktrees/<repo>/<branch>` by default):
+
+- **Creating** a worktree in herdr fires `worktree.created`. `wtx` applies shared files and `.worktreeinclude`, and runs setup hooks in the background; `wtx status` and `wtx logs` cover the checkout like any other.
+- **Removing** through the plugin's `wtx.remove` action runs teardown hooks inside the checkout, then has herdr delete the checkout and close its workspace. It asks before removing a worktree with uncommitted changes. Like herdr, it keeps the branch; `wtx prune` deletes merged ones.
+- **Removing** through herdr's own *Delete worktree checkout* deletes the checkout before `wtx` hears about it, so teardown hooks cannot run. `wtx` stops any setup still running, lists the skipped hooks in `herdr plugin log list --plugin wtx`, and shows a herdr notification.
+
+Bind the action in `~/.config/herdr/config.toml` and use it instead of herdr's delete for `wtx` projects:
+
+```toml
+[[keys.command]]
+key = "prefix+shift+x"
+type = "plugin_action"
+command = "wtx.remove"
+description = "remove worktree (wtx teardown)"
+```
+
+herdr only creates worktrees from a workspace on a repository's main working tree. In a bare `wtx clone` project, where every checkout is a linked worktree, open that workspace at the project's `.bare` directory.
 
 <a id="wt-completion"></a>
 

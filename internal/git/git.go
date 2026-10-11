@@ -38,6 +38,7 @@ type Git interface {
 	HasLocalBranch(ctx context.Context, branch string) bool
 	WorktreeAdd(ctx context.Context, path, branch string) error
 	WorktreeAddNew(ctx context.Context, path, branch, baseBranch string) error
+	FinishWorktree(ctx context.Context, path, branch string) error
 	WorktreeRemove(ctx context.Context, path string, force bool) error
 	WorktreeList(ctx context.Context) ([]WorktreeInfo, error)
 	WorktreePrune(ctx context.Context) error
@@ -342,6 +343,13 @@ func (r *Runner) WorktreeAdd(ctx context.Context, path, branch string) error {
 	if _, err := r.Run(ctx, r.worktreeAddArgs(ctx, path, branch)...); err != nil {
 		return err
 	}
+	return r.FinishWorktree(ctx, path, branch)
+}
+
+// FinishWorktree makes a checkout that `git worktree add` just created usable
+// by wtx, whoever ran it: core.bare=false in its config.worktree, and
+// upstream tracking when origin/<branch> exists.
+func (r *Runner) FinishWorktree(ctx context.Context, path, branch string) error {
 	if err := r.EnableWorktreeConfig(ctx); err != nil {
 		return err
 	}

@@ -70,6 +70,7 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 - `wtx remove <name> --force` runs teardown hooks, then removes the worktree and its branch. A branch git calls unmerged is kept, and the output prints the exact `git --git-dir <dir> branch -D <name>` command to delete it. Run it only if the user wants those commits gone.
 - `wtx prune --yes` removes every worktree whose branch is merged, including squash, rebase and merged-PR merges. Merged worktrees with uncommitted changes are kept unless you add `--force`. Git calls squash- and rebase-merged branches unmerged, so prune keeps those branches and prints the `branch -D` command for each. Their work is already in the default branch, so deleting them is safe.
 - `--skip-teardown` skips teardown hooks on either command.
+- A worktree under `~/.herdr/worktrees/` belongs to a herdr workspace. Ask the user to remove it with herdr's `wtx.remove` action rather than `wtx remove`, which would leave the herdr workspace open on a deleted directory.
 
 ## Project scripts
 

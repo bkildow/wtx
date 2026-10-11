@@ -142,21 +142,26 @@ func terminateBackgroundSetup(worktreePath, branch string, dryRun bool) {
 	}
 
 	ui.Warning(fmt.Sprintf("Terminating in-progress setup for %s (PID %d)", branch, state.PID))
-	_ = terminateProcess(state.PID)
+	stopProcess(state.PID)
+}
 
-	// Poll for exit, then force-kill if the process doesn't terminate.
+// stopProcess asks pid to terminate, then force-kills it if it is still
+// running after two seconds.
+func stopProcess(pid int) {
+	_ = terminateProcess(pid)
+
 	deadline := time.After(2 * time.Second)
 	tick := time.NewTicker(100 * time.Millisecond)
 	defer tick.Stop()
 	for {
 		select {
 		case <-tick.C:
-			if !project.IsProcessAlive(state.PID) {
+			if !project.IsProcessAlive(pid) {
 				return
 			}
 		case <-deadline:
-			if project.IsProcessAlive(state.PID) {
-				_ = killProcess(state.PID)
+			if project.IsProcessAlive(pid) {
+				_ = killProcess(pid)
 			}
 			return
 		}
