@@ -172,7 +172,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		return runSetupBackground(projectRoot, worktreePath, branch, cfg, dry, msg)
 	}
 
-	return runSetupForeground(cmd, worktreePath, cfg, dry, msg)
+	return runSetupForeground(cmd, clone, worktreePath, branch, dry, msg)
 }
 
 // newBranchStartPoint picks the ref a new branch is created from. An explicit
@@ -219,13 +219,19 @@ func resolveBackgroundMode(cmd *cobra.Command, cfg *config.Config) (bool, error)
 	return cfg.BackgroundSetup, nil
 }
 
-func runSetupForeground(cmd *cobra.Command, worktreePath string, cfg *config.Config, dry bool, msg string) error {
+func runSetupForeground(cmd *cobra.Command, clone *project.Clone, worktreePath, branch string, dry bool, msg string) error {
 	ctx := cmd.Context()
+	cfg := clone.Config()
 	startedAt := time.Now()
 
+	env, err := clone.HookEnv(ctx, worktreePath, branch)
+	if err != nil {
+		return err
+	}
+
 	var setupErr error
-	setupErr = project.RunSetupHooks(ctx, cfg, worktreePath, dry, nil)
-	if pErr := project.RunParallelSetupHooks(ctx, cfg, worktreePath, dry); pErr != nil {
+	setupErr = project.RunSetupHooks(ctx, cfg, env, dry, nil)
+	if pErr := project.RunParallelSetupHooks(ctx, cfg, env, dry); pErr != nil {
 		setupErr = errors.Join(setupErr, pErr)
 	}
 
@@ -275,6 +281,7 @@ func runSetupBackground(projectRoot, worktreePath, branch string, cfg *config.Co
 		exe, "_run-setup",
 		"--worktree-path", worktreePath,
 		"--project-root", projectRoot,
+		"--branch", branch,
 	)
 	detachProcess(child)
 

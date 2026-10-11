@@ -226,6 +226,27 @@ func (c *Clone) Worktrees(ctx context.Context) (Worktrees, error) {
 	return ClassifyWorktrees(all, c.root, c.layout, c.cfg.MainBranchOrDefault()), nil
 }
 
+// ProjectEnv is the environment a hook or script gets for vars, given w, the
+// Clone's worktrees (see Worktrees).
+func (c *Clone) ProjectEnv(vars TemplateVars, w Worktrees) ProjectEnv {
+	env := ProjectEnv{Vars: vars, SharedPath: c.shared, MainBranch: c.cfg.MainBranchOrDefault()}
+	if w.HasMain {
+		env.MainWorktreePath = w.Main.Path
+	}
+	return env
+}
+
+// HookEnv is the environment hooks get for the worktree at worktreePath on
+// branch. It lists the Clone's worktrees to find the Main worktree, and runs
+// under dry-run.
+func (c *Clone) HookEnv(ctx context.Context, worktreePath, branch string) (ProjectEnv, error) {
+	w, err := c.Worktrees(ctx)
+	if err != nil {
+		return ProjectEnv{}, err
+	}
+	return c.ProjectEnv(NewTemplateVars(c.root, worktreePath, branch), w), nil
+}
+
 // ManagedWorktrees lists the Clone's Managed worktrees (see
 // Worktrees.Managed). It runs under dry-run.
 func (c *Clone) ManagedWorktrees(ctx context.Context) ([]git.WorktreeInfo, error) {

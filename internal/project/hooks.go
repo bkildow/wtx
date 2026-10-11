@@ -49,10 +49,20 @@ func (pw *prefixWriter) flush() {
 // index is the 0-based position, cmdStr is the command, err is nil on success.
 type HookProgressFunc func(index int, cmdStr string, err error)
 
-// RunSetupHooks executes each command in cfg.Setup inside the
-// worktree directory. Failures are logged but do not stop subsequent hooks.
+// hookCommand builds the shell command for one hook: it runs inside the
+// worktree with the WTX_* variables from env exported.
+func hookCommand(ctx context.Context, cmdStr string, env ProjectEnv) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
+	cmd.Dir = env.Vars.WorktreePath
+	cmd.Stdin = os.Stdin
+	cmd.Env = append(os.Environ(), env.environ("WTX_")...)
+	return cmd
+}
+
+// RunSetupHooks executes each command in cfg.Setup inside the worktree
+// env describes. Failures are logged but do not stop subsequent hooks.
 // An optional onProgress callback is called after each hook completes.
-func RunSetupHooks(ctx context.Context, cfg *config.Config, worktreePath string, dryRun bool, onProgress HookProgressFunc) error {
+func RunSetupHooks(ctx context.Context, cfg *config.Config, env ProjectEnv, dryRun bool, onProgress HookProgressFunc) error {
 	if len(cfg.Setup) == 0 {
 		return nil
 	}
@@ -69,9 +79,7 @@ func RunSetupHooks(ctx context.Context, cfg *config.Config, worktreePath string,
 			continue
 		}
 
-		cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-		cmd.Dir = worktreePath
-		cmd.Stdin = os.Stdin
+		cmd := hookCommand(ctx, cmdStr, env)
 		cmd.Stdout = ui.Output
 		cmd.Stderr = ui.Output
 
@@ -95,9 +103,9 @@ func RunSetupHooks(ctx context.Context, cfg *config.Config, worktreePath string,
 	return nil
 }
 
-// RunTeardownHooks executes each command in cfg.Teardown inside the
-// worktree directory. Failures are logged but do not stop subsequent hooks.
-func RunTeardownHooks(ctx context.Context, cfg *config.Config, worktreePath string, dryRun bool) error {
+// RunTeardownHooks executes each command in cfg.Teardown inside the worktree
+// env describes. Failures are logged but do not stop subsequent hooks.
+func RunTeardownHooks(ctx context.Context, cfg *config.Config, env ProjectEnv, dryRun bool) error {
 	if len(cfg.Teardown) == 0 {
 		return nil
 	}
@@ -111,9 +119,7 @@ func RunTeardownHooks(ctx context.Context, cfg *config.Config, worktreePath stri
 			continue
 		}
 
-		cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-		cmd.Dir = worktreePath
-		cmd.Stdin = os.Stdin
+		cmd := hookCommand(ctx, cmdStr, env)
 		cmd.Stdout = ui.Output
 		cmd.Stderr = ui.Output
 
@@ -132,18 +138,18 @@ func RunTeardownHooks(ctx context.Context, cfg *config.Config, worktreePath stri
 }
 
 // RunParallelSetupHooks executes all commands in cfg.ParallelSetup concurrently
-// inside the worktree directory. All commands run to completion even if some fail.
-func RunParallelSetupHooks(ctx context.Context, cfg *config.Config, worktreePath string, dryRun bool) error {
-	return runParallelHooks(ctx, cfg.ParallelSetup, worktreePath, dryRun, "parallel setup")
+// inside the worktree env describes. All commands run to completion even if some fail.
+func RunParallelSetupHooks(ctx context.Context, cfg *config.Config, env ProjectEnv, dryRun bool) error {
+	return runParallelHooks(ctx, cfg.ParallelSetup, env, dryRun, "parallel setup")
 }
 
 // RunParallelTeardownHooks executes all commands in cfg.ParallelTeardown concurrently
-// inside the worktree directory. All commands run to completion even if some fail.
-func RunParallelTeardownHooks(ctx context.Context, cfg *config.Config, worktreePath string, dryRun bool) error {
-	return runParallelHooks(ctx, cfg.ParallelTeardown, worktreePath, dryRun, "parallel teardown")
+// inside the worktree env describes. All commands run to completion even if some fail.
+func RunParallelTeardownHooks(ctx context.Context, cfg *config.Config, env ProjectEnv, dryRun bool) error {
+	return runParallelHooks(ctx, cfg.ParallelTeardown, env, dryRun, "parallel teardown")
 }
 
-func runParallelHooks(ctx context.Context, hooks []string, worktreePath string, dryRun bool, label string) error {
+func runParallelHooks(ctx context.Context, hooks []string, env ProjectEnv, dryRun bool, label string) error {
 	if len(hooks) == 0 {
 		return nil
 	}
@@ -170,9 +176,7 @@ func runParallelHooks(ctx context.Context, hooks []string, worktreePath string, 
 			defer wg.Done()
 
 			pw := &prefixWriter{prefix: cmdStr, mu: &outputMu}
-			cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
-			cmd.Dir = worktreePath
-			cmd.Stdin = os.Stdin
+			cmd := hookCommand(ctx, cmdStr, env)
 			cmd.Stdout = pw
 			cmd.Stderr = pw
 

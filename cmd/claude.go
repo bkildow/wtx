@@ -272,10 +272,14 @@ func runClaudeHookWorktreeRemove(cmd *cobra.Command, _ []string) error {
 	terminateBackgroundSetup(worktreePath, branch, false)
 
 	// Run teardown hooks.
-	if err := project.RunTeardownHooks(ctx, cfg, worktreePath, false); err != nil {
+	env, err := clone.HookEnv(ctx, worktreePath, branch)
+	if err != nil {
+		return err
+	}
+	if err := project.RunTeardownHooks(ctx, cfg, env, false); err != nil {
 		ui.Warning("Teardown hooks failed: " + err.Error())
 	}
-	if err := project.RunParallelTeardownHooks(ctx, cfg, worktreePath, false); err != nil {
+	if err := project.RunParallelTeardownHooks(ctx, cfg, env, false); err != nil {
 		ui.Warning("Parallel teardown hooks failed: " + err.Error())
 	}
 

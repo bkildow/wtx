@@ -288,6 +288,8 @@ func renderAnnotatedConfig(cfg *Config) string {
 		fmt.Fprintf(&b, "# disk_warn_gb: %d\n", disk.DefaultWarnGB)
 	}
 
+	b.WriteString("\n# Hooks run in the worktree with WTX_PROJECT_ROOT, WTX_WORKTREE_PATH,\n")
+	b.WriteString("# WTX_WORKTREE_ID, WTX_BRANCH_NAME and the other variables 'wtx run --help' lists\n")
 	b.WriteString("\n# Commands to run after creating a new worktree\n")
 	if cfg != nil && len(cfg.Setup) > 0 {
 		b.WriteString("setup:\n")

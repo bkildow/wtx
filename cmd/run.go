@@ -93,14 +93,11 @@ func runRun(cmd *cobra.Command, args []string) error {
 	ui.Step(fmt.Sprintf("Running %s: %s", name, displayScriptPath(projectRoot, scriptPath)))
 
 	if err := project.RunScript(ctx, project.ScriptRun{
-		Name:             name,
-		Path:             scriptPath,
-		Args:             scriptArgs,
-		Dir:              sc.dir,
-		Vars:             sc.vars,
-		SharedPath:       clone.SharedDir(),
-		MainBranch:       cfg.MainBranchOrDefault(),
-		MainWorktreePath: sc.mainWorktreePath,
+		Name:       name,
+		Path:       scriptPath,
+		Args:       scriptArgs,
+		Dir:        sc.dir,
+		ProjectEnv: sc.env,
 	}, IsDryRun()); err != nil {
 		return err
 	}
@@ -113,16 +110,15 @@ func runRun(cmd *cobra.Command, args []string) error {
 
 // scriptContext is where a script runs and what it learns about the project.
 type scriptContext struct {
-	dir              string
-	vars             project.TemplateVars
-	mainWorktreePath string
+	dir string
+	env project.ProjectEnv
 }
 
-// resolveScriptContext picks the working directory and template vars for a
+// resolveScriptContext picks the working directory and environment for a
 // script run. Inside a managed worktree the script runs there with the
 // worktree's branch exported; anywhere else it runs in the current directory
-// with only the project root set. It also locates the main branch's worktree
-// so scripts can act on it regardless of where they were invoked.
+// with only the project root set. Either way it learns the Main worktree so
+// it can act on it regardless of where it was invoked.
 func resolveScriptContext(ctx context.Context, clone *project.Clone) (scriptContext, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -135,18 +131,11 @@ func resolveScriptContext(ctx context.Context, clone *project.Clone) (scriptCont
 	}
 
 	projectRoot := clone.Root()
-	sc := scriptContext{
-		dir:  cwd,
-		vars: project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)},
-	}
-	if wts.HasMain {
-		sc.mainWorktreePath = wts.Main.Path
-	}
+	dir, vars := cwd, project.TemplateVars{ProjectRoot: filepath.Clean(projectRoot)}
 	if wt, ok := resolveCurrentWorktree(wts.Managed); ok {
-		sc.dir = wt.Path
-		sc.vars = project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
+		dir, vars = wt.Path, project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 	}
-	return sc, nil
+	return scriptContext{dir: dir, env: clone.ProjectEnv(vars, wts)}, nil
 }
 
 func completeScriptNames(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {

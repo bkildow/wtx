@@ -80,5 +80,5 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if background {
 		return runSetupBackground(projectRoot, selected.Path, selected.Branch, cfg, dry, msg)
 	}
-	return runSetupForeground(cmd, selected.Path, cfg, dry, msg)
+	return runSetupForeground(cmd, clone, selected.Path, selected.Branch, dry, msg)
 }

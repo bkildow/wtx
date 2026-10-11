@@ -118,36 +118,51 @@ func ResolveScript(cfg *config.Config, projectRoot, name string) (string, error)
 	return path, nil
 }
 
+// ProjectEnv is what a hook or script learns about the Project and the
+// worktree it runs for, exported as WTX_* environment variables.
+type ProjectEnv struct {
+	Vars             TemplateVars // the worktree's template variables
+	SharedPath       string       // absolute shared directory
+	MainBranch       string       // configured main branch
+	MainWorktreePath string       // absolute path of the Main worktree, or "" if not checked out
+}
+
+// environ returns the variables under each prefix, e.g. WTX_PROJECT_ROOT.
+func (e ProjectEnv) environ(prefixes ...string) []string {
+	return prefixEnv(prefixes, []string{
+		"PROJECT_ROOT=" + e.Vars.ProjectRoot,
+		"SHARED_PATH=" + e.SharedPath,
+		"MAIN_BRANCH=" + e.MainBranch,
+		"MAIN_WORKTREE_PATH=" + e.MainWorktreePath,
+		"WORKTREE_PATH=" + e.Vars.WorktreePath,
+		"WORKTREE_ID=" + e.Vars.WorktreeID,
+		"BRANCH_NAME=" + e.Vars.BranchName,
+	})
+}
+
+func prefixEnv(prefixes, values []string) []string {
+	env := make([]string, 0, len(prefixes)*len(values))
+	for _, value := range values {
+		for _, prefix := range prefixes {
+			env = append(env, prefix+value)
+		}
+	}
+	return env
+}
+
 // ScriptRun describes a single script invocation.
 type ScriptRun struct {
-	Name string       // configured script name
-	Path string       // absolute path to the executable
-	Args []string     // pass-through arguments
-	Dir  string       // working directory for the script
-	Vars TemplateVars // exported as WTX_* and WT_* environment variables
-
-	SharedPath       string // absolute shared directory
-	MainBranch       string // configured main branch
-	MainWorktreePath string // absolute path of the main branch's worktree, or "" if not checked out
+	Name       string   // configured script name
+	Path       string   // absolute path to the executable
+	Args       []string // pass-through arguments
+	Dir        string   // working directory for the script
+	ProjectEnv          // exported as WTX_* and WT_* environment variables
 }
 
 // ScriptEnv returns the WTX_* and legacy WT_* variables exported to a script.
 func ScriptEnv(run ScriptRun) []string {
-	values := []string{
-		"SCRIPT_NAME=" + run.Name,
-		"PROJECT_ROOT=" + run.Vars.ProjectRoot,
-		"SHARED_PATH=" + run.SharedPath,
-		"MAIN_BRANCH=" + run.MainBranch,
-		"MAIN_WORKTREE_PATH=" + run.MainWorktreePath,
-		"WORKTREE_PATH=" + run.Vars.WorktreePath,
-		"WORKTREE_ID=" + run.Vars.WorktreeID,
-		"BRANCH_NAME=" + run.Vars.BranchName,
-	}
-	env := make([]string, 0, 2*len(values))
-	for _, value := range values {
-		env = append(env, "WTX_"+value, "WT_"+value)
-	}
-	return env
+	prefixes := []string{"WTX_", "WT_"}
+	return append(prefixEnv(prefixes, []string{"SCRIPT_NAME=" + run.Name}), run.environ(prefixes...)...)
 }
 
 // RunScript executes the script with stdin/stdout/stderr attached. The

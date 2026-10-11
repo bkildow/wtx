@@ -34,10 +34,11 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	runner := clone.Runner()
 
-	filtered, err := clone.ManagedWorktrees(ctx)
+	wts, err := clone.Worktrees(ctx)
 	if err != nil {
 		return err
 	}
+	filtered := wts.Managed
 	mainBranch := cfg.MainBranchOrDefault()
 
 	if len(filtered) == 0 {
@@ -80,10 +81,11 @@ func runRemove(cmd *cobra.Command, args []string) error {
 
 	skipTeardown, _ := cmd.Flags().GetBool("skip-teardown")
 	if !skipTeardown {
-		if err := project.RunTeardownHooks(ctx, cfg, selected.Path, IsDryRun()); err != nil {
+		env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, selected.Path, selected.Branch), wts)
+		if err := project.RunTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
 			ui.Warning("Teardown hooks failed: " + err.Error())
 		}
-		if err := project.RunParallelTeardownHooks(ctx, cfg, selected.Path, IsDryRun()); err != nil {
+		if err := project.RunParallelTeardownHooks(ctx, cfg, env, IsDryRun()); err != nil {
 			ui.Warning("Parallel teardown hooks failed: " + err.Error())
 		}
 	}
