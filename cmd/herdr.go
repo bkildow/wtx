@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
@@ -319,7 +318,9 @@ func herdrStatePath(kind, worktreePath string) string {
 	if base == "" {
 		base = filepath.Join(os.TempDir(), "wtx-herdr")
 	}
-	sum := sha256.Sum256([]byte(filepath.Clean(worktreePath)))
+	// Canonical, so herdr's spelling of the path (events, context) and git's
+	// (wtx.remove) name the same file, even after the checkout is deleted.
+	sum := sha256.Sum256([]byte(ui.CanonicalPath(worktreePath)))
 	name := project.WorktreeIDFromBranch(filepath.Base(worktreePath)) + "-" + hex.EncodeToString(sum[:6])
 	return filepath.Join(base, kind, name)
 }
@@ -333,7 +334,9 @@ func writeHerdrState(kind, worktreePath, content string) error {
 }
 
 // stopHerdrSetup stops a background setup that the worktree.created handler
-// started for worktreePath and that is still running.
+// started for worktreePath and that is still running. The recorded PID is
+// only signaled while it is still that setup: a finished setup leaves the
+// file behind, and its PID may since belong to an unrelated process.
 func stopHerdrSetup(worktreePath string) {
 	path := herdrStatePath("setup", worktreePath)
 	defer func() { _ = os.Remove(path) }()
@@ -343,11 +346,18 @@ func stopHerdrSetup(worktreePath string) {
 		return
 	}
 	pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
-	if err != nil || pid <= 0 || pid == os.Getpid() || !project.IsProcessAlive(pid) {
+	if err != nil || pid <= 0 || pid == os.Getpid() || !project.IsProcessAlive(pid) || !isSetupProcess(pid, worktreePath) {
 		return
 	}
 	ui.Warning(fmt.Sprintf("Stopping in-progress setup (PID %d)", pid))
 	stopProcess(pid)
+}
+
+// isSetupProcess reports whether pid is a 'wtx _run-setup' for worktreePath.
+func isSetupProcess(pid int, worktreePath string) bool {
+	out, err := exec.Command("ps", "-ww", "-o", "args=", "-p", strconv.Itoa(pid)).Output()
+	args := string(out)
+	return err == nil && strings.Contains(args, " _run-setup ") && strings.Contains(args, worktreePath)
 }
 
 func runHerdrWorktreeCreated(cmd *cobra.Command, _ []string) error {
@@ -405,7 +415,7 @@ func runHerdrWorktreeCreated(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-func runHerdrWorktreeRemoved(_ *cobra.Command, _ []string) error {
+func runHerdrWorktreeRemoved(cmd *cobra.Command, _ []string) error {
 	ev, err := parseHerdrEvent(os.Getenv(herdrEventEnv), herdrEventRemoved)
 	if err != nil {
 		return err
@@ -425,10 +435,11 @@ func runHerdrWorktreeRemoved(_ *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	cfg, err := config.Load(root)
+	clone, err := project.OpenAt(cmd.Context(), root, project.Options{BatchMode: true})
 	if err != nil {
 		return err
 	}
+	cfg := clone.Config()
 	skipped := append(append([]string{}, cfg.Teardown...), cfg.ParallelTeardown...)
 	if len(skipped) == 0 {
 		return nil
@@ -549,8 +560,12 @@ func herdrRemove(ctx context.Context, prompter ui.Prompter) error {
 		force = true
 	}
 
+	// The checkout still exists, so its setup state stops a running setup;
+	// the PID the worktree.created handler recorded is no longer needed.
 	terminateBackgroundSetup(wt.Path, wt.Branch, IsDryRun())
-	stopHerdrSetup(wt.Path)
+	if !IsDryRun() {
+		_ = os.Remove(herdrStatePath("setup", wt.Path))
+	}
 
 	cfg := clone.Config()
 	env := clone.ProjectEnv(project.NewTemplateVars(root, wt.Path, wt.Branch), wts)

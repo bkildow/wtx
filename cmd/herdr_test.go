@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/ui"
+	"github.com/spf13/cobra"
 )
 
 // Captured from herdr 0.9.0, paths shortened.
@@ -127,7 +129,9 @@ func runRemovedHook(t *testing.T, yml string, beforeRun func(checkout string)) s
 	orig := ui.Output
 	ui.Output = &out
 	t.Cleanup(func() { ui.Output = orig })
-	if err := runHerdrWorktreeRemoved(nil, nil); err != nil {
+	cmd := &cobra.Command{}
+	cmd.SetContext(context.Background())
+	if err := runHerdrWorktreeRemoved(cmd, nil); err != nil {
 		t.Fatal(err)
 	}
 	return out.String()
