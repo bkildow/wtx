@@ -69,6 +69,7 @@ func init() {
 	rootCmd.AddCommand(newRootCmd())
 	rootCmd.AddCommand(newRunSetupCmd())
 	rootCmd.AddCommand(newClaudeCmd())
+	rootCmd.AddCommand(newHerdrCmd())
 }
 
 func Execute() error {
