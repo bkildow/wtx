@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,4 +169,82 @@ func TestHerdrWorktreeRemoved(t *testing.T) {
 			t.Errorf("output = %q", out)
 		}
 	})
+}
+
+// fakeConfirm answers every Confirm with answer and records the questions.
+type fakeConfirm struct {
+	ui.InteractivePrompter
+	answer    bool
+	questions []string
+}
+
+func (f *fakeConfirm) Confirm(title string) (bool, error) {
+	f.questions = append(f.questions, title)
+	return f.answer, nil
+}
+
+func TestHerdrRemoveRechecksDirtyAfterTeardown(t *testing.T) {
+	for _, tt := range []struct {
+		name, teardown string
+		answer         bool
+		wantAsked      bool
+		wantHerdr      string // herdr argv, "" when herdr must not run
+	}{
+		{"clean teardown", "'true'", false, false, "worktree remove --workspace wX"},
+		{"teardown leaves a file, user forces", "touch leftover.txt", true, true, "worktree remove --workspace wX --force"},
+		{"teardown leaves a file, user cancels", "touch leftover.txt", false, true, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("WTX_HOME", t.TempDir())
+			root := t.TempDir()
+			runGit := func(args ...string) {
+				t.Helper()
+				if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+					t.Fatalf("git %v: %v\n%s", args, err, out)
+				}
+			}
+			runGit("init", "-q", root)
+			yml := "git_dir: .git\nworktree_dir: worktrees\nshared_dir: shared\nteardown:\n  - " + tt.teardown + "\n"
+			if err := os.WriteFile(filepath.Join(root, ".worktree.yml"), []byte(yml), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			runGit("-C", root, "add", ".worktree.yml")
+			runGit("-C", root, "-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "initial")
+			checkout := filepath.Join(t.TempDir(), "feat")
+			runGit("-C", root, "worktree", "add", "-q", "-b", "feat", checkout)
+
+			// herdr stand-in that records its arguments.
+			bin := t.TempDir()
+			argsFile := filepath.Join(bin, "args")
+			if err := os.WriteFile(filepath.Join(bin, "herdr"), []byte("#!/bin/sh\necho \"$*\" > "+argsFile+"\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv(herdrBinEnv, filepath.Join(bin, "herdr"))
+			t.Setenv(herdrStateDirEnv, t.TempDir())
+			t.Setenv(herdrContextEnv, `{"workspace_id":"wX","worktree":{"repo_key":"`+filepath.Join(root, ".git")+`","checkout_path":"`+checkout+`","is_linked_worktree":true}}`)
+			orig := ui.Output
+			ui.Output = &bytes.Buffer{}
+			t.Cleanup(func() { ui.Output = orig })
+
+			prompter := &fakeConfirm{answer: tt.answer}
+			if err := herdrRemove(context.Background(), prompter); err != nil {
+				t.Fatal(err)
+			}
+
+			asked := len(prompter.questions) == 1 && strings.HasPrefix(prompter.questions[0], "Teardown left")
+			if asked != tt.wantAsked || len(prompter.questions) > 1 {
+				t.Errorf("questions = %q, want asked=%v", prompter.questions, tt.wantAsked)
+			}
+			got, err := os.ReadFile(argsFile)
+			if tt.wantHerdr == "" {
+				if err == nil {
+					t.Errorf("herdr ran with %q after the user cancelled", got)
+				}
+				return
+			}
+			if strings.TrimSpace(string(got)) != tt.wantHerdr {
+				t.Errorf("herdr args = %q, want %q", got, tt.wantHerdr)
+			}
+		})
+	}
 }

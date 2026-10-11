@@ -543,21 +543,10 @@ func herdrRemove(ctx context.Context, prompter ui.Prompter) error {
 		return fmt.Errorf("%s is not a worktree of %s", hc.Worktree.CheckoutPath, root)
 	}
 
-	force := false
-	dirty, err := clone.Runner().IsWorktreeDirty(ctx, wt.Path)
-	if err != nil {
+	proceed, force, err := confirmDirtyRemove(ctx, clone.Runner(), prompter, wt.Path,
+		wt.Branch+" has uncommitted changes. Remove it anyway?")
+	if err != nil || !proceed {
 		return err
-	}
-	if dirty {
-		confirmed, err := prompter.Confirm(wt.Branch + " has uncommitted changes. Remove it anyway?")
-		if err != nil {
-			return err
-		}
-		if !confirmed {
-			ui.Info("Cancelled.")
-			return nil
-		}
-		force = true
 	}
 
 	// The checkout still exists, so its setup state stops a running setup;
@@ -570,6 +559,20 @@ func herdrRemove(ctx context.Context, prompter ui.Prompter) error {
 	cfg := clone.Config()
 	env := clone.ProjectEnv(project.NewTemplateVars(root, wt.Path, wt.Branch), wts)
 	runTeardownHooks(ctx, cfg, env, IsDryRun())
+
+	// herdr refuses an unforced remove of a dirty checkout, and teardown can
+	// leave files behind (dumps, logs), so ask again before forcing.
+	if !force && !IsDryRun() {
+		proceed, force, err = confirmDirtyRemove(ctx, clone.Runner(), prompter, wt.Path,
+			"Teardown left uncommitted changes in "+wt.Branch+". Remove it anyway?")
+		if err != nil {
+			return err
+		}
+		if !proceed {
+			waitForEnter() // keep "Cancelled." visible: teardown already ran
+			return nil
+		}
+	}
 
 	args := []string{"worktree", "remove", "--workspace", hc.WorkspaceID}
 	if force {
@@ -593,6 +596,24 @@ func herdrRemove(ctx context.Context, prompter ui.Prompter) error {
 		return fmt.Errorf("teardown ran, but %w", err)
 	}
 	return nil
+}
+
+// confirmDirtyRemove asks before removing the worktree at path when it has
+// uncommitted changes. It reports whether to go ahead and whether removal
+// must be forced, and prints "Cancelled." when the user declines.
+func confirmDirtyRemove(ctx context.Context, runner *git.Runner, prompter ui.Prompter, path, question string) (proceed, force bool, err error) {
+	dirty, err := runner.IsWorktreeDirty(ctx, path)
+	if err != nil || !dirty {
+		return err == nil, false, err
+	}
+	confirmed, err := prompter.Confirm(question)
+	if err != nil {
+		return false, false, err
+	}
+	if !confirmed {
+		ui.Info("Cancelled.")
+	}
+	return confirmed, confirmed, nil
 }
 
 // findWorktreeByPath returns the worktree checked out at path.
