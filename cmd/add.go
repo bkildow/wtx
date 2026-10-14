@@ -18,10 +18,11 @@ import (
 
 func newAddCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add [branch]",
-		Short: "Create a new worktree",
-		Args:  cobra.MaximumNArgs(1),
-		RunE:  runAdd,
+		Use:               "add [branch]",
+		Short:             "Create a new worktree",
+		Args:              cobra.MaximumNArgs(1),
+		ValidArgsFunction: completeRemoteBranchArg,
+		RunE:              runAdd,
 	}
 	cmd.Flags().Bool("skip-setup", false, "Skip running setup hooks after creating the worktree")
 	cmd.Flags().Bool("background", false, "Run setup hooks in the background")

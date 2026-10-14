@@ -73,6 +73,15 @@ func completeBranchNames(cmd *cobra.Command, args []string, toComplete string) (
 	return branches, cobra.ShellCompDirectiveNoFileComp
 }
 
+// completeRemoteBranchArg completes the first positional argument with the
+// project's remote branches.
+func completeRemoteBranchArg(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+	if len(args) != 0 {
+		return nil, cobra.ShellCompDirectiveNoFileComp
+	}
+	return completeBranchNames(cmd, args, toComplete)
+}
+
 // completionClone opens the Clone containing the working directory for shell
 // completion functions. Unlike openClone it prints nothing.
 func completionClone(ctx context.Context) (*project.Clone, error) {
