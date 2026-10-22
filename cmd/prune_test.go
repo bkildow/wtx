@@ -1,11 +1,17 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
+	"errors"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bkildow/wtx/internal/forge"
 	"github.com/bkildow/wtx/internal/git"
+	"github.com/bkildow/wtx/internal/ui"
 )
 
 // TestPRMerged pins the guards that stop a merged PR from condemning a
@@ -127,6 +133,126 @@ func TestPrunableStatus(t *testing.T) {
 	}
 	if got := (prunable{dirty: true}).status(); got != "dirty" {
 		t.Errorf("status() = %q, want dirty", got)
+	}
+}
+
+// stubChecker answers merge checks from a fixed set of merged branches. Each
+// call sleeps for the branch's delay, so checks finish out of order.
+type stubChecker struct {
+	merged map[string]bool
+	delay  map[string]time.Duration
+}
+
+func (s stubChecker) BranchMergeStatus(_ context.Context, branch, _ string) (git.MergeStatus, error) {
+	time.Sleep(s.delay[branch])
+	if s.merged[branch] {
+		return git.MergeStatus{Merged: true, Method: git.MergeAncestor}, nil
+	}
+	return git.MergeStatus{}, nil
+}
+
+func (s stubChecker) IsWorktreeDirty(context.Context, string) (bool, error) {
+	return false, nil
+}
+
+func (s stubChecker) Query(context.Context, ...string) (string, error) {
+	return "", errors.New("unexpected query")
+}
+
+// failingForge fails every lookup, as gh does when unauthenticated or offline.
+type failingForge struct{ calls atomic.Int32 }
+
+func (f *failingForge) PRForBranch(context.Context, string) (*forge.PullRequest, error) {
+	f.calls.Add(1)
+	time.Sleep(10 * time.Millisecond)
+	return nil, errors.New("gh: not logged in")
+}
+
+func captureOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	origOutput := ui.Output
+	ui.Output = &buf
+	t.Cleanup(func() { ui.Output = origOutput })
+	return &buf
+}
+
+func worktreesFor(branches ...string) []git.WorktreeInfo {
+	var wts []git.WorktreeInfo
+	for _, b := range branches {
+		wts = append(wts, git.WorktreeInfo{Branch: b, Path: "/wt/" + b, Head: "head-" + b})
+	}
+	return wts
+}
+
+// TestFindPrunableKeepsWorktreeOrder checks that the concurrent checks report
+// candidates in worktree order even when later checks finish first.
+func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
+	captureOutput(t)
+	g := stubChecker{
+		merged: map[string]bool{"a": true, "c": true, "d": true},
+		delay:  map[string]time.Duration{"a": 30 * time.Millisecond, "c": 15 * time.Millisecond},
+	}
+
+	got := findPrunable(context.Background(), g, &prDetection{}, worktreesFor("a", "b", "c", "d"), "main")
+
+	var branches []string
+	for _, p := range got {
+		branches = append(branches, p.worktree.Branch)
+	}
+	if want := []string{"a", "c", "d"}; !equalStrings(branches, want) {
+		t.Errorf("candidates = %v, want %v", branches, want)
+	}
+}
+
+// TestFindPrunableDisablesPRDetectionOnce checks that a gh failure is reported
+// once, not once per worktree whose lookup was already in flight, and that
+// lookups stop once it has been seen.
+func TestFindPrunableDisablesPRDetectionOnce(t *testing.T) {
+	buf := captureOutput(t)
+	f := &failingForge{}
+	branches := make([]string, 3*checkWorkers)
+	for i := range branches {
+		branches[i] = string(rune('a' + i))
+	}
+
+	got := findPrunable(context.Background(), stubChecker{}, &prDetection{forge: f}, worktreesFor(branches...), "main")
+
+	if len(got) != 0 {
+		t.Errorf("got %d candidates, want none", len(got))
+	}
+	if n := strings.Count(buf.String(), "Pull request detection disabled"); n != 1 {
+		t.Errorf("disabled warning printed %d times, want 1:\n%s", n, buf.String())
+	}
+	if calls := int(f.calls.Load()); calls > checkWorkers {
+		t.Errorf("gh called %d times, want at most the %d already in flight", calls, checkWorkers)
+	}
+}
+
+// TestRemoveConcurrently checks that a failed removal is reported and marked,
+// so its branch is not deleted, while the rest go ahead.
+func TestRemoveConcurrently(t *testing.T) {
+	buf := captureOutput(t)
+	var items []prunable
+	for _, wt := range worktreesFor("a", "b", "c", "d", "e") {
+		items = append(items, prunable{worktree: wt})
+	}
+
+	ok := removeConcurrently(items, 2, func(wt git.WorktreeInfo) error {
+		if wt.Branch == "c" {
+			return errors.New("locked")
+		}
+		return nil
+	})
+
+	want := []bool{true, true, false, true, true}
+	for i := range want {
+		if ok[i] != want[i] {
+			t.Errorf("ok[%d] (%s) = %v, want %v", i, items[i].worktree.Branch, ok[i], want[i])
+		}
+	}
+	if !strings.Contains(buf.String(), "Could not remove worktree c: locked") {
+		t.Errorf("missing failure warning:\n%s", buf.String())
 	}
 }
 

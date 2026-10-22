@@ -19,8 +19,8 @@ exec wtx prune --yes
 stderr 'develop.*merged.*dirty'
 stderr 'feature.*merged.*clean'
 stderr 'uncommitted changes and will be kept'
-stderr 'Removing worktree: feature'
-! stderr 'Removing worktree: develop'
+stderr 'Removed worktree: feature'
+! stderr 'Removed worktree: develop'
 stderr 'Pruned 1 worktree\(s\), kept 1 with uncommitted changes'
 exists worktrees/develop/scratch.txt
 ! exists worktrees/feature
@@ -37,7 +37,7 @@ exists worktrees/develop/scratch.txt
 
 # --force removes the dirty merged worktree.
 exec wtx prune --force --yes
-stderr 'Removing worktree: develop'
+stderr 'Removed worktree: develop'
 stderr 'Pruned 1 worktree\(s\)'
 ! stderr 'kept'
 ! exists worktrees/develop
@@ -53,7 +53,7 @@ cp $WORK/squash.txt worktrees/master/squash.txt
 exec git -C worktrees/master add squash.txt
 exec git -C worktrees/master commit -m 'squash: add squash.txt'
 exec wtx prune --yes
-stderr 'Removing worktree: squashed'
+stderr 'Removed worktree: squashed'
 stderr 'Branch squashed kept: git sees it as not fully merged'
 stderr 'git --git-dir \S+/\.bare branch -D squashed'
 stderr 'Pruned 1 worktree\(s\), kept 1 branch\(es\) git calls unmerged'
