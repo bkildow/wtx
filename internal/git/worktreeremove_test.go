@@ -17,26 +17,16 @@ func TestWorktreeRemoveConcurrently(t *testing.T) {
 	runner := r.runner()
 	ctx := context.Background()
 
+	// Ignored files are what make removal slow in practice (node_modules,
+	// build output), and git deletes them along with the worktree.
+	r.commit(".gitignore", "ignored/\n")
+
 	root := t.TempDir()
 	var paths []string
 	for i := range 8 {
 		path := filepath.Join(root, fmt.Sprintf("wt-%d", i))
 		r.git("worktree", "add", "-q", "-b", fmt.Sprintf("branch-%d", i), path)
-		if err := os.WriteFile(filepath.Join(path, ".gitignore"), []byte("ignored/\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		r.git("-C", path, "add", ".gitignore")
-		r.git("-C", path, "commit", "-qm", "ignore")
-		// Ignored files are what make removal slow in practice (node_modules,
-		// build output), and git deletes them along with the worktree.
-		if err := os.MkdirAll(filepath.Join(path, "ignored"), 0o755); err != nil {
-			t.Fatal(err)
-		}
-		for j := range 50 {
-			if err := os.WriteFile(filepath.Join(path, "ignored", fmt.Sprintf("f%d", j)), []byte("x"), 0o644); err != nil {
-				t.Fatal(err)
-			}
-		}
+		writeFiles(t, path, map[string]string{"ignored/a": "x", "ignored/b": "x"})
 		paths = append(paths, path)
 	}
 

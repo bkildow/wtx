@@ -1,9 +1,9 @@
 package cmd
 
 import (
-	"bytes"
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -11,7 +11,6 @@ import (
 
 	"github.com/bkildow/wtx/internal/forge"
 	"github.com/bkildow/wtx/internal/git"
-	"github.com/bkildow/wtx/internal/ui"
 )
 
 // TestPRMerged pins the guards that stop a merged PR from condemning a
@@ -117,10 +116,10 @@ func TestPartitionPrunable(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			remove, keep := partitionPrunable(candidates, tt.force)
-			if got := branches(remove); !equalStrings(got, tt.wantRemove) {
+			if got := branches(remove); !slices.Equal(got, tt.wantRemove) {
 				t.Errorf("remove = %v, want %v", got, tt.wantRemove)
 			}
-			if got := branches(keep); !equalStrings(got, tt.wantKeep) {
+			if got := branches(keep); !slices.Equal(got, tt.wantKeep) {
 				t.Errorf("keep = %v, want %v", got, tt.wantKeep)
 			}
 		})
@@ -168,15 +167,6 @@ func (f *failingForge) PRForBranch(context.Context, string) (*forge.PullRequest,
 	return nil, errors.New("gh: not logged in")
 }
 
-func captureOutput(t *testing.T) *bytes.Buffer {
-	t.Helper()
-	var buf bytes.Buffer
-	origOutput := ui.Output
-	ui.Output = &buf
-	t.Cleanup(func() { ui.Output = origOutput })
-	return &buf
-}
-
 func worktreesFor(branches ...string) []git.WorktreeInfo {
 	var wts []git.WorktreeInfo
 	for _, b := range branches {
@@ -188,7 +178,7 @@ func worktreesFor(branches ...string) []git.WorktreeInfo {
 // TestFindPrunableKeepsWorktreeOrder checks that the concurrent checks report
 // candidates in worktree order even when later checks finish first.
 func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
-	captureOutput(t)
+	captureUI(t)
 	g := stubChecker{
 		merged: map[string]bool{"a": true, "c": true, "d": true},
 		delay:  map[string]time.Duration{"a": 30 * time.Millisecond, "c": 15 * time.Millisecond},
@@ -200,7 +190,7 @@ func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
 	for _, p := range got {
 		branches = append(branches, p.worktree.Branch)
 	}
-	if want := []string{"a", "c", "d"}; !equalStrings(branches, want) {
+	if want := []string{"a", "c", "d"}; !slices.Equal(branches, want) {
 		t.Errorf("candidates = %v, want %v", branches, want)
 	}
 }
@@ -209,7 +199,7 @@ func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
 // once, not once per worktree whose lookup was already in flight, and that
 // lookups stop once it has been seen.
 func TestFindPrunableDisablesPRDetectionOnce(t *testing.T) {
-	buf := captureOutput(t)
+	buf := captureUI(t)
 	f := &failingForge{}
 	branches := make([]string, 3*checkWorkers)
 	for i := range branches {
@@ -232,7 +222,7 @@ func TestFindPrunableDisablesPRDetectionOnce(t *testing.T) {
 // TestRemoveConcurrently checks that a failed removal is reported and marked,
 // so its branch is not deleted, while the rest go ahead.
 func TestRemoveConcurrently(t *testing.T) {
-	buf := captureOutput(t)
+	buf := captureUI(t)
 	var items []prunable
 	for _, wt := range worktreesFor("a", "b", "c", "d", "e") {
 		items = append(items, prunable{worktree: wt})
@@ -254,16 +244,4 @@ func TestRemoveConcurrently(t *testing.T) {
 	if !strings.Contains(buf.String(), "Could not remove worktree c: locked") {
 		t.Errorf("missing failure warning:\n%s", buf.String())
 	}
-}
-
-func equalStrings(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

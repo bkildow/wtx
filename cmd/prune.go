@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sync"
 	"sync/atomic"
 
 	"github.com/bkildow/wtx/internal/forge"
@@ -12,6 +11,7 @@ import (
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 )
 
 func newPruneCmd() *cobra.Command {
@@ -39,9 +39,8 @@ before anything is removed; pass --yes to skip it.`,
 const checkWorkers = 8
 
 // removeWorkers bounds concurrent `git worktree remove` calls. Removal is
-// mostly deleting files, which contend in the filesystem: removing 12
-// worktrees on macOS took 3.5s serially, 2.8s with 4 workers, 2.3s with 8 and
-// 2.6s with 12.
+// mostly deleting files, which contend in the filesystem; 8 workers measured
+// fastest on macOS.
 const removeWorkers = 8
 
 // mergeChecker is the slice of git.Runner the merge checks need, so they can
@@ -56,7 +55,6 @@ type mergeChecker interface {
 // and the listing can both explain themselves.
 type prunable struct {
 	worktree git.WorktreeInfo
-	method   git.MergeMethod
 	reason   string
 	dirty    bool
 }
@@ -215,7 +213,7 @@ func runPrune(cmd *cobra.Command, args []string) error {
 	// Teardown hooks are user commands writing straight to the terminal, so
 	// they run one worktree at a time to keep their output readable. Their
 	// output does not name the worktree, so each one gets a heading.
-	if !skipTeardown && len(cfg.Teardown)+len(cfg.ParallelTeardown) > 0 {
+	if !skipTeardown && cfg.HasTeardown() {
 		for _, p := range toRemove {
 			wt := p.worktree
 			ui.Step("Tearing down worktree: " + wt.Branch)
@@ -224,7 +222,8 @@ func runPrune(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Dry-run removal costs nothing, and one worker keeps its notices in order.
+	// Dry-run removal costs nothing, and one worker keeps its notices in
+	// worktree order.
 	workers := removeWorkers
 	if IsDryRun() {
 		workers = 1
@@ -272,7 +271,6 @@ func runPrune(cmd *cobra.Command, args []string) error {
 type prDetection struct {
 	forge    forge.Forge
 	disabled atomic.Bool
-	once     sync.Once
 }
 
 // lookup returns branch's pull request, or nil when detection is off or the
@@ -285,14 +283,14 @@ func (d *prDetection) lookup(ctx context.Context, branch string) (pr *forge.Pull
 	if err == nil {
 		return pr, ""
 	}
-	d.disabled.Store(true)
-	d.once.Do(func() {
-		// Say so, since the remaining worktrees are now judged by git alone.
+	// Only the lookup that turns detection off says so, since the remaining
+	// worktrees are now judged by git alone.
+	if d.disabled.CompareAndSwap(false, true) {
 		warning = fmt.Sprintf(
 			"%s: could not check pull request state: %s\n  Pull request detection disabled for the rest of this run.",
 			branch, err,
 		)
-	})
+	}
 	return nil, warning
 }
 
@@ -307,16 +305,15 @@ type pruneCheck struct {
 // their original order.
 func findPrunable(ctx context.Context, g mergeChecker, prs *prDetection, wts []git.WorktreeInfo, defaultBranch string) []prunable {
 	checks := make([]pruneCheck, len(wts))
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, checkWorkers)
+	var pool errgroup.Group
+	pool.SetLimit(checkWorkers)
 	for i, wt := range wts {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
+		pool.Go(func() error {
 			checks[i] = checkWorktree(ctx, g, prs, wt, defaultBranch)
+			return nil
 		})
 	}
-	wg.Wait()
+	_ = pool.Wait()
 
 	var out []prunable
 	for _, c := range checks {
@@ -335,46 +332,33 @@ func findPrunable(ctx context.Context, g mergeChecker, prs *prDetection, wts []g
 func checkWorktree(ctx context.Context, g mergeChecker, prs *prDetection, wt git.WorktreeInfo, defaultBranch string) pruneCheck {
 	var c pruneCheck
 
-	// A worktree's dirtiness decides whether it is removed, so an unanswerable
-	// question is treated as dirty rather than risking uncommitted work.
-	isDirty := func() bool {
-		dirty, err := g.IsWorktreeDirty(ctx, wt.Path)
-		if err != nil {
-			c.warnings = append(c.warnings, fmt.Sprintf("%s: could not check for uncommitted changes, assuming dirty: %s", wt.Branch, err))
-			return true
-		}
-		return dirty
-	}
-
 	status, err := g.BranchMergeStatus(ctx, wt.Branch, defaultBranch)
 	if err != nil {
 		c.warnings = append(c.warnings, fmt.Sprintf("%s: could not check merge status: %s", wt.Branch, err))
 		return c
 	}
 
-	if status.Merged {
-		c.candidate = &prunable{
-			worktree: wt,
-			method:   status.Method,
-			reason:   mergeReason(status.Method),
-			dirty:    isDirty(),
+	reason := mergeReason(status.Method)
+	if !status.Merged {
+		pr, warning := prs.lookup(ctx, wt.Branch)
+		if warning != "" {
+			c.warnings = append(c.warnings, warning)
 		}
-		return c
+		if !prMerged(ctx, g, pr, wt, defaultBranch) {
+			return c
+		}
+		reason = fmt.Sprintf("merged (PR #%d)", pr.Number)
 	}
 
-	pr, warning := prs.lookup(ctx, wt.Branch)
-	if warning != "" {
-		c.warnings = append(c.warnings, warning)
+	// A worktree's dirtiness decides whether it is removed, so an unanswerable
+	// question is treated as dirty rather than risking uncommitted work.
+	dirty, err := g.IsWorktreeDirty(ctx, wt.Path)
+	if err != nil {
+		c.warnings = append(c.warnings, fmt.Sprintf("%s: could not check for uncommitted changes, assuming dirty: %s", wt.Branch, err))
+		dirty = true
 	}
 
-	if prMerged(ctx, g, pr, wt, defaultBranch) {
-		c.candidate = &prunable{
-			worktree: wt,
-			method:   git.MergeNone,
-			reason:   fmt.Sprintf("merged (PR #%d)", pr.Number),
-			dirty:    isDirty(),
-		}
-	}
+	c.candidate = &prunable{worktree: wt, reason: reason, dirty: dirty}
 	return c
 }
 
@@ -383,29 +367,20 @@ func checkWorktree(ctx context.Context, g mergeChecker, prs *prDetection, wt git
 // result says, by index, which removals succeeded.
 func removeConcurrently(items []prunable, workers int, remove func(git.WorktreeInfo) error) []bool {
 	ok := make([]bool, len(items))
-	var (
-		wg       sync.WaitGroup
-		outputMu sync.Mutex
-	)
-	sem := make(chan struct{}, workers)
+	var pool errgroup.Group
+	pool.SetLimit(workers)
 	for i, p := range items {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-
+		pool.Go(func() error {
 			wt := p.worktree
-			err := remove(wt)
-
-			outputMu.Lock()
-			defer outputMu.Unlock()
-			if err != nil {
+			if err := remove(wt); err != nil {
 				ui.Warning(fmt.Sprintf("Could not remove worktree %s: %s", wt.Branch, err))
-				return
+				return nil
 			}
 			ok[i] = true
 			ui.Success("Removed worktree: " + wt.Branch)
+			return nil
 		})
 	}
-	wg.Wait()
+	_ = pool.Wait()
 	return ok
 }

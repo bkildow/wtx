@@ -52,7 +52,7 @@ func lowDiskMessages(usage disk.Usage, cfg *config.Config) []string {
 
 	msgs = append(msgs, "Run 'wtx prune' to remove worktrees for merged branches.")
 
-	if len(cfg.Teardown) == 0 && len(cfg.ParallelTeardown) == 0 {
+	if !cfg.HasTeardown() {
 		msgs = append(msgs, "No teardown hooks are configured, so 'wtx prune' frees worktree "+
 			"directories but not docker volumes or other external resources.")
 	}
