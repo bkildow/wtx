@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
@@ -13,41 +14,50 @@ import (
 var (
 	Output  io.Writer = os.Stderr
 	Verbose bool
+
+	// outputMu keeps lines written from concurrent goroutines whole.
+	outputMu sync.Mutex
 )
 
+func writeLine(line string) {
+	outputMu.Lock()
+	defer outputMu.Unlock()
+	_, _ = lipgloss.Fprintln(Output, line)
+}
+
 func Success(msg string) {
-	_, _ = lipgloss.Fprintln(Output, StyleSuccess.Render("✓ "+msg))
+	writeLine(StyleSuccess.Render("✓ " + msg))
 }
 
 func Error(msg string) {
-	_, _ = lipgloss.Fprintln(Output, StyleError.Render("✗ "+msg))
+	writeLine(StyleError.Render("✗ " + msg))
 }
 
 func Warning(msg string) {
-	_, _ = lipgloss.Fprintln(Output, StyleWarning.Render("⚠ "+msg))
+	writeLine(StyleWarning.Render("⚠ " + msg))
 }
 
 func Info(msg string) {
-	_, _ = lipgloss.Fprintln(Output, StyleInfo.Render(msg))
+	writeLine(StyleInfo.Render(msg))
 }
 
 func Step(msg string) {
-	_, _ = lipgloss.Fprintln(Output, StyleInfo.Render("→ "+msg))
+	writeLine(StyleInfo.Render("→ " + msg))
 }
 
 func DryRunNotice(action string) {
-	_, _ = lipgloss.Fprintln(Output, StyleMuted.Render("[dry-run] "+action))
+	writeLine(StyleMuted.Render("[dry-run] " + action))
 }
 
 func Command(cmd string) {
 	if !Verbose {
 		return
 	}
-	_, _ = lipgloss.Fprintln(Output, StyleCommand.Render("  $ "+cmd))
+	writeLine(StyleCommand.Render("  $ " + cmd))
 }
 
 func Heading(msg string) {
-	_, _ = lipgloss.Fprintln(Output, StyleHeading.Render(msg))
+	writeLine(StyleHeading.Render(msg))
 }
 
 // FormatBytes formats a byte count into a human-friendly base-1024 string

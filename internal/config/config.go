@@ -123,6 +123,12 @@ func (c *Config) IsCheckoutLayout() bool {
 	return filepath.Base(c.GitDir) == ".git"
 }
 
+// HasTeardown reports whether any teardown hooks, serial or parallel, are
+// configured.
+func (c *Config) HasTeardown() bool {
+	return len(c.Teardown) > 0 || len(c.ParallelTeardown) > 0
+}
+
 // MainBranchOrDefault returns the configured main branch, falling back to DefaultMainBranch.
 func (c *Config) MainBranchOrDefault() string {
 	if c.MainBranch != "" {

@@ -25,5 +25,5 @@ func NewTable() *table.Table {
 
 // PrintTable renders the given table to ui.Output (stderr).
 func PrintTable(t *table.Table) {
-	_, _ = lipgloss.Fprintln(Output, t)
+	writeLine(t.String())
 }
