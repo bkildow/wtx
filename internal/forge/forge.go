@@ -47,38 +47,32 @@ type Forge interface {
 // the gh CLI is not on PATH, or the remote is not a GitHub repository. A nil
 // return is the normal "no forge here" answer, not an error.
 func Detect(_ context.Context, remoteURL string) Forge {
-	repo := parseGitHubRepo(remoteURL)
-	if repo == "" {
+	owner, name, ok := strings.Cut(parseGitHubRepo(remoteURL), "/")
+	if !ok {
 		return nil
 	}
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil
 	}
-	return &GitHub{Repo: repo}
+	return &GitHub{Owner: owner, Name: name}
 }
 
 // GitHub implements Forge by shelling out to the gh CLI.
 type GitHub struct {
-	Repo string // owner/name
+	Owner, Name string
 }
 
 // prBatchSize bounds the branches looked up per GraphQL request, keeping each
 // query well inside GitHub's node and complexity limits.
 const prBatchSize = 50
 
-// PRsForBranches looks branches up in one GraphQL request per batch, rather
-// than one `gh pr list --head` round-trip each. It asks for the same thing gh
-// pr list does: the newest pull request of any state with that head branch.
+// PRsForBranches looks branches up in one GraphQL request per batch, asking
+// for the newest pull request of any state with each head branch.
 func (g *GitHub) PRsForBranches(ctx context.Context, branches []string) (map[string]*PullRequest, error) {
-	owner, name, ok := strings.Cut(g.Repo, "/")
-	if !ok {
-		return nil, fmt.Errorf("invalid GitHub repository %q", g.Repo)
-	}
-
 	prs := make(map[string]*PullRequest)
 	for batch := range slices.Chunk(branches, prBatchSize) {
 		// Branch names travel as variables, never spliced into the query text.
-		args := []string{"api", "graphql", "-f", "owner=" + owner, "-f", "name=" + name, "-f", "query=" + prQuery(len(batch))}
+		args := []string{"api", "graphql", "-f", "owner=" + g.Owner, "-f", "name=" + g.Name, "-f", "query=" + prQuery(len(batch))}
 		for i, branch := range batch {
 			args = append(args, "-f", fmt.Sprintf("b%d=%s", i, branch))
 		}
