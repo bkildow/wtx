@@ -11,33 +11,6 @@ import (
 	"github.com/bkildow/wtx/internal/ui"
 )
 
-func TestParseCherryEquivalent(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		want      bool
-		wantCount int
-	}{
-		{"all equivalent", "- abc123\n- def456\n", true, 2},
-		{"single equivalent", "- abc123", true, 1},
-		{"mixed", "- abc123\n+ def456\n", false, 0},
-		{"none equivalent", "+ abc123\n+ def456\n", false, 0},
-		{"empty", "", false, 0},
-		{"whitespace only", "\n  \n", false, 0},
-		{"blank lines between", "\n- abc123\n\n- def456\n\n", true, 2},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, count := parseCherryEquivalent(tt.input)
-			if got != tt.want || count != tt.wantCount {
-				t.Errorf("parseCherryEquivalent(%q) = (%v, %d), want (%v, %d)",
-					tt.input, got, count, tt.want, tt.wantCount)
-			}
-		})
-	}
-}
-
 // mergeRepo is a scratch git repo for the merge-detection tests, with helpers
 // that keep the branch topology readable.
 type mergeRepo struct {
@@ -87,40 +60,6 @@ func (r *mergeRepo) commit(name, contents string) {
 
 func (r *mergeRepo) runner() *Runner {
 	return NewRunner(filepath.Join(r.dir, ".git"), false)
-}
-
-// probeSHA recomputes the synthetic commit isSquashMerged builds for a branch.
-// probeEnv fixes the identity and the dates, so the SHA is deterministic and
-// the test can look for that exact object in the repo afterwards.
-func (r *mergeRepo) probeSHA(branch, target string) string {
-	r.t.Helper()
-
-	runner := r.runner()
-	ctx := context.Background()
-
-	base, err := runner.Query(ctx, "merge-base", target, branch)
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	tree, err := runner.Query(ctx, "rev-parse", branch+"^{tree}")
-	if err != nil {
-		r.t.Fatal(err)
-	}
-
-	sha, err := runner.queryWithEnv(ctx, probeEnv(r.t.TempDir(), runner.GitDir),
-		"commit-tree", tree, "-p", base, "-m", "wt-merge-probe")
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	return sha
-}
-
-// hasObject reports whether the repository itself contains an object, ignoring
-// any throwaway object store.
-func (r *mergeRepo) hasObject(sha string) bool {
-	r.t.Helper()
-	_, err := r.runner().Query(context.Background(), "cat-file", "-e", sha)
-	return err == nil
 }
 
 // TestBranchMergeStatus covers each way work reaches main: a true merge, a
@@ -237,41 +176,8 @@ func TestBranchMergeStatusSingleCommitIsEquivalent(t *testing.T) {
 	}
 }
 
-// TestBranchMergeStatusDoesNotWriteToRepo guards the dry-run contract: the
-// squash probe needs a commit object, and it must not land in the user's repo.
-func TestBranchMergeStatusDoesNotWriteToRepo(t *testing.T) {
-	r := newMergeRepo(t)
-
-	r.git("checkout", "-qb", "squashed")
-	r.commit("squash.txt", "one\n")
-	r.commit("squash.txt", "one\ntwo\n")
-	r.git("checkout", "-q", "main")
-	r.git("merge", "-q", "--squash", "squashed")
-	r.git("commit", "-qm", "squashed everything")
-
-	// The probe object is what must never land in the repo. Counting object
-	// files cannot tell an addition from git repacking behind our back, so look
-	// for the exact commit the probe builds.
-	probe := r.probeSHA("squashed", "main")
-	if r.hasObject(probe) {
-		t.Fatalf("probe commit %s was already in the repo before the check ran", probe)
-	}
-
-	got, err := r.runner().BranchMergeStatus(context.Background(), "squashed", "main")
-	if err != nil {
-		t.Fatalf("BranchMergeStatus: %v", err)
-	}
-	if got.Method != MergeSquash {
-		t.Fatalf("BranchMergeStatus = %q, want %q (the probe must have run)", got.Method, MergeSquash)
-	}
-
-	if r.hasObject(probe) {
-		t.Errorf("probe commit %s was written into the repo; it belongs in the throwaway object store", probe)
-	}
-}
-
 // TestBranchMergeStatusWithoutGitIdentity covers CI and fresh containers, where
-// git has no configured user: the synthetic probe commit must supply its own.
+// git has no configured user: the checks must not need one.
 func TestBranchMergeStatusWithoutGitIdentity(t *testing.T) {
 	r := newMergeRepo(t)
 
@@ -298,5 +204,127 @@ func TestBranchMergeStatusWithoutGitIdentity(t *testing.T) {
 	}
 	if !got.Merged || got.Method != MergeSquash {
 		t.Errorf("BranchMergeStatus(squashed) = {%v %q}, want {true %q}", got.Merged, got.Method, MergeSquash)
+	}
+}
+
+// commitLogo commits binary contents to logo.png. commit cannot, since it puts
+// the contents in the commit message.
+func (r *mergeRepo) commitLogo(contents string) {
+	r.t.Helper()
+	if err := os.WriteFile(filepath.Join(r.dir, "logo.png"), []byte(contents), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+	r.git("add", "logo.png")
+	r.git("commit", "-qm", "update logo")
+}
+
+// TestBranchMergeStatusBinaryChanges checks that two different changes to one
+// binary file are not mistaken for each other. A text diff of either reads
+// only "Binary files differ", so their patch-ids must come from the content.
+func TestBranchMergeStatusBinaryChanges(t *testing.T) {
+	r := newMergeRepo(t)
+	r.commitLogo("\x00\x01original")
+
+	r.git("checkout", "-qb", "different")
+	r.commitLogo("\x00\x01branch")
+	r.git("checkout", "-qb", "squashed", "main")
+	r.commitLogo("\x00\x01landed")
+	r.commitLogo("\x00\x01landed twice")
+
+	r.git("checkout", "-q", "main")
+	r.git("merge", "-q", "--squash", "squashed")
+	r.git("commit", "-qm", "squashed the binary change")
+
+	statuses, errs := r.runner().BranchMergeStatuses(context.Background(), []string{"different", "squashed"}, "main")
+	want := []MergeStatus{{Merged: false, Method: MergeNone}, {Merged: true, Method: MergeSquash}}
+	for i, branch := range []string{"different", "squashed"} {
+		if errs[i] != nil {
+			t.Fatalf("BranchMergeStatuses(%s): %v", branch, errs[i])
+		}
+		if statuses[i] != want[i] {
+			t.Errorf("BranchMergeStatuses(%s) = %+v, want %+v", branch, statuses[i], want[i])
+		}
+	}
+}
+
+// TestBranchMergeStatusesComparesEachBranchWithItsOwnRange checks that the
+// shared patch-ids do not let one branch match target commits that only
+// another branch lacks. main added a fix and reverted it; reapply forked after
+// both and reapplies the fix. Its commit matches main's fix, but that fix is
+// already in reapply's own history, so the reapplied work has not landed.
+// early forked before the fix, so the fix is among the commits it lacks.
+func TestBranchMergeStatusesComparesEachBranchWithItsOwnRange(t *testing.T) {
+	r := newMergeRepo(t)
+
+	r.git("checkout", "-qb", "early", "main")
+	r.commit("early.txt", "early\n")
+
+	r.git("checkout", "-q", "main")
+	r.commit("fix.txt", "fix\n")
+	r.git("rm", "-q", "fix.txt")
+	r.git("commit", "-qm", "revert fix")
+
+	r.git("checkout", "-qb", "reapply", "main")
+	r.commit("fix.txt", "fix\n")
+
+	statuses, errs := r.runner().BranchMergeStatuses(context.Background(), []string{"early", "reapply"}, "main")
+	for i, branch := range []string{"early", "reapply"} {
+		if errs[i] != nil {
+			t.Fatalf("BranchMergeStatuses(%s): %v", branch, errs[i])
+		}
+		if statuses[i].Merged {
+			t.Errorf("BranchMergeStatuses(%s) = %+v, want unmerged", branch, statuses[i])
+		}
+	}
+}
+
+// TestBranchMergeStatusesMatchesSingleChecks checks that one batched call
+// gives each branch the answer a call for that branch alone would.
+func TestBranchMergeStatusesMatchesSingleChecks(t *testing.T) {
+	r := newMergeRepo(t)
+
+	r.git("checkout", "-qb", "squashed")
+	r.commit("squash.txt", "one\n")
+	r.commit("squash.txt", "one\ntwo\n")
+	r.git("checkout", "-qb", "rebased", "main")
+	r.commit("rebase.txt", "one\n")
+	r.commit("rebase.txt", "one\ntwo\n")
+	r.git("checkout", "-qb", "pending", "main")
+	r.commit("pending.txt", "not landed\n")
+	r.git("checkout", "-qb", "merged", "main")
+	r.commit("merged.txt", "one\n")
+
+	r.git("checkout", "-q", "main")
+	r.git("merge", "-q", "--squash", "squashed")
+	r.git("commit", "-qm", "squashed everything")
+	r.git("cherry-pick", "rebased~1", "rebased")
+	r.git("merge", "-q", "--no-ff", "-m", "merge merged", "merged")
+
+	runner := r.runner()
+	ctx := context.Background()
+	branches := []string{"squashed", "rebased", "pending", "merged"}
+	statuses, errs := runner.BranchMergeStatuses(ctx, branches, "main")
+
+	want := []MergeMethod{MergeSquash, MergeRebase, MergeNone, MergeAncestor}
+	for i, branch := range branches {
+		if errs[i] != nil {
+			t.Fatalf("BranchMergeStatuses(%s): %v", branch, errs[i])
+		}
+		single, err := runner.BranchMergeStatus(ctx, branch, "main")
+		if err != nil {
+			t.Fatalf("BranchMergeStatus(%s): %v", branch, err)
+		}
+		if statuses[i].Method != want[i] || statuses[i] != single {
+			t.Errorf("%s: batched %+v, single %+v, want method %q", branch, statuses[i], single, want[i])
+		}
+	}
+}
+
+// TestBranchMergeStatusUnknownBranch checks that a branch git cannot resolve is
+// reported as an error rather than as unmerged.
+func TestBranchMergeStatusUnknownBranch(t *testing.T) {
+	r := newMergeRepo(t)
+	if _, err := r.runner().BranchMergeStatus(context.Background(), "no-such-branch", "main"); err == nil {
+		t.Error("BranchMergeStatus(no-such-branch): expected error, got nil")
 	}
 }
