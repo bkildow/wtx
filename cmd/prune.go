@@ -232,11 +232,11 @@ func runPrune(cmd *cobra.Command, args []string) error {
 
 		// git branch -d refuses squash- and rebase-merged branches as unmerged.
 		// Keep them and print the delete command rather than force-deleting.
-		kept := deleteBranchOrKeep(ctx, runner, wt.Branch)
-		if kept {
+		branchKept := deleteBranchOrKeep(ctx, runner, wt.Branch)
+		if branchKept {
 			branchesKept++
 		}
-		ui.Success(removedWorktreeMessage(wt.Branch, kept))
+		ui.Success(removedWorktreeMessage(wt.Branch, branchKept))
 	}
 
 	if err := runner.WorktreePrune(ctx); err != nil {
