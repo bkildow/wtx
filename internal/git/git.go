@@ -513,11 +513,10 @@ func parseDirtyStatus(output string) bool {
 }
 
 func (r *Runner) IsBranchMerged(ctx context.Context, branch, target string) (bool, error) {
-	args := []string{"--git-dir", r.GitDir, "merge-base", "--is-ancestor", branch, target}
-	cmdStr := "git " + strings.Join(args, " ")
-
-	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd, cmdStr := r.command(ctx, "merge-base", "--is-ancestor", branch, target)
+	if !r.Quiet {
+		ui.Command(cmdStr)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -619,15 +618,22 @@ func (r *Runner) BranchMergeStatuses(ctx context.Context, branches []string, tar
 	ids, err := r.patchIDs(ctx, commits)
 	statuses := make([]MergeStatus, len(branches))
 	for i, c := range candidates {
-		switch {
-		case errs[i] != nil:
-		case c.ancestor:
-			statuses[i] = MergeStatus{Merged: true, Method: MergeAncestor}
-		case err != nil:
-			errs[i] = err
-		default:
-			statuses[i] = c.status(ids)
+		if errs[i] != nil {
+			continue
 		}
+		if c.ancestor {
+			statuses[i] = MergeStatus{Merged: true, Method: MergeAncestor}
+			continue
+		}
+		branchIDs := ids
+		if err != nil {
+			// The shared run failed, perhaps on one unreadable commit. Retrying
+			// each branch alone fails only the branches whose ranges hold it.
+			if branchIDs, errs[i] = r.patchIDs(ctx, slices.Concat(c.upstream, c.own)); errs[i] != nil {
+				continue
+			}
+		}
+		statuses[i] = c.status(branchIDs)
 	}
 	return statuses, errs
 }
@@ -764,7 +770,9 @@ func (r *Runner) patchIDPipe(ctx context.Context, stdin string, diffArgs ...stri
 	// diff-tree blocking on a full buffer, which would hang the Wait.
 	_ = pipe.Close()
 	diffRunErr := diff.Wait()
-	if err := cmp.Or(diffRunErr, idRunErr); err != nil {
+	// A failed patch-id leaves diff-tree dying of a broken pipe, so its error
+	// is the cause; a failed diff-tree leaves patch-id succeeding on short input.
+	if err := cmp.Or(idRunErr, diffRunErr); err != nil {
 		return "", fmt.Errorf("%s: %w\n%s%s", cmdStr, err, diffErr.String(), idErr.String())
 	}
 	return stdout.String(), nil

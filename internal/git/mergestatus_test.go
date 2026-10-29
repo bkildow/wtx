@@ -262,6 +262,38 @@ func TestBranchMergeStatusesComparesEachBranchWithItsOwnRange(t *testing.T) {
 	}
 }
 
+// TestBranchMergeStatusesIsolatesAnUnreadableCommit checks that a commit git
+// cannot diff fails only the branch that holds it, not every branch sharing
+// the batched patch-id run.
+func TestBranchMergeStatusesIsolatesAnUnreadableCommit(t *testing.T) {
+	r := newMergeRepo(t)
+
+	r.git("checkout", "-qb", "broken")
+	r.commit("broken.txt", "unreadable\n")
+	r.git("checkout", "-qb", "squashed", "main")
+	r.commit("squash.txt", "one\n")
+	r.commit("squash.txt", "one\ntwo\n")
+	r.git("checkout", "-q", "main")
+	r.git("merge", "-q", "--squash", "squashed")
+	r.git("commit", "-qm", "squashed everything")
+
+	blob, err := r.runner().Query(context.Background(), "rev-parse", "broken:broken.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(r.dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+
+	got, errs := r.runner().BranchMergeStatuses(context.Background(), []string{"broken", "squashed"}, "main")
+	if errs[0] == nil {
+		t.Error("BranchMergeStatuses(broken): expected error, got nil")
+	}
+	if errs[1] != nil || got[1] != (MergeStatus{Merged: true, Method: MergeSquash}) {
+		t.Errorf("BranchMergeStatuses(squashed) = %+v, %v; want squash-merged", got[1], errs[1])
+	}
+}
+
 // TestBranchMergeStatusUnknownBranch checks that a branch git cannot resolve is
 // reported as an error rather than as unmerged.
 func TestBranchMergeStatusUnknownBranch(t *testing.T) {
