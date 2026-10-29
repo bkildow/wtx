@@ -6,12 +6,13 @@ import (
 )
 
 func TestParsePRBatch(t *testing.T) {
-	branches := []string{"merged", "open", "none", "lower"}
+	branches := []string{"merged", "open", "none", "lower", "closed"}
 	data := `{"data":{"repository":{
 		"b0":{"nodes":[{"number":123,"state":"MERGED","headRefOid":"abc123","baseRefName":"main"}]},
 		"b1":{"nodes":[{"number":7,"state":"OPEN","headRefOid":"def456","baseRefName":"develop"}]},
 		"b2":{"nodes":[]},
-		"b3":{"nodes":[{"number":9,"state":"merged","headRefOid":"aaa","baseRefName":"main"}]}
+		"b3":{"nodes":[{"number":9,"state":"merged","headRefOid":"aaa","baseRefName":"main"}]},
+		"b4":{"nodes":[{"number":4,"state":"CLOSED","headRefOid":"bbb","baseRefName":"main"}]}
 	}}}`
 
 	prs := map[string]*PullRequest{}
@@ -23,6 +24,7 @@ func TestParsePRBatch(t *testing.T) {
 		"merged": {Number: 123, State: StateMerged, HeadOID: "abc123", BaseRef: "main"},
 		"open":   {Number: 7, State: StateOpen, HeadOID: "def456", BaseRef: "develop"},
 		"lower":  {Number: 9, State: StateMerged, HeadOID: "aaa", BaseRef: "main"},
+		"closed": {Number: 4, State: StateClosed, HeadOID: "bbb", BaseRef: "main"},
 	}
 	if len(prs) != len(want) {
 		t.Errorf("got %d pull requests, want %d: %v", len(prs), len(want), prs)

@@ -323,9 +323,13 @@ func findPrunable(ctx context.Context, g mergeChecker, f forge.Forge, wts []git.
 	}
 	<-looked
 
-	// Only branches git left unmerged were looked up, so a hit never
-	// overrides git's own reason.
+	// Only the worktrees git left unmerged are judged by pull request, so a
+	// hit never overrides git's reason or starts a second dirty check, even
+	// when two worktrees share a branch name.
 	for i := range checks {
+		if errs[i] != nil || checks[i].reason != "" {
+			continue
+		}
 		wt := checks[i].worktree
 		if pr := prs[wt.Branch]; prMerged(ctx, g, pr, wt, defaultBranch) {
 			checks[i].reason = fmt.Sprintf("merged (PR #%d)", pr.Number)
@@ -346,17 +350,17 @@ func findPrunable(ctx context.Context, g mergeChecker, f forge.Forge, wts []git.
 	return out
 }
 
-// lookupPRs fetches the pull requests for branches. Without a forge, or when
-// the lookup fails (gh unauthenticated or offline), there are none, and the
-// branches stand on git's verdict alone.
+// lookupPRs fetches the pull requests for branches. Without a forge there are
+// none. When the lookup fails (gh unauthenticated or offline), whatever was
+// found before the failure is kept and the remaining branches stand on git's
+// verdict alone.
 func lookupPRs(ctx context.Context, f forge.Forge, branches []string) map[string]*forge.PullRequest {
 	if f == nil {
 		return nil
 	}
 	prs, err := f.PRsForBranches(ctx, branches)
 	if err != nil {
-		ui.Warning(fmt.Sprintf("Could not check pull request state: %s\n  Branches are judged by git alone.", err))
-		return nil
+		ui.Warning(fmt.Sprintf("Could not check pull request state: %s\n  Branches without a pull request result are judged by git alone.", err))
 	}
 	return prs
 }

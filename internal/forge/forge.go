@@ -39,7 +39,8 @@ type PullRequest struct {
 type Forge interface {
 	// PRsForBranches returns, for each branch that has one, the most recent
 	// pull request whose head is that branch. Branches without a pull request
-	// are absent from the map.
+	// are absent from the map. On error the map still holds whatever was
+	// found before the failure.
 	PRsForBranches(ctx context.Context, branches []string) (map[string]*PullRequest, error)
 }
 
@@ -82,11 +83,11 @@ func (g *GitHub) PRsForBranches(ctx context.Context, branches []string) (map[str
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("gh api graphql: %w\n%s", err, strings.TrimSpace(stderr.String()))
+			return prs, fmt.Errorf("gh api graphql: %w\n%s", err, strings.TrimSpace(stderr.String()))
 		}
 
 		if err := parsePRBatch(stdout.Bytes(), batch, prs); err != nil {
-			return nil, err
+			return prs, err
 		}
 	}
 	return prs, nil
