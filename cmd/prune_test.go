@@ -161,7 +161,7 @@ func (s stubChecker) Query(context.Context, ...string) (string, error) {
 	return "", errors.New("unexpected query")
 }
 
-// fakeForge returns prs, or err for every lookup, and records the branches
+// fakeForge returns prs and err for every lookup, and records the branches
 // it was asked about.
 type fakeForge struct {
 	prs   map[string]*forge.PullRequest
@@ -274,5 +274,21 @@ func TestRemoveConcurrently(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "Could not remove worktree c: locked") {
 		t.Errorf("missing failure warning:\n%s", buf.String())
+	}
+}
+
+// TestFindPrunableKeepsPartialLookup checks that pull requests found before a
+// lookup failed still count.
+func TestFindPrunableKeepsPartialLookup(t *testing.T) {
+	captureUI(t)
+	f := &fakeForge{
+		prs: map[string]*forge.PullRequest{"a": {Number: 5, State: forge.StateMerged, HeadOID: "head-a", BaseRef: "main"}},
+		err: errors.New("gh: rate limited"),
+	}
+
+	got := findPrunable(context.Background(), stubChecker{}, f, worktreesFor("a", "b"), "main")
+
+	if len(got) != 1 || got[0].reason != "merged (PR #5)" {
+		t.Errorf("candidates = %+v, want only a merged by PR #5", got)
 	}
 }

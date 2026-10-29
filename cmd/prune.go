@@ -271,73 +271,97 @@ func findPrunable(ctx context.Context, g mergeChecker, f forge.Forge, wts []git.
 	for i, wt := range wts {
 		branches[i] = wt.Branch
 	}
-	statuses, errs := g.BranchMergeStatuses(ctx, branches, defaultBranch)
+	statuses, statusErrs := g.BranchMergeStatuses(ctx, branches, defaultBranch)
 
-	// An empty reason means the branch has not been shown merged.
-	reasons := make([]string, len(wts))
-	var unmerged []string
+	// An empty reason means the worktree has not been shown merged. Each dirty
+	// check writes only its own index, so results keep worktree order.
+	checks := make([]prunable, len(wts))
+	errs := make([]error, len(wts))
 	for i, wt := range wts {
-		switch {
-		case errs[i] != nil:
-			ui.Warning(fmt.Sprintf("%s: could not check merge status: %s", wt.Branch, errs[i]))
-		case statuses[i].Merged:
-			reasons[i] = mergeReason(statuses[i].Method)
-		default:
-			unmerged = append(unmerged, wt.Branch)
-		}
-	}
-
-	// Only branches git left unmerged were looked up, so a hit never
-	// overrides git's own reason.
-	prs := lookupPRs(ctx, f, unmerged)
-	for i, wt := range wts {
-		if pr := prs[wt.Branch]; prMerged(ctx, g, pr, wt, defaultBranch) {
-			reasons[i] = fmt.Sprintf("merged (PR #%d)", pr.Number)
+		checks[i].worktree = wt
+		if statusErrs[i] != nil {
+			errs[i] = fmt.Errorf("could not check merge status: %w", statusErrs[i])
+		} else if statuses[i].Merged {
+			checks[i].reason = mergeReason(statuses[i].Method)
 		}
 	}
 
 	// A worktree's dirtiness decides whether it is removed, so an unanswerable
 	// question is treated as dirty rather than risking uncommitted work.
-	dirty := make([]bool, len(wts))
-	dirtyErrs := make([]error, len(wts))
 	var pool errgroup.Group
 	pool.SetLimit(checkWorkers)
-	for i, wt := range wts {
-		if reasons[i] == "" {
-			continue
-		}
+	checkDirty := func(i int) {
 		pool.Go(func() error {
-			dirty[i], dirtyErrs[i] = g.IsWorktreeDirty(ctx, wt.Path)
+			dirty, err := g.IsWorktreeDirty(ctx, checks[i].worktree.Path)
+			if err != nil {
+				errs[i] = fmt.Errorf("could not check for uncommitted changes, assuming dirty: %w", err)
+				dirty = true
+			}
+			checks[i].dirty = dirty
 			return nil
 		})
+	}
+
+	var unmerged []string
+	for i := range checks {
+		if errs[i] == nil && checks[i].reason == "" {
+			unmerged = append(unmerged, checks[i].worktree.Branch)
+		}
+	}
+
+	// The lookup is a network round-trip, so the worktrees git already shows
+	// merged have their dirty checks run while it is in flight.
+	var prs map[string]*forge.PullRequest
+	looked := make(chan struct{})
+	go func() {
+		prs = lookupPRs(ctx, f, unmerged)
+		close(looked)
+	}()
+	for i := range checks {
+		if checks[i].reason != "" {
+			checkDirty(i)
+		}
+	}
+	<-looked
+
+	// Only the worktrees git left unmerged are judged by pull request, so a
+	// hit never overrides git's reason or starts a second dirty check, even
+	// when two worktrees share a branch name.
+	for i := range checks {
+		if errs[i] != nil || checks[i].reason != "" {
+			continue
+		}
+		wt := checks[i].worktree
+		if pr := prs[wt.Branch]; prMerged(ctx, g, pr, wt, defaultBranch) {
+			checks[i].reason = fmt.Sprintf("merged (PR #%d)", pr.Number)
+			checkDirty(i)
+		}
 	}
 	_ = pool.Wait()
 
 	var out []prunable
-	for i, wt := range wts {
-		if reasons[i] == "" {
-			continue
+	for i, c := range checks {
+		if errs[i] != nil {
+			ui.Warning(fmt.Sprintf("%s: %s", c.worktree.Branch, errs[i]))
 		}
-		if dirtyErrs[i] != nil {
-			ui.Warning(fmt.Sprintf("%s: could not check for uncommitted changes, assuming dirty: %s", wt.Branch, dirtyErrs[i]))
-			dirty[i] = true
+		if c.reason != "" {
+			out = append(out, c)
 		}
-		out = append(out, prunable{worktree: wt, reason: reasons[i], dirty: dirty[i]})
 	}
 	return out
 }
 
-// lookupPRs fetches the pull requests for branches. Without a forge, or when
-// the lookup fails (gh unauthenticated or offline), there are none, and the
-// branches stand on git's verdict alone.
+// lookupPRs fetches the pull requests for branches. Without a forge there are
+// none. When the lookup fails (gh unauthenticated or offline), whatever was
+// found before the failure is kept and the remaining branches stand on git's
+// verdict alone.
 func lookupPRs(ctx context.Context, f forge.Forge, branches []string) map[string]*forge.PullRequest {
-	if f == nil || len(branches) == 0 {
+	if f == nil {
 		return nil
 	}
 	prs, err := f.PRsForBranches(ctx, branches)
 	if err != nil {
-		ui.Warning(fmt.Sprintf("Could not check pull request state: %s\n  Branches are judged by git alone.", err))
-		return nil
+		ui.Warning(fmt.Sprintf("Could not check pull request state: %s\n  Branches without a pull request result are judged by git alone.", err))
 	}
 	return prs
 }

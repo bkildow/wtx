@@ -39,7 +39,8 @@ type PullRequest struct {
 type Forge interface {
 	// PRsForBranches returns, for each branch that has one, the most recent
 	// pull request whose head is that branch. Branches without a pull request
-	// are absent from the map.
+	// are absent from the map. On error the map still holds whatever was
+	// found before the failure.
 	PRsForBranches(ctx context.Context, branches []string) (map[string]*PullRequest, error)
 }
 
@@ -47,38 +48,32 @@ type Forge interface {
 // the gh CLI is not on PATH, or the remote is not a GitHub repository. A nil
 // return is the normal "no forge here" answer, not an error.
 func Detect(_ context.Context, remoteURL string) Forge {
-	repo := parseGitHubRepo(remoteURL)
-	if repo == "" {
+	owner, name, ok := strings.Cut(parseGitHubRepo(remoteURL), "/")
+	if !ok {
 		return nil
 	}
 	if _, err := exec.LookPath("gh"); err != nil {
 		return nil
 	}
-	return &GitHub{Repo: repo}
+	return &GitHub{Owner: owner, Name: name}
 }
 
 // GitHub implements Forge by shelling out to the gh CLI.
 type GitHub struct {
-	Repo string // owner/name
+	Owner, Name string
 }
 
 // prBatchSize bounds the branches looked up per GraphQL request, keeping each
 // query well inside GitHub's node and complexity limits.
 const prBatchSize = 50
 
-// PRsForBranches looks branches up in one GraphQL request per batch, rather
-// than one `gh pr list --head` round-trip each. It asks for the same thing gh
-// pr list does: the newest pull request of any state with that head branch.
+// PRsForBranches looks branches up in one GraphQL request per batch, asking
+// for the newest pull request of any state with each head branch.
 func (g *GitHub) PRsForBranches(ctx context.Context, branches []string) (map[string]*PullRequest, error) {
-	owner, name, ok := strings.Cut(g.Repo, "/")
-	if !ok {
-		return nil, fmt.Errorf("invalid GitHub repository %q", g.Repo)
-	}
-
 	prs := make(map[string]*PullRequest)
 	for batch := range slices.Chunk(branches, prBatchSize) {
 		// Branch names travel as variables, never spliced into the query text.
-		args := []string{"api", "graphql", "-f", "owner=" + owner, "-f", "name=" + name, "-f", "query=" + prQuery(len(batch))}
+		args := []string{"api", "graphql", "-f", "owner=" + g.Owner, "-f", "name=" + g.Name, "-f", "query=" + prQuery(len(batch))}
 		for i, branch := range batch {
 			args = append(args, "-f", fmt.Sprintf("b%d=%s", i, branch))
 		}
@@ -88,11 +83,11 @@ func (g *GitHub) PRsForBranches(ctx context.Context, branches []string) (map[str
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		if err := cmd.Run(); err != nil {
-			return nil, fmt.Errorf("gh api graphql: %w\n%s", err, strings.TrimSpace(stderr.String()))
+			return prs, fmt.Errorf("gh api graphql: %w\n%s", err, strings.TrimSpace(stderr.String()))
 		}
 
 		if err := parsePRBatch(stdout.Bytes(), batch, prs); err != nil {
-			return nil, err
+			return prs, err
 		}
 	}
 	return prs, nil
