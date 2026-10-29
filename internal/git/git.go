@@ -47,8 +47,6 @@ type Git interface {
 	BranchDelete(ctx context.Context, branch string, force bool) error
 	IsWorktreeDirty(ctx context.Context, worktreePath string) (bool, error)
 	IsBranchMerged(ctx context.Context, branch, target string) (bool, error)
-	BranchMergeStatus(ctx context.Context, branch, target string) (MergeStatus, error)
-	BranchMergeStatuses(ctx context.Context, branches []string, target string) ([]MergeStatus, []error)
 	RemoteURL(ctx context.Context, remote string) (string, error)
 	FetchAll(ctx context.Context) error
 	GetDefaultBranch(ctx context.Context) (string, error)
@@ -114,8 +112,8 @@ func (r *Runner) Query(ctx context.Context, args ...string) (string, error) {
 }
 
 // queryWithEnv is Query with extra environment variables appended, for the few
-// callers that need to steer git itself (an isolated object store, a synthetic
-// commit identity) rather than just pass flags.
+// callers that need to steer git itself (such as its locale) rather than just
+// pass flags.
 func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...string) (string, error) {
 	out, err := r.queryRaw(ctx, extraEnv, args...)
 	return strings.TrimSpace(out), err
@@ -127,20 +125,25 @@ func (r *Runner) QueryRaw(ctx context.Context, args ...string) (string, error) {
 	return r.queryRaw(ctx, nil, args...)
 }
 
-func (r *Runner) queryRaw(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+// command builds a git command against the Runner's repository, returned with
+// the form it is logged as.
+func (r *Runner) command(ctx context.Context, args ...string) (cmd *exec.Cmd, logged string) {
 	fullArgs := append([]string{"--git-dir", r.GitDir}, args...)
-	cmdStr := "git " + strings.Join(fullArgs, " ")
-
-	if !r.Quiet {
-		ui.Command(cmdStr)
-	}
-	cmd := exec.CommandContext(ctx, "git", fullArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd = exec.CommandContext(ctx, "git", fullArgs...)
 	if r.BatchMode {
 		cmd.Env = batchEnv()
 	}
+	return cmd, "git " + strings.Join(fullArgs, " ")
+}
+
+func (r *Runner) queryRaw(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	cmd, cmdStr := r.command(ctx, args...)
+	if !r.Quiet {
+		ui.Command(cmdStr)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if len(extraEnv) > 0 {
 		if cmd.Env == nil {
 			cmd.Env = os.Environ()
@@ -737,18 +740,13 @@ func (r *Runner) patchIDs(ctx context.Context, commits []string) (map[string]str
 // abbreviated ids. diff-tree, being plumbing, ignores diff config such as
 // external diff drivers that would change the patch text.
 func (r *Runner) patchIDPipe(ctx context.Context, stdin string, diffArgs ...string) (string, error) {
-	diffFull := append([]string{"--git-dir", r.GitDir}, diffArgs...)
-	idFull := []string{"--git-dir", r.GitDir, "patch-id", "--stable"}
-	cmdStr := "git " + strings.Join(diffFull, " ") + " | git " + strings.Join(idFull, " ")
+	diff, diffStr := r.command(ctx, diffArgs...)
+	id, idStr := r.command(ctx, "patch-id", "--stable")
+	cmdStr := diffStr + " | " + idStr
 	if !r.Quiet {
 		ui.Command(cmdStr)
 	}
 
-	diff := exec.CommandContext(ctx, "git", diffFull...)
-	id := exec.CommandContext(ctx, "git", idFull...)
-	if r.BatchMode {
-		diff.Env, id.Env = batchEnv(), batchEnv()
-	}
 	diff.Stdin = strings.NewReader(stdin)
 	var stdout, diffErr, idErr bytes.Buffer
 	diff.Stderr, id.Stdout, id.Stderr = &diffErr, &stdout, &idErr

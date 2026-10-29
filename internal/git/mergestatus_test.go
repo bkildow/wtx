@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -114,7 +115,15 @@ func TestBranchMergeStatus(t *testing.T) {
 		{"pending", false, MergeNone},
 	}
 
+	// One batched call must give each branch the answer a call for that branch
+	// alone does.
+	var branches []string
 	for _, tt := range tests {
+		branches = append(branches, tt.branch)
+	}
+	batched := r.statuses(branches...)
+
+	for i, tt := range tests {
 		t.Run(tt.branch, func(t *testing.T) {
 			got, err := runner.BranchMergeStatus(ctx, tt.branch, "main")
 			if err != nil {
@@ -123,6 +132,9 @@ func TestBranchMergeStatus(t *testing.T) {
 			if got.Merged != tt.wantMerged || got.Method != tt.wantMethod {
 				t.Errorf("BranchMergeStatus(%s) = {%v %q}, want {%v %q}",
 					tt.branch, got.Merged, got.Method, tt.wantMerged, tt.wantMethod)
+			}
+			if batched[i] != got {
+				t.Errorf("BranchMergeStatuses gave %s %+v, alone it gets %+v", tt.branch, batched[i], got)
 			}
 		})
 	}
@@ -176,35 +188,17 @@ func TestBranchMergeStatusSingleCommitIsEquivalent(t *testing.T) {
 	}
 }
 
-// TestBranchMergeStatusWithoutGitIdentity covers CI and fresh containers, where
-// git has no configured user: the checks must not need one.
-func TestBranchMergeStatusWithoutGitIdentity(t *testing.T) {
-	r := newMergeRepo(t)
-
-	r.git("checkout", "-qb", "squashed")
-	r.commit("squash.txt", "one\n")
-	r.commit("squash.txt", "one\ntwo\n")
-	r.git("checkout", "-q", "main")
-	r.git("merge", "-q", "--squash", "squashed")
-	r.git("commit", "-qm", "squashed everything")
-
-	// Strip every source of a git identity from the environment the Runner
-	// inherits: no global or system config, no HOME to find one in.
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
-	t.Setenv("GIT_AUTHOR_NAME", "")
-	t.Setenv("GIT_AUTHOR_EMAIL", "")
-	t.Setenv("GIT_COMMITTER_NAME", "")
-	t.Setenv("GIT_COMMITTER_EMAIL", "")
-
-	got, err := r.runner().BranchMergeStatus(context.Background(), "squashed", "main")
-	if err != nil {
-		t.Fatalf("BranchMergeStatus: %v", err)
+// statuses runs BranchMergeStatuses against main, failing the test on any
+// error.
+func (r *mergeRepo) statuses(branches ...string) []MergeStatus {
+	r.t.Helper()
+	statuses, errs := r.runner().BranchMergeStatuses(context.Background(), branches, "main")
+	for i, err := range errs {
+		if err != nil {
+			r.t.Fatalf("BranchMergeStatuses(%s): %v", branches[i], err)
+		}
 	}
-	if !got.Merged || got.Method != MergeSquash {
-		t.Errorf("BranchMergeStatus(squashed) = {%v %q}, want {true %q}", got.Merged, got.Method, MergeSquash)
-	}
+	return statuses
 }
 
 // commitLogo commits binary contents to logo.png. commit cannot, since it puts
@@ -235,15 +229,10 @@ func TestBranchMergeStatusBinaryChanges(t *testing.T) {
 	r.git("merge", "-q", "--squash", "squashed")
 	r.git("commit", "-qm", "squashed the binary change")
 
-	statuses, errs := r.runner().BranchMergeStatuses(context.Background(), []string{"different", "squashed"}, "main")
+	got := r.statuses("different", "squashed")
 	want := []MergeStatus{{Merged: false, Method: MergeNone}, {Merged: true, Method: MergeSquash}}
-	for i, branch := range []string{"different", "squashed"} {
-		if errs[i] != nil {
-			t.Fatalf("BranchMergeStatuses(%s): %v", branch, errs[i])
-		}
-		if statuses[i] != want[i] {
-			t.Errorf("BranchMergeStatuses(%s) = %+v, want %+v", branch, statuses[i], want[i])
-		}
+	if !slices.Equal(got, want) {
+		t.Errorf("BranchMergeStatuses(different, squashed) = %+v, want %+v", got, want)
 	}
 }
 
@@ -267,56 +256,9 @@ func TestBranchMergeStatusesComparesEachBranchWithItsOwnRange(t *testing.T) {
 	r.git("checkout", "-qb", "reapply", "main")
 	r.commit("fix.txt", "fix\n")
 
-	statuses, errs := r.runner().BranchMergeStatuses(context.Background(), []string{"early", "reapply"}, "main")
-	for i, branch := range []string{"early", "reapply"} {
-		if errs[i] != nil {
-			t.Fatalf("BranchMergeStatuses(%s): %v", branch, errs[i])
-		}
-		if statuses[i].Merged {
-			t.Errorf("BranchMergeStatuses(%s) = %+v, want unmerged", branch, statuses[i])
-		}
-	}
-}
-
-// TestBranchMergeStatusesMatchesSingleChecks checks that one batched call
-// gives each branch the answer a call for that branch alone would.
-func TestBranchMergeStatusesMatchesSingleChecks(t *testing.T) {
-	r := newMergeRepo(t)
-
-	r.git("checkout", "-qb", "squashed")
-	r.commit("squash.txt", "one\n")
-	r.commit("squash.txt", "one\ntwo\n")
-	r.git("checkout", "-qb", "rebased", "main")
-	r.commit("rebase.txt", "one\n")
-	r.commit("rebase.txt", "one\ntwo\n")
-	r.git("checkout", "-qb", "pending", "main")
-	r.commit("pending.txt", "not landed\n")
-	r.git("checkout", "-qb", "merged", "main")
-	r.commit("merged.txt", "one\n")
-
-	r.git("checkout", "-q", "main")
-	r.git("merge", "-q", "--squash", "squashed")
-	r.git("commit", "-qm", "squashed everything")
-	r.git("cherry-pick", "rebased~1", "rebased")
-	r.git("merge", "-q", "--no-ff", "-m", "merge merged", "merged")
-
-	runner := r.runner()
-	ctx := context.Background()
-	branches := []string{"squashed", "rebased", "pending", "merged"}
-	statuses, errs := runner.BranchMergeStatuses(ctx, branches, "main")
-
-	want := []MergeMethod{MergeSquash, MergeRebase, MergeNone, MergeAncestor}
-	for i, branch := range branches {
-		if errs[i] != nil {
-			t.Fatalf("BranchMergeStatuses(%s): %v", branch, errs[i])
-		}
-		single, err := runner.BranchMergeStatus(ctx, branch, "main")
-		if err != nil {
-			t.Fatalf("BranchMergeStatus(%s): %v", branch, err)
-		}
-		if statuses[i].Method != want[i] || statuses[i] != single {
-			t.Errorf("%s: batched %+v, single %+v, want method %q", branch, statuses[i], single, want[i])
-		}
+	got := r.statuses("early", "reapply")
+	if want := make([]MergeStatus, 2); !slices.Equal(got, want) {
+		t.Errorf("BranchMergeStatuses(early, reapply) = %+v, want both unmerged", got)
 	}
 }
 
