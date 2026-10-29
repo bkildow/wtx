@@ -701,7 +701,7 @@ func (r *Runner) squashProbe(ctx context.Context, branch, target string) (string
 	if err != nil || base == "" {
 		return "", err
 	}
-	out, err := r.patchIDPipe(ctx, "", "diff-tree", "-p", "--binary", "--no-renames", base, branch)
+	out, err := r.patchIDPipe(ctx, "", "diff-tree", "-p", "--full-index", "--no-renames", base, branch)
 	if err != nil {
 		return "", err
 	}
@@ -718,7 +718,7 @@ func (r *Runner) patchIDs(ctx context.Context, commits []string) (map[string]str
 		return ids, nil
 	}
 	out, err := r.patchIDPipe(ctx, strings.Join(commits, "\n")+"\n",
-		"diff-tree", "--stdin", "-p", "--binary", "--no-renames", "--root")
+		"diff-tree", "--stdin", "-p", "--full-index", "--no-renames", "--root")
 	if err != nil {
 		return nil, err
 	}
@@ -731,10 +731,11 @@ func (r *Runner) patchIDs(ctx context.Context, commits []string) (map[string]str
 }
 
 // patchIDPipe runs `git <diffArgs>`, fed stdin, and pipes its patch straight
-// into `git patch-id --stable`, returning that output. --binary is what keeps
-// two different changes to one binary file from sharing a patch-id, and
-// diff-tree, being plumbing, ignores diff config such as external diff
-// drivers that would change the patch text.
+// into `git patch-id --stable`, returning that output. patch-id hashes a
+// binary change by the blob ids on its index line, and --full-index keeps two
+// different changes to one binary file from sharing a patch-id through
+// abbreviated ids. diff-tree, being plumbing, ignores diff config such as
+// external diff drivers that would change the patch text.
 func (r *Runner) patchIDPipe(ctx context.Context, stdin string, diffArgs ...string) (string, error) {
 	diffFull := append([]string{"--git-dir", r.GitDir}, diffArgs...)
 	idFull := []string{"--git-dir", r.GitDir, "patch-id", "--stable"}
@@ -761,6 +762,9 @@ func (r *Runner) patchIDPipe(ctx context.Context, stdin string, diffArgs ...stri
 		return "", fmt.Errorf("%s: %w", cmdStr, err)
 	}
 	idRunErr := id.Run()
+	// Should patch-id exit before draining the patch, closing the pipe stops
+	// diff-tree blocking on a full buffer, which would hang the Wait.
+	_ = pipe.Close()
 	diffRunErr := diff.Wait()
 	if err := cmp.Or(diffRunErr, idRunErr); err != nil {
 		return "", fmt.Errorf("%s: %w\n%s%s", cmdStr, err, diffErr.String(), idErr.String())

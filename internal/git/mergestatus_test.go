@@ -219,8 +219,8 @@ func (r *mergeRepo) commitLogo(contents string) {
 }
 
 // TestBranchMergeStatusBinaryChanges checks that two different changes to one
-// binary file are not mistaken for each other. A text diff of either reads
-// only "Binary files differ", so their patch-ids must come from the content.
+// binary file are not mistaken for each other. A diff of either reads only
+// "Binary files differ", so their patch-ids must come from the blob ids.
 func TestBranchMergeStatusBinaryChanges(t *testing.T) {
 	r := newMergeRepo(t)
 	r.commitLogo("\x00\x01original")
