@@ -61,6 +61,17 @@ stderr 'Pruned 1 worktree\(s\), kept 1 branch\(es\) git calls unmerged'
 ! exists worktrees/squashed
 exec git --git-dir .bare rev-parse --verify --quiet refs/heads/squashed
 
+# A worktree git refuses to remove is reported and skipped, and its branch is
+# not deleted.
+exec wtx add --skip-setup locked
+exec git --git-dir .bare worktree lock worktrees/locked
+exec wtx prune --force --yes
+stderr 'Could not remove worktree locked'
+! stderr 'Removed worktree: locked'
+stderr 'Pruned 0 worktree\(s\)'
+exists worktrees/locked
+exec git --git-dir .bare rev-parse --verify --quiet refs/heads/locked
+
 -- config.yml --
 version: 1
 git_dir: .bare
