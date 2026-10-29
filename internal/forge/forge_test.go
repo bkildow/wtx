@@ -5,67 +5,55 @@ import (
 	"testing"
 )
 
-func TestParsePRList(t *testing.T) {
-	tests := []struct {
-		name    string
-		input   string
-		want    *PullRequest
-		wantErr bool
-	}{
-		{
-			"merged",
-			`[{"number":123,"state":"MERGED","headRefOid":"abc123","baseRefName":"main"}]`,
-			&PullRequest{Number: 123, State: StateMerged, HeadOID: "abc123", BaseRef: "main"},
-			false,
-		},
-		{
-			"open",
-			`[{"number":7,"state":"OPEN","headRefOid":"def456","baseRefName":"develop"}]`,
-			&PullRequest{Number: 7, State: StateOpen, HeadOID: "def456", BaseRef: "develop"},
-			false,
-		},
-		{
-			"closed",
-			`[{"number":9,"state":"CLOSED","headRefOid":"aaa","baseRefName":"main"}]`,
-			&PullRequest{Number: 9, State: StateClosed, HeadOID: "aaa", BaseRef: "main"},
-			false,
-		},
-		{
-			"lowercase state",
-			`[{"number":9,"state":"merged","headRefOid":"aaa","baseRefName":"main"}]`,
-			&PullRequest{Number: 9, State: StateMerged, HeadOID: "aaa", BaseRef: "main"},
-			false,
-		},
-		{"no pull request", `[]`, nil, false},
-		{"trailing newline", "[]\n", nil, false},
-		{"malformed", `{"number":1}`, nil, true},
+func TestParsePRBatch(t *testing.T) {
+	branches := []string{"merged", "open", "none", "lower"}
+	data := `{"data":{"repository":{
+		"b0":{"nodes":[{"number":123,"state":"MERGED","headRefOid":"abc123","baseRefName":"main"}]},
+		"b1":{"nodes":[{"number":7,"state":"OPEN","headRefOid":"def456","baseRefName":"develop"}]},
+		"b2":{"nodes":[]},
+		"b3":{"nodes":[{"number":9,"state":"merged","headRefOid":"aaa","baseRefName":"main"}]}
+	}}}`
+
+	prs := map[string]*PullRequest{}
+	if err := parsePRBatch([]byte(data), branches, prs); err != nil {
+		t.Fatalf("parsePRBatch: %v", err)
 	}
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			pr, err := parsePRList([]byte(tt.input))
-			if tt.wantErr {
-				if err == nil {
-					t.Fatal("parsePRList: expected error, got nil")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatalf("parsePRList: %v", err)
-			}
-			if tt.want == nil {
-				if pr != nil {
-					t.Fatalf("parsePRList = %+v, want nil", pr)
-				}
-				return
-			}
-			if pr == nil {
-				t.Fatal("parsePRList = nil, want a pull request")
-			}
-			if *pr != *tt.want {
-				t.Errorf("parsePRList = %+v, want %+v", *pr, *tt.want)
+	want := map[string]PullRequest{
+		"merged": {Number: 123, State: StateMerged, HeadOID: "abc123", BaseRef: "main"},
+		"open":   {Number: 7, State: StateOpen, HeadOID: "def456", BaseRef: "develop"},
+		"lower":  {Number: 9, State: StateMerged, HeadOID: "aaa", BaseRef: "main"},
+	}
+	if len(prs) != len(want) {
+		t.Errorf("got %d pull requests, want %d: %v", len(prs), len(want), prs)
+	}
+	for branch, w := range want {
+		if got := prs[branch]; got == nil || *got != w {
+			t.Errorf("prs[%q] = %+v, want %+v", branch, got, w)
+		}
+	}
+}
+
+func TestParsePRBatchErrors(t *testing.T) {
+	for name, data := range map[string]string{
+		"malformed":     `[]`,
+		"no repository": `{"data":{"repository":null}}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := parsePRBatch([]byte(data), []string{"a"}, map[string]*PullRequest{}); err == nil {
+				t.Error("parsePRBatch: expected error, got nil")
 			}
 		})
+	}
+}
+
+func TestPRQuery(t *testing.T) {
+	want := "query($owner:String!,$name:String!,$b0:String!,$b1:String!){repository(owner:$owner,name:$name){" +
+		"b0:pullRequests(headRefName:$b0,first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number state headRefOid baseRefName}}" +
+		"b1:pullRequests(headRefName:$b1,first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number state headRefOid baseRefName}}" +
+		"}}"
+	if got := prQuery(2); got != want {
+		t.Errorf("prQuery(2) =\n%s\nwant\n%s", got, want)
 	}
 }
 

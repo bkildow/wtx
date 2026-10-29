@@ -5,7 +5,6 @@ import (
 	"errors"
 	"slices"
 	"strings"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -158,13 +157,17 @@ func (s stubChecker) Query(context.Context, ...string) (string, error) {
 	return "", errors.New("unexpected query")
 }
 
-// failingForge fails every lookup, as gh does when unauthenticated or offline.
-type failingForge struct{ calls atomic.Int32 }
+// fakeForge returns prs, or err for every lookup, and records the branches
+// it was asked about.
+type fakeForge struct {
+	prs   map[string]*forge.PullRequest
+	err   error
+	calls [][]string
+}
 
-func (f *failingForge) PRForBranch(context.Context, string) (*forge.PullRequest, error) {
-	f.calls.Add(1)
-	time.Sleep(10 * time.Millisecond)
-	return nil, errors.New("gh: not logged in")
+func (f *fakeForge) PRsForBranches(_ context.Context, branches []string) (map[string]*forge.PullRequest, error) {
+	f.calls = append(f.calls, branches)
+	return f.prs, f.err
 }
 
 func worktreesFor(branches ...string) []git.WorktreeInfo {
@@ -184,7 +187,7 @@ func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
 		delay:  map[string]time.Duration{"a": 30 * time.Millisecond, "c": 15 * time.Millisecond},
 	}
 
-	got := findPrunable(context.Background(), g, &prDetection{}, worktreesFor("a", "b", "c", "d"), "main")
+	got := findPrunable(context.Background(), g, nil, worktreesFor("a", "b", "c", "d"), "main")
 
 	var branches []string
 	for _, p := range got {
@@ -195,27 +198,51 @@ func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
 	}
 }
 
-// TestFindPrunableDisablesPRDetectionOnce checks that a gh failure is reported
-// once, not once per worktree whose lookup was already in flight, and that
-// lookups stop once it has been seen.
-func TestFindPrunableDisablesPRDetectionOnce(t *testing.T) {
+// TestFindPrunableLooksUpUnmergedBranchesOnce checks that only the branches
+// git leaves unmerged are looked up, all in one call, and that a merged pull
+// request at the worktree's head marks it merged.
+func TestFindPrunableLooksUpUnmergedBranchesOnce(t *testing.T) {
+	captureUI(t)
+	f := &fakeForge{prs: map[string]*forge.PullRequest{
+		"b": {Number: 12, State: forge.StateMerged, HeadOID: "head-b", BaseRef: "main"},
+		"c": {Number: 13, State: forge.StateOpen, HeadOID: "head-c", BaseRef: "main"},
+	}}
+	g := stubChecker{merged: map[string]bool{"a": true}}
+
+	got := findPrunable(context.Background(), g, f, worktreesFor("a", "b", "c"), "main")
+
+	if want := [][]string{{"b", "c"}}; !slices.EqualFunc(f.calls, want, slices.Equal) {
+		t.Errorf("lookups = %v, want %v", f.calls, want)
+	}
+	var reasons []string
+	for _, p := range got {
+		reasons = append(reasons, p.worktree.Branch+": "+p.reason)
+	}
+	if want := []string{"a: merged", "b: merged (PR #12)"}; !slices.Equal(reasons, want) {
+		t.Errorf("candidates = %v, want %v", reasons, want)
+	}
+}
+
+// TestFindPrunableWarnsOnceWhenLookupFails checks that a gh failure is
+// reported once and leaves every branch to git's verdict.
+func TestFindPrunableWarnsOnceWhenLookupFails(t *testing.T) {
 	buf := captureUI(t)
-	f := &failingForge{}
+	f := &fakeForge{err: errors.New("gh: not logged in")}
 	branches := make([]string, 3*checkWorkers)
 	for i := range branches {
 		branches[i] = string(rune('a' + i))
 	}
 
-	got := findPrunable(context.Background(), stubChecker{}, &prDetection{forge: f}, worktreesFor(branches...), "main")
+	got := findPrunable(context.Background(), stubChecker{}, f, worktreesFor(branches...), "main")
 
 	if len(got) != 0 {
 		t.Errorf("got %d candidates, want none", len(got))
 	}
-	if n := strings.Count(buf.String(), "Pull request detection disabled"); n != 1 {
-		t.Errorf("disabled warning printed %d times, want 1:\n%s", n, buf.String())
+	if n := strings.Count(buf.String(), "Could not check pull request state"); n != 1 {
+		t.Errorf("lookup warning printed %d times, want 1:\n%s", n, buf.String())
 	}
-	if calls := int(f.calls.Load()); calls > checkWorkers {
-		t.Errorf("gh called %d times, want at most the %d already in flight", calls, checkWorkers)
+	if len(f.calls) != 1 {
+		t.Errorf("gh called %d times, want 1", len(f.calls))
 	}
 }
 

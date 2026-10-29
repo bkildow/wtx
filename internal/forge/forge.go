@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"slices"
 	"strings"
 )
 
@@ -36,9 +37,10 @@ type PullRequest struct {
 
 // Forge looks up pull requests for a repository.
 type Forge interface {
-	// PRForBranch returns the most recent pull request whose head is branch,
-	// or nil when the branch has none.
-	PRForBranch(ctx context.Context, branch string) (*PullRequest, error)
+	// PRsForBranches returns, for each branch that has one, the most recent
+	// pull request whose head is that branch. Branches without a pull request
+	// are absent from the map.
+	PRsForBranches(ctx context.Context, branches []string) (map[string]*PullRequest, error)
 }
 
 // Detect returns a Forge for the given remote URL, or nil when none is usable:
@@ -60,49 +62,92 @@ type GitHub struct {
 	Repo string // owner/name
 }
 
-func (g *GitHub) PRForBranch(ctx context.Context, branch string) (*PullRequest, error) {
-	args := []string{
-		"pr", "list",
-		"--repo", g.Repo,
-		"--head", branch,
-		"--state", "all",
-		"--json", "number,state,headRefOid,baseRefName",
-		"--limit", "1",
+// prBatchSize bounds the branches looked up per GraphQL request, keeping each
+// query well inside GitHub's node and complexity limits.
+const prBatchSize = 50
+
+// PRsForBranches looks branches up in one GraphQL request per batch, rather
+// than one `gh pr list --head` round-trip each. It asks for the same thing gh
+// pr list does: the newest pull request of any state with that head branch.
+func (g *GitHub) PRsForBranches(ctx context.Context, branches []string) (map[string]*PullRequest, error) {
+	owner, name, ok := strings.Cut(g.Repo, "/")
+	if !ok {
+		return nil, fmt.Errorf("invalid GitHub repository %q", g.Repo)
 	}
 
-	cmd := exec.CommandContext(ctx, "gh", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	prs := make(map[string]*PullRequest)
+	for batch := range slices.Chunk(branches, prBatchSize) {
+		// Branch names travel as variables, never spliced into the query text.
+		args := []string{"api", "graphql", "-f", "owner=" + owner, "-f", "name=" + name, "-f", "query=" + prQuery(len(batch))}
+		for i, branch := range batch {
+			args = append(args, "-f", fmt.Sprintf("b%d=%s", i, branch))
+		}
 
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("gh %s: %w\n%s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
+		cmd := exec.CommandContext(ctx, "gh", args...)
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+		if err := cmd.Run(); err != nil {
+			return nil, fmt.Errorf("gh api graphql: %w\n%s", err, strings.TrimSpace(stderr.String()))
+		}
+
+		if err := parsePRBatch(stdout.Bytes(), batch, prs); err != nil {
+			return nil, err
+		}
 	}
-
-	return parsePRList(stdout.Bytes())
+	return prs, nil
 }
 
-// parsePRList decodes the JSON array `gh pr list --json number,state` emits.
-// An empty array means the branch has no pull request.
-func parsePRList(data []byte) (*PullRequest, error) {
-	var prs []struct {
-		Number  int    `json:"number"`
-		State   string `json:"state"`
-		HeadOID string `json:"headRefOid"`
-		BaseRef string `json:"baseRefName"`
+// prQuery builds a query with one aliased pullRequests field per branch,
+// b0 through b<n-1>, each bound to the matching $b<i> variable.
+func prQuery(n int) string {
+	var b strings.Builder
+	b.WriteString("query($owner:String!,$name:String!")
+	for i := range n {
+		fmt.Fprintf(&b, ",$b%d:String!", i)
 	}
-	if err := json.Unmarshal(bytes.TrimSpace(data), &prs); err != nil {
-		return nil, fmt.Errorf("parsing gh output: %w", err)
+	b.WriteString("){repository(owner:$owner,name:$name){")
+	for i := range n {
+		fmt.Fprintf(&b, "b%d:pullRequests(headRefName:$b%d,first:1,orderBy:{field:CREATED_AT,direction:DESC}){nodes{number state headRefOid baseRefName}}", i, i)
 	}
-	if len(prs) == 0 {
-		return nil, nil
+	b.WriteString("}}")
+	return b.String()
+}
+
+// parsePRBatch decodes a prQuery response for branches into prs. A branch
+// whose alias holds no nodes has no pull request and is left out.
+func parsePRBatch(data []byte, branches []string, prs map[string]*PullRequest) error {
+	var resp struct {
+		Data struct {
+			Repository map[string]struct {
+				Nodes []struct {
+					Number  int    `json:"number"`
+					State   string `json:"state"`
+					HeadOID string `json:"headRefOid"`
+					BaseRef string `json:"baseRefName"`
+				} `json:"nodes"`
+			} `json:"repository"`
+		} `json:"data"`
 	}
-	return &PullRequest{
-		Number:  prs[0].Number,
-		State:   PRState(strings.ToUpper(prs[0].State)),
-		HeadOID: prs[0].HeadOID,
-		BaseRef: prs[0].BaseRef,
-	}, nil
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return fmt.Errorf("parsing gh output: %w", err)
+	}
+	if resp.Data.Repository == nil {
+		return fmt.Errorf("parsing gh output: no repository in response")
+	}
+	for i, branch := range branches {
+		nodes := resp.Data.Repository[fmt.Sprintf("b%d", i)].Nodes
+		if len(nodes) == 0 {
+			continue
+		}
+		prs[branch] = &PullRequest{
+			Number:  nodes[0].Number,
+			State:   PRState(strings.ToUpper(nodes[0].State)),
+			HeadOID: nodes[0].HeadOID,
+			BaseRef: nodes[0].BaseRef,
+		}
+	}
+	return nil
 }
 
 var githubRemote = regexp.MustCompile(`^(?:(?:https?|ssh|git)://(?:[^@/]+@)?github\.com/|(?:[^@]+@)?github\.com:)([^/]+/[^/]+?)(?:\.git)?/?$`)
