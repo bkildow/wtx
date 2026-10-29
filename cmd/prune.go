@@ -229,13 +229,14 @@ func runPrune(cmd *cobra.Command, args []string) error {
 			continue
 		}
 		removed++
-		ui.Success("Removed worktree: " + wt.Branch)
 
 		// git branch -d refuses squash- and rebase-merged branches as unmerged.
 		// Keep them and print the delete command rather than force-deleting.
-		if deleteBranchOrKeep(ctx, runner, wt.Branch) {
+		kept := deleteBranchOrKeep(ctx, runner, wt.Branch)
+		if kept {
 			branchesKept++
 		}
+		ui.Success(removedWorktreeMessage(wt.Branch, kept))
 	}
 
 	if err := runner.WorktreePrune(ctx); err != nil {
