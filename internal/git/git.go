@@ -3,17 +3,19 @@ package git
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 
 	"github.com/bkildow/wtx/internal/ui"
+	"golang.org/x/sync/errgroup"
 )
 
 type WorktreeInfo struct {
@@ -45,7 +47,6 @@ type Git interface {
 	BranchDelete(ctx context.Context, branch string, force bool) error
 	IsWorktreeDirty(ctx context.Context, worktreePath string) (bool, error)
 	IsBranchMerged(ctx context.Context, branch, target string) (bool, error)
-	BranchMergeStatus(ctx context.Context, branch, target string) (MergeStatus, error)
 	RemoteURL(ctx context.Context, remote string) (string, error)
 	FetchAll(ctx context.Context) error
 	GetDefaultBranch(ctx context.Context) (string, error)
@@ -111,8 +112,8 @@ func (r *Runner) Query(ctx context.Context, args ...string) (string, error) {
 }
 
 // queryWithEnv is Query with extra environment variables appended, for the few
-// callers that need to steer git itself (an isolated object store, a synthetic
-// commit identity) rather than just pass flags.
+// callers that need to steer git itself (such as its locale) rather than just
+// pass flags.
 func (r *Runner) queryWithEnv(ctx context.Context, extraEnv []string, args ...string) (string, error) {
 	out, err := r.queryRaw(ctx, extraEnv, args...)
 	return strings.TrimSpace(out), err
@@ -124,20 +125,25 @@ func (r *Runner) QueryRaw(ctx context.Context, args ...string) (string, error) {
 	return r.queryRaw(ctx, nil, args...)
 }
 
-func (r *Runner) queryRaw(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+// command builds a git command against the Runner's repository, returned with
+// the form it is logged as.
+func (r *Runner) command(ctx context.Context, args ...string) (cmd *exec.Cmd, logged string) {
 	fullArgs := append([]string{"--git-dir", r.GitDir}, args...)
-	cmdStr := "git " + strings.Join(fullArgs, " ")
-
-	if !r.Quiet {
-		ui.Command(cmdStr)
-	}
-	cmd := exec.CommandContext(ctx, "git", fullArgs...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd = exec.CommandContext(ctx, "git", fullArgs...)
 	if r.BatchMode {
 		cmd.Env = batchEnv()
 	}
+	return cmd, "git " + strings.Join(fullArgs, " ")
+}
+
+func (r *Runner) queryRaw(ctx context.Context, extraEnv []string, args ...string) (string, error) {
+	cmd, cmdStr := r.command(ctx, args...)
+	if !r.Quiet {
+		ui.Command(cmdStr)
+	}
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if len(extraEnv) > 0 {
 		if cmd.Env == nil {
 			cmd.Env = os.Environ()
@@ -507,11 +513,10 @@ func parseDirtyStatus(output string) bool {
 }
 
 func (r *Runner) IsBranchMerged(ctx context.Context, branch, target string) (bool, error) {
-	args := []string{"--git-dir", r.GitDir, "merge-base", "--is-ancestor", branch, target}
-	cmdStr := "git " + strings.Join(args, " ")
-
-	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd, cmdStr := r.command(ctx, "merge-base", "--is-ancestor", branch, target)
+	if !r.Quiet {
+		ui.Command(cmdStr)
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 
@@ -550,140 +555,227 @@ type MergeStatus struct {
 }
 
 // BranchMergeStatus reports whether branch's work is already contained in
-// target, and by which route. It escalates through three checks because the
-// cheap ancestor test only recognizes fast-forward and true merge commits:
-// squash and rebase merges rewrite the commits, so the branch tip is never an
-// ancestor of the target.
+// target, and by which route. It is BranchMergeStatuses for a single branch.
+func (r *Runner) BranchMergeStatus(ctx context.Context, branch, target string) (MergeStatus, error) {
+	statuses, errs := r.BranchMergeStatuses(ctx, []string{branch}, target)
+	return statuses[0], errs[0]
+}
+
+// mergeWorkers bounds the branches BranchMergeStatuses inspects at once.
+const mergeWorkers = 8
+
+// BranchMergeStatuses reports, for each branch, whether its work is already
+// contained in target, and by which route. It escalates through three checks
+// because the cheap ancestor test only recognizes fast-forward and true merge
+// commits: squash and rebase merges rewrite the commits, so the branch tip is
+// never an ancestor of the target.
 //
 //  1. ancestor  — git merge-base --is-ancestor
-//  2. rebase    — git cherry: patch-ids survive a rebase, so every commit on
-//     the branch shows up as an equivalent ("-") commit in target. With a
-//     single commit this is reported as MergeEquivalent, since a one-commit
-//     squash produces exactly the same evidence.
-//  3. squash    — a synthetic commit holding the branch's whole tree on top of
-//     the merge base. Its patch-id equals the branch's combined diff, which is
-//     exactly what a squash commit contains. Check 2 cannot find this for a
-//     multi-commit branch, since no individual commit matches the squash.
+//  2. rebase    — patch-ids survive a rebase, so every commit on the branch
+//     has an equivalent among the target's commits (what git cherry reports).
+//     With a single commit this is reported as MergeEquivalent, since a
+//     one-commit squash produces exactly the same evidence.
+//  3. squash    — the patch-id of the branch's whole diff against the merge
+//     base, which is exactly what a squash commit contains. Check 2 cannot
+//     find this for a multi-commit branch, since no individual commit matches
+//     the squash.
 //
-// The squash probe needs a commit object to hand to git cherry. It is written
-// to a throwaway object store (GIT_OBJECT_DIRECTORY) with the real repo as an
-// alternate, so the managed repo is never modified — including under
-// --dry-run, where the probe still has to run for prune to report the right
-// set of worktrees. Any failure degrades to "not squash-merged" rather than
-// failing the whole check.
-func (r *Runner) BranchMergeStatus(ctx context.Context, branch, target string) (MergeStatus, error) {
-	ancestor, err := r.IsBranchMerged(ctx, branch, target)
-	if err != nil {
-		return MergeStatus{}, err
+// Checks 2 and 3 compare against the target commits each branch lacks, which
+// overlap heavily when many branches fork from one long-lived target. Every
+// commit's patch-id is therefore computed once, in a single git patch-id run,
+// rather than once per branch and check as running git cherry would.
+//
+// Nothing is written to the repository, so the checks run under --dry-run.
+// A failed squash probe degrades to "not squash-merged" rather than failing
+// the whole check.
+func (r *Runner) BranchMergeStatuses(ctx context.Context, branches []string, target string) ([]MergeStatus, []error) {
+	candidates := make([]mergeCandidate, len(branches))
+	errs := make([]error, len(branches))
+	var pool errgroup.Group
+	pool.SetLimit(mergeWorkers)
+	for i, branch := range branches {
+		pool.Go(func() error {
+			candidates[i], errs[i] = r.mergeCandidate(ctx, branch, target)
+			return nil
+		})
 	}
-	if ancestor {
-		return MergeStatus{Merged: true, Method: MergeAncestor}, nil
+	_ = pool.Wait()
+
+	var commits []string
+	seen := make(map[string]bool)
+	for i, c := range candidates {
+		if errs[i] != nil {
+			continue
+		}
+		for _, commit := range slices.Concat(c.upstream, c.own) {
+			if !seen[commit] {
+				seen[commit] = true
+				commits = append(commits, commit)
+			}
+		}
 	}
 
-	cherry, err := r.Query(ctx, "cherry", target, branch)
-	if err != nil {
-		return MergeStatus{}, err
-	}
-	if equivalent, commits := parseCherryEquivalent(cherry); equivalent {
-		method := MergeRebase
-		if commits == 1 {
-			method = MergeEquivalent
+	ids, err := r.patchIDs(ctx, commits)
+	statuses := make([]MergeStatus, len(branches))
+	for i, c := range candidates {
+		if errs[i] != nil {
+			continue
 		}
-		return MergeStatus{Merged: true, Method: method}, nil
+		if c.ancestor {
+			statuses[i] = MergeStatus{Merged: true, Method: MergeAncestor}
+			continue
+		}
+		branchIDs := ids
+		if err != nil {
+			// The shared run failed, perhaps on one unreadable commit. Retrying
+			// each branch alone fails only the branches whose ranges hold it.
+			if branchIDs, errs[i] = r.patchIDs(ctx, slices.Concat(c.upstream, c.own)); errs[i] != nil {
+				continue
+			}
+		}
+		statuses[i] = c.status(branchIDs)
+	}
+	return statuses, errs
+}
+
+// mergeCandidate is what the patch-id checks need to know about one branch.
+type mergeCandidate struct {
+	ancestor bool
+	upstream []string // non-merge commits in target that branch lacks
+	own      []string // non-merge commits in branch that target lacks
+	probe    string   // patch-id of the branch's whole diff, "" when none
+}
+
+func (r *Runner) mergeCandidate(ctx context.Context, branch, target string) (mergeCandidate, error) {
+	ancestor, err := r.IsBranchMerged(ctx, branch, target)
+	if err != nil || ancestor {
+		return mergeCandidate{ancestor: ancestor}, err
+	}
+
+	// The same commit ranges git cherry target branch compares.
+	var c mergeCandidate
+	if c.upstream, err = r.revList(ctx, target, branch); err != nil {
+		return c, err
+	}
+	if c.own, err = r.revList(ctx, branch, target); err != nil {
+		return c, err
 	}
 
 	// A failing probe means "could not prove a squash merge", which is the same
-	// actionable answer as "not squash-merged": the two cheaper checks have
-	// already ruled out the other routes.
-	if squashed, err := r.isSquashMerged(ctx, branch, target); err == nil && squashed {
-		return MergeStatus{Merged: true, Method: MergeSquash}, nil
-	}
-
-	return MergeStatus{Merged: false, Method: MergeNone}, nil
+	// actionable answer as "not squash-merged".
+	c.probe, _ = r.squashProbe(ctx, branch, target)
+	return c, nil
 }
 
-func (r *Runner) isSquashMerged(ctx context.Context, branch, target string) (bool, error) {
+// status runs the rebase and squash checks against ids, the patch-ids of
+// every commit in c. A commit with no patch-id (an empty commit) has no
+// equivalent, which errs towards keeping the branch.
+func (c mergeCandidate) status(ids map[string]string) MergeStatus {
+	upstream := make(map[string]bool, len(c.upstream))
+	for _, commit := range c.upstream {
+		if id := ids[commit]; id != "" {
+			upstream[id] = true
+		}
+	}
+
+	// No commits of its own is not evidence of a merge.
+	if len(c.own) > 0 && !slices.ContainsFunc(c.own, func(commit string) bool { return !upstream[ids[commit]] }) {
+		if len(c.own) == 1 {
+			return MergeStatus{Merged: true, Method: MergeEquivalent}
+		}
+		return MergeStatus{Merged: true, Method: MergeRebase}
+	}
+
+	if c.probe != "" && upstream[c.probe] {
+		return MergeStatus{Merged: true, Method: MergeSquash}
+	}
+	return MergeStatus{Merged: false, Method: MergeNone}
+}
+
+// revList lists the non-merge commits reachable from include but not from
+// exclude. git cherry skips merge commits on both sides too.
+func (r *Runner) revList(ctx context.Context, include, exclude string) ([]string, error) {
+	out, err := r.Query(ctx, "rev-list", "--no-merges", include, "^"+exclude, "--")
+	if err != nil {
+		return nil, err
+	}
+	return strings.Fields(out), nil
+}
+
+// squashProbe returns the patch-id of branch's whole diff against its merge
+// base with target, or "" when the branch changes nothing: probing with an
+// empty patch would match spuriously.
+func (r *Runner) squashProbe(ctx context.Context, branch, target string) (string, error) {
 	base, err := r.Query(ctx, "merge-base", target, branch)
+	if err != nil || base == "" {
+		return "", err
+	}
+	out, err := r.patchIDPipe(ctx, "", "diff-tree", "-p", "--full-index", "--no-renames", base, branch)
 	if err != nil {
-		return false, err
+		return "", err
 	}
-	if base == "" {
-		return false, nil
-	}
-
-	branchTree, err := r.Query(ctx, "rev-parse", branch+"^{tree}")
-	if err != nil {
-		return false, err
-	}
-	baseTree, err := r.Query(ctx, "rev-parse", base+"^{tree}")
-	if err != nil {
-		return false, err
-	}
-
-	// No content change relative to the merge base: there is nothing to find in
-	// the target, and probing with an empty patch would match spuriously.
-	if branchTree == baseTree {
-		return false, nil
-	}
-
-	probeDir, err := os.MkdirTemp("", "wt-merge-probe-")
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = os.RemoveAll(probeDir) }()
-
-	env := probeEnv(probeDir, r.GitDir)
-
-	probe, err := r.queryWithEnv(ctx, env, "commit-tree", branchTree, "-p", base, "-m", "wt-merge-probe")
-	if err != nil {
-		return false, err
-	}
-
-	out, err := r.queryWithEnv(ctx, env, "cherry", target, probe)
-	if err != nil {
-		return false, err
-	}
-
-	merged, _ := parseCherryEquivalent(out)
-	return merged, nil
+	id, _, _ := strings.Cut(out, " ")
+	return id, nil
 }
 
-// probeEnv points git at a throwaway object store backed by the real repo, and
-// supplies a fixed identity. git commit-tree refuses to run without user.name
-// and user.email, which are routinely unset in CI and fresh containers, and the
-// identity is arbitrary anyway: the probe commit exists only long enough for
-// git cherry to compute its patch-id.
-func probeEnv(probeDir, gitDir string) []string {
-	return []string{
-		"GIT_OBJECT_DIRECTORY=" + probeDir,
-		"GIT_ALTERNATE_OBJECT_DIRECTORIES=" + filepath.Join(gitDir, "objects"),
-		"GIT_AUTHOR_NAME=wt", "GIT_AUTHOR_EMAIL=wt@localhost",
-		"GIT_COMMITTER_NAME=wt", "GIT_COMMITTER_EMAIL=wt@localhost",
-		"GIT_AUTHOR_DATE=@0 +0000", "GIT_COMMITTER_DATE=@0 +0000",
+// patchIDs returns the patch-id of each of commits, keyed by commit. Empty
+// commits have none. Commits and the squash probe go through the same diff
+// options, so their ids are comparable.
+func (r *Runner) patchIDs(ctx context.Context, commits []string) (map[string]string, error) {
+	ids := make(map[string]string, len(commits))
+	if len(commits) == 0 {
+		return ids, nil
 	}
+	out, err := r.patchIDPipe(ctx, strings.Join(commits, "\n")+"\n",
+		"diff-tree", "--stdin", "-p", "--full-index", "--no-renames", "--root")
+	if err != nil {
+		return nil, err
+	}
+	for line := range strings.Lines(out) {
+		if id, commit, ok := strings.Cut(strings.TrimSpace(line), " "); ok {
+			ids[commit] = id
+		}
+	}
+	return ids, nil
 }
 
-// parseCherryEquivalent reports whether every commit listed by `git cherry` has
-// an equivalent in the upstream branch, along with how many commits were
-// listed. git cherry prefixes each commit with "-" when an equivalent patch
-// exists upstream and "+" when it does not, so a single "+" means unmerged work
-// remains. Empty output means the branch has no commits of its own to account
-// for, which is not evidence of a merge. The count lets callers tell a
-// multi-commit rebase merge from the ambiguous single-commit case.
-func parseCherryEquivalent(out string) (equivalent bool, commits int) {
-	lines := strings.Split(strings.TrimSpace(out), "\n")
-	count := 0
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		if !strings.HasPrefix(line, "- ") {
-			return false, 0
-		}
-		count++
+// patchIDPipe runs `git <diffArgs>`, fed stdin, and pipes its patch straight
+// into `git patch-id --stable`, returning that output. patch-id hashes a
+// binary change by the blob ids on its index line, and --full-index keeps two
+// different changes to one binary file from sharing a patch-id through
+// abbreviated ids. diff-tree, being plumbing, ignores diff config such as
+// external diff drivers that would change the patch text.
+func (r *Runner) patchIDPipe(ctx context.Context, stdin string, diffArgs ...string) (string, error) {
+	diff, diffStr := r.command(ctx, diffArgs...)
+	id, idStr := r.command(ctx, "patch-id", "--stable")
+	cmdStr := diffStr + " | " + idStr
+	if !r.Quiet {
+		ui.Command(cmdStr)
 	}
-	return count > 0, count
+
+	diff.Stdin = strings.NewReader(stdin)
+	var stdout, diffErr, idErr bytes.Buffer
+	diff.Stderr, id.Stdout, id.Stderr = &diffErr, &stdout, &idErr
+
+	pipe, err := diff.StdoutPipe()
+	if err != nil {
+		return "", err
+	}
+	id.Stdin = pipe
+	if err := diff.Start(); err != nil {
+		return "", fmt.Errorf("%s: %w", cmdStr, err)
+	}
+	idRunErr := id.Run()
+	// Should patch-id exit before draining the patch, closing the pipe stops
+	// diff-tree blocking on a full buffer, which would hang the Wait.
+	_ = pipe.Close()
+	diffRunErr := diff.Wait()
+	// A failed patch-id leaves diff-tree dying of a broken pipe, so its error
+	// is the cause; a failed diff-tree leaves patch-id succeeding on short input.
+	if err := cmp.Or(idRunErr, diffRunErr); err != nil {
+		return "", fmt.Errorf("%s: %w\n%s%s", cmdStr, err, diffErr.String(), idErr.String())
+	}
+	return stdout.String(), nil
 }
 
 // RemoteURL returns the configured URL for a remote, e.g. to detect which

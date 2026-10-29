@@ -32,15 +32,15 @@ before anything is removed; pass --yes to skip it.`,
 	return cmd
 }
 
-// checkWorkers bounds the concurrent merge and dirty checks. Each is a few git
-// processes that mostly wait on the filesystem, so the pool is sized to
+// checkWorkers bounds the concurrent dirty checks, one git status per merged
+// worktree. Each mostly waits on the filesystem, so the pool is sized to
 // overlap those waits rather than to match the CPU count.
 const checkWorkers = 8
 
 // mergeChecker is the slice of git.Runner the merge checks need, so they can
 // be exercised without a repository.
 type mergeChecker interface {
-	BranchMergeStatus(ctx context.Context, branch, target string) (git.MergeStatus, error)
+	BranchMergeStatuses(ctx context.Context, branches []string, target string) ([]git.MergeStatus, []error)
 	IsWorktreeDirty(ctx context.Context, worktreePath string) (bool, error)
 	Query(ctx context.Context, args ...string) (string, error)
 }
@@ -257,28 +257,29 @@ func runPrune(cmd *cobra.Command, args []string) error {
 // judges every branch first; the ones it cannot show merged then have their
 // pull requests fetched in a single forge lookup.
 func findPrunable(ctx context.Context, g mergeChecker, f forge.Forge, wts []git.WorktreeInfo, defaultBranch string) []prunable {
-	// An empty reason means the worktree has not been shown merged. Each check
-	// writes only its own index, so results keep worktree order.
+	branches := make([]string, len(wts))
+	for i, wt := range wts {
+		branches[i] = wt.Branch
+	}
+	statuses, statusErrs := g.BranchMergeStatuses(ctx, branches, defaultBranch)
+
+	// An empty reason means the worktree has not been shown merged. Each dirty
+	// check writes only its own index, so results keep worktree order.
 	checks := make([]prunable, len(wts))
 	errs := make([]error, len(wts))
-	var pool errgroup.Group
-	pool.SetLimit(checkWorkers)
 	for i, wt := range wts {
 		checks[i].worktree = wt
-		pool.Go(func() error {
-			status, err := g.BranchMergeStatus(ctx, wt.Branch, defaultBranch)
-			if err != nil {
-				errs[i] = fmt.Errorf("could not check merge status: %w", err)
-			} else if status.Merged {
-				checks[i].reason = mergeReason(status.Method)
-			}
-			return nil
-		})
+		if statusErrs[i] != nil {
+			errs[i] = fmt.Errorf("could not check merge status: %w", statusErrs[i])
+		} else if statuses[i].Merged {
+			checks[i].reason = mergeReason(statuses[i].Method)
+		}
 	}
-	_ = pool.Wait()
 
 	// A worktree's dirtiness decides whether it is removed, so an unanswerable
 	// question is treated as dirty rather than risking uncommitted work.
+	var pool errgroup.Group
+	pool.SetLimit(checkWorkers)
 	checkDirty := func(i int) {
 		pool.Go(func() error {
 			dirty, err := g.IsWorktreeDirty(ctx, checks[i].worktree.Path)

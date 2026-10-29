@@ -5,38 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/bkildow/wtx/internal/ui"
 )
-
-func TestParseCherryEquivalent(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		want      bool
-		wantCount int
-	}{
-		{"all equivalent", "- abc123\n- def456\n", true, 2},
-		{"single equivalent", "- abc123", true, 1},
-		{"mixed", "- abc123\n+ def456\n", false, 0},
-		{"none equivalent", "+ abc123\n+ def456\n", false, 0},
-		{"empty", "", false, 0},
-		{"whitespace only", "\n  \n", false, 0},
-		{"blank lines between", "\n- abc123\n\n- def456\n\n", true, 2},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, count := parseCherryEquivalent(tt.input)
-			if got != tt.want || count != tt.wantCount {
-				t.Errorf("parseCherryEquivalent(%q) = (%v, %d), want (%v, %d)",
-					tt.input, got, count, tt.want, tt.wantCount)
-			}
-		})
-	}
-}
 
 // mergeRepo is a scratch git repo for the merge-detection tests, with helpers
 // that keep the branch topology readable.
@@ -87,40 +61,6 @@ func (r *mergeRepo) commit(name, contents string) {
 
 func (r *mergeRepo) runner() *Runner {
 	return NewRunner(filepath.Join(r.dir, ".git"), false)
-}
-
-// probeSHA recomputes the synthetic commit isSquashMerged builds for a branch.
-// probeEnv fixes the identity and the dates, so the SHA is deterministic and
-// the test can look for that exact object in the repo afterwards.
-func (r *mergeRepo) probeSHA(branch, target string) string {
-	r.t.Helper()
-
-	runner := r.runner()
-	ctx := context.Background()
-
-	base, err := runner.Query(ctx, "merge-base", target, branch)
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	tree, err := runner.Query(ctx, "rev-parse", branch+"^{tree}")
-	if err != nil {
-		r.t.Fatal(err)
-	}
-
-	sha, err := runner.queryWithEnv(ctx, probeEnv(r.t.TempDir(), runner.GitDir),
-		"commit-tree", tree, "-p", base, "-m", "wt-merge-probe")
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	return sha
-}
-
-// hasObject reports whether the repository itself contains an object, ignoring
-// any throwaway object store.
-func (r *mergeRepo) hasObject(sha string) bool {
-	r.t.Helper()
-	_, err := r.runner().Query(context.Background(), "cat-file", "-e", sha)
-	return err == nil
 }
 
 // TestBranchMergeStatus covers each way work reaches main: a true merge, a
@@ -175,7 +115,15 @@ func TestBranchMergeStatus(t *testing.T) {
 		{"pending", false, MergeNone},
 	}
 
+	// One batched call must give each branch the answer a call for that branch
+	// alone does.
+	var branches []string
 	for _, tt := range tests {
+		branches = append(branches, tt.branch)
+	}
+	batched := r.statuses(branches...)
+
+	for i, tt := range tests {
 		t.Run(tt.branch, func(t *testing.T) {
 			got, err := runner.BranchMergeStatus(ctx, tt.branch, "main")
 			if err != nil {
@@ -184,6 +132,9 @@ func TestBranchMergeStatus(t *testing.T) {
 			if got.Merged != tt.wantMerged || got.Method != tt.wantMethod {
 				t.Errorf("BranchMergeStatus(%s) = {%v %q}, want {%v %q}",
 					tt.branch, got.Merged, got.Method, tt.wantMerged, tt.wantMethod)
+			}
+			if batched[i] != got {
+				t.Errorf("BranchMergeStatuses gave %s %+v, alone it gets %+v", tt.branch, batched[i], got)
 			}
 		})
 	}
@@ -237,66 +188,117 @@ func TestBranchMergeStatusSingleCommitIsEquivalent(t *testing.T) {
 	}
 }
 
-// TestBranchMergeStatusDoesNotWriteToRepo guards the dry-run contract: the
-// squash probe needs a commit object, and it must not land in the user's repo.
-func TestBranchMergeStatusDoesNotWriteToRepo(t *testing.T) {
-	r := newMergeRepo(t)
+// statuses runs BranchMergeStatuses against main, failing the test on any
+// error.
+func (r *mergeRepo) statuses(branches ...string) []MergeStatus {
+	r.t.Helper()
+	statuses, errs := r.runner().BranchMergeStatuses(context.Background(), branches, "main")
+	for i, err := range errs {
+		if err != nil {
+			r.t.Fatalf("BranchMergeStatuses(%s): %v", branches[i], err)
+		}
+	}
+	return statuses
+}
 
-	r.git("checkout", "-qb", "squashed")
-	r.commit("squash.txt", "one\n")
-	r.commit("squash.txt", "one\ntwo\n")
+// commitLogo commits binary contents to logo.png. commit cannot, since it puts
+// the contents in the commit message.
+func (r *mergeRepo) commitLogo(contents string) {
+	r.t.Helper()
+	if err := os.WriteFile(filepath.Join(r.dir, "logo.png"), []byte(contents), 0o644); err != nil {
+		r.t.Fatal(err)
+	}
+	r.git("add", "logo.png")
+	r.git("commit", "-qm", "update logo")
+}
+
+// TestBranchMergeStatusBinaryChanges checks that two different changes to one
+// binary file are not mistaken for each other. A diff of either reads only
+// "Binary files differ", so their patch-ids must come from the blob ids.
+func TestBranchMergeStatusBinaryChanges(t *testing.T) {
+	r := newMergeRepo(t)
+	r.commitLogo("\x00\x01original")
+
+	r.git("checkout", "-qb", "different")
+	r.commitLogo("\x00\x01branch")
+	r.git("checkout", "-qb", "squashed", "main")
+	r.commitLogo("\x00\x01landed")
+	r.commitLogo("\x00\x01landed twice")
+
 	r.git("checkout", "-q", "main")
 	r.git("merge", "-q", "--squash", "squashed")
-	r.git("commit", "-qm", "squashed everything")
+	r.git("commit", "-qm", "squashed the binary change")
 
-	// The probe object is what must never land in the repo. Counting object
-	// files cannot tell an addition from git repacking behind our back, so look
-	// for the exact commit the probe builds.
-	probe := r.probeSHA("squashed", "main")
-	if r.hasObject(probe) {
-		t.Fatalf("probe commit %s was already in the repo before the check ran", probe)
-	}
-
-	got, err := r.runner().BranchMergeStatus(context.Background(), "squashed", "main")
-	if err != nil {
-		t.Fatalf("BranchMergeStatus: %v", err)
-	}
-	if got.Method != MergeSquash {
-		t.Fatalf("BranchMergeStatus = %q, want %q (the probe must have run)", got.Method, MergeSquash)
-	}
-
-	if r.hasObject(probe) {
-		t.Errorf("probe commit %s was written into the repo; it belongs in the throwaway object store", probe)
+	got := r.statuses("different", "squashed")
+	want := []MergeStatus{{Merged: false, Method: MergeNone}, {Merged: true, Method: MergeSquash}}
+	if !slices.Equal(got, want) {
+		t.Errorf("BranchMergeStatuses(different, squashed) = %+v, want %+v", got, want)
 	}
 }
 
-// TestBranchMergeStatusWithoutGitIdentity covers CI and fresh containers, where
-// git has no configured user: the synthetic probe commit must supply its own.
-func TestBranchMergeStatusWithoutGitIdentity(t *testing.T) {
+// TestBranchMergeStatusesComparesEachBranchWithItsOwnRange checks that the
+// shared patch-ids do not let one branch match target commits that only
+// another branch lacks. main added a fix and reverted it; reapply forked after
+// both and reapplies the fix. Its commit matches main's fix, but that fix is
+// already in reapply's own history, so the reapplied work has not landed.
+// early forked before the fix, so the fix is among the commits it lacks.
+func TestBranchMergeStatusesComparesEachBranchWithItsOwnRange(t *testing.T) {
 	r := newMergeRepo(t)
 
-	r.git("checkout", "-qb", "squashed")
+	r.git("checkout", "-qb", "early", "main")
+	r.commit("early.txt", "early\n")
+
+	r.git("checkout", "-q", "main")
+	r.commit("fix.txt", "fix\n")
+	r.git("rm", "-q", "fix.txt")
+	r.git("commit", "-qm", "revert fix")
+
+	r.git("checkout", "-qb", "reapply", "main")
+	r.commit("fix.txt", "fix\n")
+
+	got := r.statuses("early", "reapply")
+	if want := make([]MergeStatus, 2); !slices.Equal(got, want) {
+		t.Errorf("BranchMergeStatuses(early, reapply) = %+v, want both unmerged", got)
+	}
+}
+
+// TestBranchMergeStatusesIsolatesAnUnreadableCommit checks that a commit git
+// cannot diff fails only the branch that holds it, not every branch sharing
+// the batched patch-id run.
+func TestBranchMergeStatusesIsolatesAnUnreadableCommit(t *testing.T) {
+	r := newMergeRepo(t)
+
+	r.git("checkout", "-qb", "broken")
+	r.commit("broken.txt", "unreadable\n")
+	r.git("checkout", "-qb", "squashed", "main")
 	r.commit("squash.txt", "one\n")
 	r.commit("squash.txt", "one\ntwo\n")
 	r.git("checkout", "-q", "main")
 	r.git("merge", "-q", "--squash", "squashed")
 	r.git("commit", "-qm", "squashed everything")
 
-	// Strip every source of a git identity from the environment the Runner
-	// inherits: no global or system config, no HOME to find one in.
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
-	t.Setenv("GIT_CONFIG_SYSTEM", os.DevNull)
-	t.Setenv("GIT_AUTHOR_NAME", "")
-	t.Setenv("GIT_AUTHOR_EMAIL", "")
-	t.Setenv("GIT_COMMITTER_NAME", "")
-	t.Setenv("GIT_COMMITTER_EMAIL", "")
-
-	got, err := r.runner().BranchMergeStatus(context.Background(), "squashed", "main")
+	blob, err := r.runner().Query(context.Background(), "rev-parse", "broken:broken.txt")
 	if err != nil {
-		t.Fatalf("BranchMergeStatus: %v", err)
+		t.Fatal(err)
 	}
-	if !got.Merged || got.Method != MergeSquash {
-		t.Errorf("BranchMergeStatus(squashed) = {%v %q}, want {true %q}", got.Merged, got.Method, MergeSquash)
+	if err := os.Remove(filepath.Join(r.dir, ".git", "objects", blob[:2], blob[2:])); err != nil {
+		t.Fatal(err)
+	}
+
+	got, errs := r.runner().BranchMergeStatuses(context.Background(), []string{"broken", "squashed"}, "main")
+	if errs[0] == nil {
+		t.Error("BranchMergeStatuses(broken): expected error, got nil")
+	}
+	if errs[1] != nil || got[1] != (MergeStatus{Merged: true, Method: MergeSquash}) {
+		t.Errorf("BranchMergeStatuses(squashed) = %+v, %v; want squash-merged", got[1], errs[1])
+	}
+}
+
+// TestBranchMergeStatusUnknownBranch checks that a branch git cannot resolve is
+// reported as an error rather than as unmerged.
+func TestBranchMergeStatusUnknownBranch(t *testing.T) {
+	r := newMergeRepo(t)
+	if _, err := r.runner().BranchMergeStatus(context.Background(), "no-such-branch", "main"); err == nil {
+		t.Error("BranchMergeStatus(no-such-branch): expected error, got nil")
 	}
 }

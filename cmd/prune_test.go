@@ -135,21 +135,25 @@ func TestPrunableStatus(t *testing.T) {
 }
 
 // stubChecker answers merge checks from a fixed set of merged branches. Each
-// call sleeps for the branch's delay, so checks finish out of order.
+// dirty check sleeps for the worktree path's delay, so checks finish out of
+// order.
 type stubChecker struct {
 	merged map[string]bool
 	delay  map[string]time.Duration
 }
 
-func (s stubChecker) BranchMergeStatus(_ context.Context, branch, _ string) (git.MergeStatus, error) {
-	time.Sleep(s.delay[branch])
-	if s.merged[branch] {
-		return git.MergeStatus{Merged: true, Method: git.MergeAncestor}, nil
+func (s stubChecker) BranchMergeStatuses(_ context.Context, branches []string, _ string) ([]git.MergeStatus, []error) {
+	statuses := make([]git.MergeStatus, len(branches))
+	for i, branch := range branches {
+		if s.merged[branch] {
+			statuses[i] = git.MergeStatus{Merged: true, Method: git.MergeAncestor}
+		}
 	}
-	return git.MergeStatus{}, nil
+	return statuses, make([]error, len(branches))
 }
 
-func (s stubChecker) IsWorktreeDirty(context.Context, string) (bool, error) {
+func (s stubChecker) IsWorktreeDirty(_ context.Context, path string) (bool, error) {
+	time.Sleep(s.delay[path])
 	return false, nil
 }
 
@@ -178,13 +182,13 @@ func worktreesFor(branches ...string) []git.WorktreeInfo {
 	return wts
 }
 
-// TestFindPrunableKeepsWorktreeOrder checks that the concurrent checks report
-// candidates in worktree order even when later checks finish first.
+// TestFindPrunableKeepsWorktreeOrder checks that candidates come out in
+// worktree order even when later dirty checks finish first.
 func TestFindPrunableKeepsWorktreeOrder(t *testing.T) {
 	captureUI(t)
 	g := stubChecker{
 		merged: map[string]bool{"a": true, "c": true, "d": true},
-		delay:  map[string]time.Duration{"a": 30 * time.Millisecond, "c": 15 * time.Millisecond},
+		delay:  map[string]time.Duration{"/wt/a": 30 * time.Millisecond, "/wt/c": 15 * time.Millisecond},
 	}
 
 	got := findPrunable(context.Background(), g, nil, worktreesFor("a", "b", "c", "d"), "main")
