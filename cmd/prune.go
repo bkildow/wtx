@@ -37,11 +37,6 @@ before anything is removed; pass --yes to skip it.`,
 // overlap those waits rather than to match the CPU count.
 const checkWorkers = 8
 
-// removeWorkers bounds concurrent `git worktree remove` calls. Removal is
-// mostly deleting files, which contend in the filesystem; 8 workers measured
-// fastest on macOS.
-const removeWorkers = 8
-
 // mergeChecker is the slice of git.Runner the merge checks need, so they can
 // be exercised without a repository.
 type mergeChecker interface {
@@ -221,31 +216,26 @@ func runPrune(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Dry-run removal costs nothing, and one worker keeps its notices in
-	// worktree order.
-	workers := removeWorkers
-	if IsDryRun() {
-		workers = 1
-	}
+	// Removal runs one worktree at a time: concurrent `git worktree remove`
+	// calls race, as each one scans the repository's worktree metadata while
+	// the others delete their entries, and fails with "Invalid path".
 	ui.Step(fmt.Sprintf("Removing %d worktree(s)", len(toRemove)))
-	removedOK := removeConcurrently(toRemove, workers, func(wt git.WorktreeInfo) error {
-		return runner.WorktreeRemove(ctx, wt.Path, force)
-	})
-
-	// Branches are deleted afterwards and one at a time: concurrent
-	// `git branch -d` calls contend for packed-refs.lock.
 	var removed, branchesKept int
-	for i, p := range toRemove {
-		if !removedOK[i] {
+	for _, p := range toRemove {
+		wt := p.worktree
+		if err := runner.WorktreeRemove(ctx, wt.Path, force); err != nil {
+			ui.Warning(fmt.Sprintf("Could not remove worktree %s: %s", wt.Branch, err))
 			continue
 		}
 		removed++
 
 		// git branch -d refuses squash- and rebase-merged branches as unmerged.
 		// Keep them and print the delete command rather than force-deleting.
-		if deleteBranchOrKeep(ctx, runner, p.worktree.Branch) {
+		branchKept := deleteBranchOrKeep(ctx, runner, wt.Branch)
+		if branchKept {
 			branchesKept++
 		}
+		ui.Success(removedWorktreeMessage(wt.Branch, branchKept))
 	}
 
 	if err := runner.WorktreePrune(ctx); err != nil {
@@ -363,27 +353,4 @@ func lookupPRs(ctx context.Context, f forge.Forge, branches []string) map[string
 		ui.Warning(fmt.Sprintf("Could not check pull request state: %s\n  Branches without a pull request result are judged by git alone.", err))
 	}
 	return prs
-}
-
-// removeConcurrently removes each worktree with at most workers removals in
-// flight, reporting each one as it finishes so a long run shows progress. The
-// result says, by index, which removals succeeded.
-func removeConcurrently(items []prunable, workers int, remove func(git.WorktreeInfo) error) []bool {
-	ok := make([]bool, len(items))
-	var pool errgroup.Group
-	pool.SetLimit(workers)
-	for i, p := range items {
-		pool.Go(func() error {
-			wt := p.worktree
-			if err := remove(wt); err != nil {
-				ui.Warning(fmt.Sprintf("Could not remove worktree %s: %s", wt.Branch, err))
-				return nil
-			}
-			ok[i] = true
-			ui.Success("Removed worktree: " + wt.Branch)
-			return nil
-		})
-	}
-	_ = pool.Wait()
-	return ok
 }

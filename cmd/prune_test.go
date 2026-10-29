@@ -246,33 +246,6 @@ func TestFindPrunableWarnsOnceWhenLookupFails(t *testing.T) {
 	}
 }
 
-// TestRemoveConcurrently checks that a failed removal is reported and marked,
-// so its branch is not deleted, while the rest go ahead.
-func TestRemoveConcurrently(t *testing.T) {
-	buf := captureUI(t)
-	var items []prunable
-	for _, wt := range worktreesFor("a", "b", "c", "d", "e") {
-		items = append(items, prunable{worktree: wt})
-	}
-
-	ok := removeConcurrently(items, 2, func(wt git.WorktreeInfo) error {
-		if wt.Branch == "c" {
-			return errors.New("locked")
-		}
-		return nil
-	})
-
-	want := []bool{true, true, false, true, true}
-	for i := range want {
-		if ok[i] != want[i] {
-			t.Errorf("ok[%d] (%s) = %v, want %v", i, items[i].worktree.Branch, ok[i], want[i])
-		}
-	}
-	if !strings.Contains(buf.String(), "Could not remove worktree c: locked") {
-		t.Errorf("missing failure warning:\n%s", buf.String())
-	}
-}
-
 // TestFindPrunableKeepsPartialLookup checks that pull requests found before a
 // lookup failed still count.
 func TestFindPrunableKeepsPartialLookup(t *testing.T) {
