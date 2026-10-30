@@ -10,6 +10,7 @@ require (
 	github.com/charmbracelet/colorprofile v0.4.3
 	github.com/mattn/go-isatty v0.0.24
 	github.com/rogpeppe/go-internal v1.16.0
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/sync v0.24.0
 	golang.org/x/sys v0.49.0
@@ -37,5 +38,6 @@ require (
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	golang.org/x/text v0.14.0 // indirect
 	golang.org/x/tools v0.26.0 // indirect
 )

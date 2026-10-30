@@ -53,7 +53,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 			if dry {
 				ui.DryRunNotice("write " + configPath)
 			} else {
-				if err := config.WriteAnnotatedWithValues(projectRoot, existing); err != nil {
+				if err := config.WriteAnnotatedWithValues(projectRoot, existing, version); err != nil {
 					return err
 				}
 			}
@@ -79,7 +79,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 			if dry {
 				ui.DryRunNotice("write " + configPath)
 			} else {
-				if err := config.WriteAnnotated(projectRoot); err != nil {
+				if err := config.WriteAnnotated(projectRoot, version); err != nil {
 					return err
 				}
 			}
@@ -91,7 +91,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 		if dry {
 			ui.DryRunNotice("write " + configPath)
 		} else {
-			if err := config.WriteAnnotated(projectRoot); err != nil {
+			if err := config.WriteAnnotated(projectRoot, version); err != nil {
 				return err
 			}
 		}

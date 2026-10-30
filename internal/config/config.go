@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -21,6 +22,14 @@ const (
 	DefaultSharedDir   = "shared"
 	DefaultMainBranch  = "main"
 )
+
+// schemaURLFormat is the GitHub raw URL of schema/worktree.schema.json at a
+// git ref. Generated configs reference it, so keep the path stable.
+const schemaURLFormat = "https://raw.githubusercontent.com/bkildow/wtx/%s/schema/worktree.schema.json"
+
+// releaseVersion matches a release build version: goreleaser's 0.12.0 or a
+// Makefile build on a tag, v0.12.0.
+var releaseVersion = regexp.MustCompile(`^v?\d+\.\d+\.\d+$`)
 
 var (
 	ErrConfigNotFound = errors.New("config file not found")
@@ -196,12 +205,25 @@ func Exists(projectRoot string) bool {
 	return err == nil
 }
 
-// renderAnnotatedConfig builds YAML with documentation comments.
+// schemaURL returns the URL of the .worktree.yml JSON Schema matching the
+// wtx build version: the release tag for a release build (0.12.0 or v0.12.0
+// both give v0.12.0), and main for anything else (dev, git describe output).
+func schemaURL(version string) string {
+	ref := "main"
+	if releaseVersion.MatchString(version) {
+		ref = "v" + strings.TrimPrefix(version, "v")
+	}
+	return fmt.Sprintf(schemaURLFormat, ref)
+}
+
+// renderAnnotatedConfig builds YAML with documentation comments, starting
+// with a yaml-language-server modeline pointing at schemaURL(version).
 // If cfg is nil, defaults are used with optional fields commented out.
 // If cfg is non-nil, existing values are rendered uncommented.
-func renderAnnotatedConfig(cfg *Config) string {
+func renderAnnotatedConfig(cfg *Config, version string) string {
 	var b strings.Builder
 
+	fmt.Fprintf(&b, "# yaml-language-server: $schema=%s\n", schemaURL(version))
 	b.WriteString("# wtx - worktree project configuration\n")
 	b.WriteString("# https://github.com/bkildow/wtx\n\n")
 
@@ -251,7 +273,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 
 	b.WriteString("\n# The primary branch of the repository (used as base for new branches, branch ref protected from deletion)\n")
 	if cfg != nil && cfg.MainBranch != "" {
-		fmt.Fprintf(&b, "main_branch: %s\n", cfg.MainBranch)
+		fmt.Fprintf(&b, "main_branch: %s\n", YAMLQuote(cfg.MainBranch))
 	} else {
 		b.WriteString("# main_branch: main\n")
 	}
@@ -259,7 +281,7 @@ func renderAnnotatedConfig(cfg *Config) string {
 	b.WriteString("\n# Editor for 'wtx open' (e.g. cursor, code, zed)\n")
 	b.WriteString("# Falls back to $EDITOR, then auto-detects\n")
 	if cfg != nil && cfg.Editor != "" {
-		fmt.Fprintf(&b, "editor: %s\n", cfg.Editor)
+		fmt.Fprintf(&b, "editor: %s\n", YAMLQuote(cfg.Editor))
 	} else {
 		b.WriteString("# editor: cursor\n")
 	}
@@ -369,26 +391,34 @@ func renderAnnotatedConfig(cfg *Config) string {
 }
 
 // YAMLQuote wraps a string in double quotes if it contains characters
-// that need quoting in YAML, otherwise returns it bare.
+// that need quoting in YAML or would not read back as that string (true,
+// 2024, null, - x), otherwise returns it bare.
 func YAMLQuote(s string) string {
-	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$\n\t") || s == "" || strings.TrimSpace(s) != s {
+	if strings.ContainsAny(s, ":{}[]&*?|>!%#`@,\"'\\$\n\t") || s == "" || strings.TrimSpace(s) != s || !readsAsString(s) {
 		return fmt.Sprintf("%q", s)
 	}
 	return s
 }
 
+// readsAsString reports whether s, written as a bare YAML scalar, decodes
+// back to the string s rather than a bool, number, null or collection.
+func readsAsString(s string) bool {
+	var v any
+	return yaml.Unmarshal([]byte(s), &v) == nil && v == s
+}
+
 // WriteAnnotated writes a fresh .worktree.yml with default values and
-// documentation comments for every field.
-func WriteAnnotated(projectRoot string) error {
-	content := renderAnnotatedConfig(nil)
-	path := filepath.Join(projectRoot, ConfigFileName)
-	return os.WriteFile(path, []byte(content), 0o644)
+// documentation comments for every field. version is the wtx build version,
+// which picks the schema the file references (see schemaURL).
+func WriteAnnotated(projectRoot, version string) error {
+	return WriteAnnotatedWithValues(projectRoot, nil, version)
 }
 
 // WriteAnnotatedWithValues writes .worktree.yml using the given config's
-// values, with documentation comments for every field.
-func WriteAnnotatedWithValues(projectRoot string, cfg *Config) error {
-	content := renderAnnotatedConfig(cfg)
+// values (defaults when cfg is nil), with documentation comments for every
+// field (see WriteAnnotated).
+func WriteAnnotatedWithValues(projectRoot string, cfg *Config, version string) error {
+	content := renderAnnotatedConfig(cfg, version)
 	path := filepath.Join(projectRoot, ConfigFileName)
 	return os.WriteFile(path, []byte(content), 0o644)
 }

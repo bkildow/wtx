@@ -176,7 +176,7 @@ func TestExists(t *testing.T) {
 func TestWriteAnnotated(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := WriteAnnotated(dir); err != nil {
+	if err := WriteAnnotated(dir, "dev"); err != nil {
 		t.Fatalf("WriteAnnotated error: %v", err)
 	}
 
@@ -263,7 +263,7 @@ func TestWriteAnnotatedWithValues(t *testing.T) {
 		Scripts:     map[string]string{"seed": "bin/seed", "refresh": "bin/refresh:snapshot", "db:reset": "bin/db-reset"},
 	}
 
-	if err := WriteAnnotatedWithValues(dir, existing); err != nil {
+	if err := WriteAnnotatedWithValues(dir, existing, "dev"); err != nil {
 		t.Fatalf("WriteAnnotatedWithValues error: %v", err)
 	}
 
@@ -369,7 +369,7 @@ func TestWriteAnnotatedWithGitDirDotGit(t *testing.T) {
 		WorktreeDir: "worktrees",
 	}
 
-	if err := WriteAnnotatedWithValues(dir, cfg); err != nil {
+	if err := WriteAnnotatedWithValues(dir, cfg, "dev"); err != nil {
 		t.Fatalf("WriteAnnotatedWithValues error: %v", err)
 	}
 
@@ -470,6 +470,12 @@ func TestYamlQuote(t *testing.T) {
 		{"has: colon", `"has: colon"`},
 		{"has $var", `"has $var"`},
 		{"", `""`},
+		{"true", `"true"`},
+		{"2024", `"2024"`},
+		{"null", `"null"`},
+		{"~", `"~"`},
+		{"- item", `"- item"`},
+		{"release/1.0", "release/1.0"},
 	}
 	for _, tt := range tests {
 		got := YAMLQuote(tt.input)
@@ -598,7 +604,7 @@ func TestWriteAnnotatedWithDiskValues(t *testing.T) {
 	existing.DiskWarnPercent = 25
 	existing.DiskWarnGB = 30
 
-	if err := WriteAnnotatedWithValues(dir, &existing); err != nil {
+	if err := WriteAnnotatedWithValues(dir, &existing, "dev"); err != nil {
 		t.Fatalf("WriteAnnotatedWithValues error: %v", err)
 	}
 
@@ -666,7 +672,7 @@ func TestParseRecordsWhichPathsAreSet(t *testing.T) {
 func TestRenderAnnotatedOmitsPerClonePaths(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.GitDir = ".git"
-	out := renderAnnotatedConfig(&cfg)
+	out := renderAnnotatedConfig(&cfg, "dev")
 	for _, line := range strings.Split(out, "\n") {
 		if strings.HasPrefix(line, "worktree_dir:") || strings.HasPrefix(line, "shared_dir:") {
 			t.Errorf("rendered %q for a checkout layout with omitted paths", line)
@@ -685,11 +691,11 @@ func TestRenderAnnotatedOmitsPerClonePaths(t *testing.T) {
 
 	// Explicit values and bare layouts are still written.
 	cfg.SetWorktreeDir(".worktrees")
-	if out := renderAnnotatedConfig(&cfg); !strings.Contains(out, "\nworktree_dir: .worktrees\n") {
+	if out := renderAnnotatedConfig(&cfg, "dev"); !strings.Contains(out, "\nworktree_dir: .worktrees\n") {
 		t.Errorf("explicit worktree_dir not written:\n%s", out)
 	}
 	bare := DefaultConfig()
-	if out := renderAnnotatedConfig(&bare); !strings.Contains(out, "\nworktree_dir: worktrees\n") || strings.Contains(out, "~/.wtx/<name>/") {
+	if out := renderAnnotatedConfig(&bare, "dev"); !strings.Contains(out, "\nworktree_dir: worktrees\n") || strings.Contains(out, "~/.wtx/<name>/") {
 		t.Errorf("bare layout rendering changed:\n%s", out)
 	}
 }

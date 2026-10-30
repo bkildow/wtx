@@ -115,7 +115,7 @@ func TestHomeMarkerChecks(t *testing.T) {
 
 	// Another live project owns it: never repairable.
 	other := t.TempDir()
-	if err := config.WriteAnnotated(other); err != nil {
+	if err := config.WriteAnnotated(other, "dev"); err != nil {
 		t.Fatal(err)
 	}
 	if err := project.WriteMarker(dir, other, false); err != nil {
@@ -168,7 +168,7 @@ func TestHomeMarkerPerClone(t *testing.T) {
 
 	// Another live project owns the directory: suggest wtx init --name.
 	other := t.TempDir()
-	if err := config.WriteAnnotated(other); err != nil {
+	if err := config.WriteAnnotated(other, "dev"); err != nil {
 		t.Fatal(err)
 	}
 	if err := project.WriteMarker(dir, other, false); err != nil {
@@ -189,7 +189,7 @@ func TestHomeOrphans(t *testing.T) {
 	write(t, filepath.Join(orphan, "shared", "copy", ".env"), "x", 0o600)
 	// Live projects and directories without a marker are not orphans.
 	live := t.TempDir()
-	if err := config.WriteAnnotated(live); err != nil {
+	if err := config.WriteAnnotated(live, "dev"); err != nil {
 		t.Fatal(err)
 	}
 	if err := project.WriteMarker(filepath.Join(wtxHome, "live"), live, false); err != nil {
