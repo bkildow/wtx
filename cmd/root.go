@@ -27,6 +27,10 @@ var rootCmd = &cobra.Command{
 	SilenceUsage:  true,
 	SilenceErrors: true,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// A --json run writes only its document, so it skips theme setup.
+		if structured, _ := cmd.Flags().GetBool("json"); structured {
+			return nil
+		}
 		if theme := os.Getenv("WTX_THEME"); theme != "" {
 			ui.ApplyTheme(theme)
 		}

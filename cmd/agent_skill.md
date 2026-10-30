@@ -51,19 +51,19 @@ Initialized project (`wtx init` inside an existing repo), where the root is itse
 
 `<name>` is the clone's `git config wtx.name`, else the repo directory name. Each clone runs `wtx init` once to set up its `~/.wtx/<name>/`; in a clone whose committed `.worktree.yml` omits `worktree_dir`/`shared_dir`, `wtx init` only does that and leaves the config alone. If `wtx add` says the clone is not set up, run `wtx init`; if it says the directory belongs to another repo, run `wtx init --name <other>`. Explicit `worktree_dir`/`shared_dir` values override the per-clone default; an explicit `~/.wtx/...` directory that exists without `project.yml` makes `wtx add` refuse until `wtx doctor --fix` records the owner, and one that does not exist yet is created with its marker by `wtx add`.
 
-`wtx init --in-repo` puts worktrees, `shared/` and `bin/` under `project/.worktrees/` instead. Find a project's worktrees with `wtx list` or `wtx cd <name>` rather than assuming a path.
+`wtx init --in-repo` puts worktrees, `shared/` and `bin/` under `project/.worktrees/` instead. Find a project's worktrees with `wtx list --json` or `wtx cd <name>` rather than assuming a path.
 
 Run git commands inside a worktree. In a Bare layout the project root has no `.git`, so git fails there.
 
 ## Paths and navigation
 
-`wtx cd <name>` prints a path and changes nothing. Move with `cd "$(wtx cd <name>)"`. `wtx cd .` prints the current worktree and `wtx root` prints the project root. In a project set up with `wtx init` on a checkout, the main worktree is the project root: `wtx cd main` and `wtx open main` resolve to it, and `wtx list` marks its row `(project root)`. It is not a managed worktree, so `wtx apply`, `wtx remove` and `wtx setup` reject it.
+`wtx cd <name>` prints a path and changes nothing. Move with `cd "$(wtx cd <name>)"`. `wtx cd .` prints the current worktree and `wtx root` prints the project root. In a project set up with `wtx init` on a checkout, the main worktree is the project root: `wtx cd main` and `wtx open main` resolve to it, and `wtx list --json` gives it `"project_root": true`. It is not a managed worktree, so `wtx apply`, `wtx remove` and `wtx setup` reject it.
 
 ## Creating a worktree
 
 `wtx add <branch>` checks out the remote branch if one exists and otherwise creates a new branch from `main_branch` (override with `--base-branch <ref>`). It then applies shared files and runs setup hooks.
 
-When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. The worktree is ready when `wtx cd <branch>` resolves and the SETUP column of `wtx status` reads Complete (or `-` when no hooks are configured). Failed means run `wtx logs <branch>` to read the setup output before working there. `wtx setup <name> --foreground` re-runs setup.
+When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. The worktree is ready when its entry in `wtx status --json` (select it by `branch`) has `.setup.status` of `complete`, or `setup` is `null` when no hooks are configured. `running` means wait and check again; `skipped` means `--skip-setup` left the hooks unrun; `failed` means run `wtx logs <branch>` to read the setup output before working there. `wtx setup <name> --foreground` re-runs setup.
 
 ## Removing worktrees
 
@@ -111,7 +111,7 @@ Hooks run in the worktree via `sh -c` with the `WTX_*` variables `wtx run --help
 
 ## Project health
 
-- `wtx status` shows every worktree's branch, dirty state, and setup state, and names `wtx logs <branch>` for each failed background setup. A worktree whose git status fails shows `error` in its row, with a one-line reason under the table.
+- `wtx status --json` reports every managed worktree's `branch`, `path`, `head`, `dirty`, `last_commit_age` and `setup` state. A worktree git cannot read keeps its entry, with `dirty` or `last_commit_age` null and a one-line `error`. Read this instead of the `wtx status` table, whose columns change.
 - `wtx logs <name>` prints a worktree's background setup log to stdout. Foreground setup prints to the terminal and keeps no log.
 - `wtx doctor --json` reports project health and wt-to-wtx migration readiness, and changes nothing. `wtx doctor --help` covers repairs.
 - `wtx doctor --migrate-home` moves an in-repo project (`init --in-repo`, or `worktrees/` and `shared/` at the repository root) to `~/.wtx/<name>/`. Only run it when the user asks; preview with `wtx --dry-run doctor --migrate-home`.
