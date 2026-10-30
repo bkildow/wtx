@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -25,22 +24,13 @@ func newDoctorCmd() *cobra.Command {
 		Long: "Inspect project health without changing files. --fix repairs managed metadata and recognized existing Claude hooks with backups. Shared files, worktrees, scripts, and user dotfiles receive manual remedies. Legacy input settings (WT_THEME, WT_NO_DISK_WARN) are no longer read; commands and script exports must migrate before v1.0. Output groups related findings; --verbose lists every finding, including passing checks.\n\n" +
 			"--migrate-home moves an in-repo clone (wtx init --in-repo, or an older project with worktrees/ and shared/ at the repository root) to its clone directory ~/.wtx/<name>/: worktrees (git worktree move), shared/ and bin/, an owner marker and git config wtx.name; it removes worktree_dir, shared_dir and the bin/ scripts entries from .worktree.yml (backed up first) so the paths resolve per clone. Locked worktrees, worktrees with submodules, Git-tracked shared files and a bin/ outside worktree_dir stay put and are reported. Preview with --dry-run; rerunning resumes an interrupted migration.",
 		Args: cobra.NoArgs,
-		// Avoid theme/progress diagnostics in JSON mode, including --verbose.
-		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			if !structured && rootCmd.PersistentPreRunE != nil {
-				return rootCmd.PersistentPreRunE(cmd, args)
-			}
-			return nil
-		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if cmd.Flags().Changed("name") && !migrateHome {
 				return errors.New("--name requires --migrate-home")
 			}
 			report := doctor.Run(cmd.Context(), doctor.Options{User: user, Fix: fix, DryRun: IsDryRun(), MigrateHome: migrateHome, HomeName: name})
 			if structured {
-				encoder := json.NewEncoder(cmd.OutOrStdout())
-				encoder.SetIndent("", "  ")
-				if err := encoder.Encode(report); err != nil {
+				if err := writeJSON(cmd.OutOrStdout(), report); err != nil {
 					return err
 				}
 			} else {

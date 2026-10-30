@@ -218,7 +218,7 @@ wtx prune
 | `wtx clone <url> [name]` | Clone a repo as a bare worktree project |
 | `wtx init` | Initialize wtx in an existing git checkout, or set up a clone of one |
 | `wtx add [branch]` | Create a new worktree for a branch |
-| `wtx list` | List all worktrees, including the project root in a checkout |
+| `wtx list` | List all worktrees, including the project root in a checkout (`--json` for scripts) |
 | `wtx remove [name]` | Remove a worktree and its branch |
 | `wtx setup [name]` | Run setup hooks on an existing worktree |
 | `wtx run [name] [args...]` | Run a named project script from any worktree |
@@ -226,7 +226,7 @@ wtx prune
 | `wtx root` | Print project root path for shell navigation |
 | `wtx apply [name]` | Apply shared files to a worktree |
 | `wtx open [name]` | Open a worktree in an IDE |
-| `wtx status` | Show status of all worktrees |
+| `wtx status` | Show status of all worktrees (`--json` for scripts) |
 | `wtx logs [name]` | Print a worktree's background setup log |
 | `wtx doctor` | Check project health and migration readiness |
 | `wtx sync` | Fetch and pull all worktrees |
@@ -456,6 +456,37 @@ Prints the absolute path to stdout. When run without a shell wrapper, `wtx cd` p
 
 In a project set up with `wtx init` on an existing checkout, the main worktree is the project root rather than a directory under `worktrees/`. `wtx cd`, its picker and its shell completion offer it under the branch checked out there, so `wtx cd main` prints the project root. `wtx list` shows it as the first row, marked `(project root)`. A project root with a detached HEAD is listed but not offered; use `wtx root` to reach it.
 
+<a id="wt-list"></a>
+
+### wtx list
+
+```bash
+wtx list                      # Table of branch, path and commit
+wtx list --json               # Structured list on stdout
+```
+
+Lists every worktree. In a checkout, the project root is the first row, marked `(project root)`.
+
+`--json` writes one JSON document to stdout and nothing else:
+
+```json
+{
+  "schema_version": 1,
+  "project_root": "/home/me/code/app",
+  "worktrees": [
+    {"branch": "main", "path": "/home/me/code/app", "head": "4f2c…", "project_root": true},
+    {"branch": "feature/auth", "path": "/home/me/.wtx/app/worktrees/feature/auth", "head": "9a1e…", "project_root": false}
+  ]
+}
+```
+
+- `path` is absolute and `head` is the full commit hash.
+- `branch` is `""` for a detached HEAD.
+- `project_root` is `true` only for the project root in a checkout; a bare project has no such entry.
+- An empty project gives `"worktrees": []`.
+
+Fields may be added without notice; renaming or removing one bumps `schema_version`.
+
 <a id="wt-root"></a>
 
 ### wtx root
@@ -498,7 +529,8 @@ Editor resolution order: `editor` field in `.worktree.yml` > `$EDITOR` env var >
 ### wtx status
 
 ```bash
-wtx status
+wtx status                    # Table of every worktree
+wtx status --json             # Structured status on stdout
 ```
 
 Shows branch, path, commit hash, dirty/clean status, setup state, and last commit age for all worktrees.
@@ -506,6 +538,41 @@ Shows branch, path, commit hash, dirty/clean status, setup state, and last commi
 When a worktree's setup failed, a line after the table names the error and points at `wtx logs <branch>`, or at `wtx setup <branch> --foreground` when the failed run was in the foreground and left no log.
 
 Also warns when the project's filesystem is running low on space — see [Low Disk Space Warnings](#low-disk-space-warnings).
+
+`wtx status --json` writes one JSON document to stdout and nothing else: no hints and no low-disk warning.
+
+```json
+{
+  "schema_version": 1,
+  "project_root": "/home/me/code/app",
+  "worktrees": [
+    {
+      "branch": "feature/auth",
+      "path": "/home/me/.wtx/app/worktrees/feature/auth",
+      "head": "9a1e…",
+      "dirty": false,
+      "last_commit_age": "2 hours ago",
+      "setup": {
+        "status": "failed",
+        "pid": 41237,
+        "started_at": "2026-10-30T09:12:04-04:00",
+        "completed_at": "2026-10-30T09:13:40-04:00",
+        "hooks_total": 2,
+        "hooks_completed": 1,
+        "error": "hook 'npm ci' failed: exit status 1",
+        "log_file": "/home/me/.wtx/app/worktrees/feature/auth/.wtx-setup.log"
+      }
+    }
+  ]
+}
+```
+
+- `path` is absolute and `head` is the full commit hash.
+- `setup` is the worktree's `.wtx-setup.json` record, or `null` when setup has not run (the table's `-`). `status` is `running`, `complete`, `failed` or `skipped`; `completed_at` and `error` appear only when set. `log_file` is where the background setup log is now, or `""` when there is none.
+- When git cannot read a worktree, its entry stays: `dirty` or `last_commit_age` is `null` and `error` gives the one-line reason. `error` is omitted otherwise, and the command still exits 0.
+- An empty project gives `"worktrees": []`.
+
+Fields may be added without notice; renaming or removing one bumps `schema_version`.
 
 ### wtx logs
 

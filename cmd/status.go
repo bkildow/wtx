@@ -10,12 +10,34 @@ import (
 )
 
 func newStatusCmd() *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show status of all worktrees",
 		Args:  cobra.NoArgs,
 		RunE:  runStatus,
 	}
+	cmd.Flags().Bool("json", false, "Write worktree status as JSON to stdout")
+	return cmd
+}
+
+// statusReport is the --json output of wtx status. Adding fields is
+// compatible; renaming or removing one needs a SchemaVersion bump.
+type statusReport struct {
+	SchemaVersion int           `json:"schema_version"`
+	ProjectRoot   string        `json:"project_root"`
+	Worktrees     []statusEntry `json:"worktrees"`
+}
+
+// statusEntry is one Managed worktree's status. Dirty and LastCommitAge are
+// nil when git could not read them, and Error says why.
+type statusEntry struct {
+	Branch        string              `json:"branch"`
+	Path          string              `json:"path"`
+	Head          string              `json:"head"`
+	Dirty         *bool               `json:"dirty"`
+	LastCommitAge *string             `json:"last_commit_age"`
+	Setup         *project.SetupState `json:"setup"`
+	Error         string              `json:"error,omitempty"`
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -33,7 +55,38 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if len(filtered) == 0 {
+	entries := make([]statusEntry, 0, len(filtered))
+	for _, wt := range filtered {
+		entry := statusEntry{Branch: wt.Branch, Path: wt.Path, Head: wt.Head}
+
+		// An unreadable worktree keeps its entry, with the failing fields
+		// nil and the reason in Error, rather than failing the command.
+		dirty, dirtyErr := runner.IsWorktreeDirty(ctx, wt.Path)
+		if dirtyErr == nil {
+			entry.Dirty = &dirty
+		}
+		age, ageErr := runner.GetLastCommitAge(ctx, wt.Path)
+		if ageErr == nil {
+			entry.LastCommitAge = &age
+		}
+		if gitErr := cmp.Or(dirtyErr, ageErr); gitErr != nil {
+			entry.Error = gitErrorReason(gitErr)
+		}
+
+		// An unreadable state is reported like a missing one. The recorded
+		// log path goes stale when the worktree moves, so report where the
+		// log is now, or "" when there is none.
+		if entry.Setup, _ = project.ResolveSetupStatus(wt.Path); entry.Setup != nil {
+			entry.Setup.LogFile = project.SetupLog(wt.Path, entry.Setup)
+		}
+		entries = append(entries, entry)
+	}
+
+	if structured, _ := cmd.Flags().GetBool("json"); structured {
+		return writeJSON(cmd.OutOrStdout(), statusReport{SchemaVersion: 1, ProjectRoot: projectRoot, Worktrees: entries})
+	}
+
+	if len(entries) == 0 {
 		ui.Info("No worktrees found. Use 'wtx add' to create one.")
 		warnLowDisk(projectRoot, cfg)
 		return nil
@@ -44,37 +97,28 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT", "STATUS", "SETUP", "LAST COMMIT")
 	paths := ui.NewPathDisplay(projectRoot)
 	var hints []string
-	for _, wt := range filtered {
-		relPath := paths.Path(wt.Path)
-
-		// An unreadable worktree gets an error row and a hint rather than
-		// hiding the rest of the table.
+	for _, entry := range entries {
 		styledStatus := ui.StyleSuccess.Render("clean")
-		dirty, dirtyErr := runner.IsWorktreeDirty(ctx, wt.Path)
 		switch {
-		case dirtyErr != nil:
+		case entry.Dirty == nil:
 			styledStatus = ui.StyleError.Render("error")
-		case dirty:
+		case *entry.Dirty:
 			styledStatus = ui.StyleWarning.Render("dirty")
 		}
 
-		age, ageErr := runner.GetLastCommitAge(ctx, wt.Path)
-		if ageErr != nil {
-			age = ui.StyleError.Render("error")
+		age := ui.StyleError.Render("error")
+		if entry.LastCommitAge != nil {
+			age = *entry.LastCommitAge
 		}
 
-		if gitErr := cmp.Or(dirtyErr, ageErr); gitErr != nil {
-			hints = append(hints, gitErrorHint(wt.Branch, gitErr))
+		if entry.Error != "" {
+			hints = append(hints, "Could not read status for "+entry.Branch+": "+entry.Error)
+		}
+		if entry.Setup != nil && entry.Setup.Status == project.SetupFailed {
+			hints = append(hints, setupFailureHint(entry.Branch, entry.Path, entry.Setup))
 		}
 
-		// An unreadable state renders as "-", like a missing one.
-		state, _ := project.ResolveSetupStatus(wt.Path)
-		styledSetup := renderSetupStatus(state)
-		if state != nil && state.Status == project.SetupFailed {
-			hints = append(hints, setupFailureHint(wt.Branch, wt.Path, state))
-		}
-
-		t.Row(wt.Branch, relPath, shortHead(wt.Head), styledStatus, styledSetup, age)
+		t.Row(entry.Branch, paths.Path(entry.Path), shortHead(entry.Head), styledStatus, renderSetupStatus(entry.Setup), age)
 	}
 	ui.PrintTable(t)
 	for _, hint := range hints {
@@ -97,18 +141,17 @@ func setupFailureHint(branch, worktreePath string, state *project.SetupState) st
 	return hint + " — re-run with 'wtx setup " + branch + " --foreground'"
 }
 
-// gitErrorHint explains an error row in one line. Runner errors put the
+// gitErrorReason explains a git failure in one line. Runner errors put the
 // command first and git's stderr after it, so a "fatal:" line is preferred.
-func gitErrorHint(branch string, err error) string {
+func gitErrorReason(err error) string {
 	msg := err.Error()
-	reason, _, _ := strings.Cut(msg, "\n")
 	for line := range strings.Lines(msg) {
 		if line = strings.TrimSpace(line); strings.HasPrefix(line, "fatal:") {
-			reason = line
-			break
+			return line
 		}
 	}
-	return "Could not read status for " + branch + ": " + reason
+	reason, _, _ := strings.Cut(msg, "\n")
+	return reason
 }
 
 func renderSetupStatus(state *project.SetupState) string {
