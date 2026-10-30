@@ -119,12 +119,17 @@ func ResolveScript(cfg *config.Config, projectRoot, name string) (string, error)
 }
 
 // ProjectEnv is what a hook or script learns about the Project and the
-// worktree it runs for, exported as WTX_* environment variables.
+// worktree it runs for, exported as WTX_* environment variables, plus the
+// stdin it reads.
 type ProjectEnv struct {
 	Vars             TemplateVars // the worktree's template variables
 	SharedPath       string       // absolute shared directory
 	MainBranch       string       // configured main branch
 	MainWorktreePath string       // absolute path of the Main worktree, or "" if not checked out
+	// Stdin is what hooks and scripts read; nil reads the null device (EOF).
+	// Pass an *os.File: exec copies any other reader through a goroutine and
+	// waits for it to reach EOF before the command counts as finished.
+	Stdin io.Reader
 }
 
 // environ returns the variables as NAME=value, without a prefix.
@@ -159,7 +164,7 @@ func ScriptEnv(run ScriptRun) []string {
 	return env
 }
 
-// RunScript executes the script with stdin/stdout/stderr attached. The
+// RunScript executes the script with run.Stdin, stdout and stderr attached. The
 // script's stdout goes to the process stdout (not ui.Output) so that
 // `wt run export > file` and `$(wt run ...)` capture script output while wt's
 // own messages stay on stderr. The process inherits the parent environment
@@ -183,7 +188,7 @@ func runScript(ctx context.Context, run ScriptRun, dryRun bool, stdout, stderr i
 
 	cmd := exec.CommandContext(ctx, run.Path, run.Args...)
 	cmd.Dir = run.Dir
-	cmd.Stdin = os.Stdin
+	cmd.Stdin = run.Stdin
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	cmd.Env = append(os.Environ(), ScriptEnv(run)...)
