@@ -13,7 +13,6 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"syscall"
 
 	"gopkg.in/yaml.v3"
 
@@ -576,41 +575,7 @@ func moveDir(from, to string) error {
 			return err
 		}
 	}
-	err := os.Rename(from, to)
-	if !errors.Is(err, syscall.EXDEV) {
-		return err
-	}
-	if err := copyTree(from, to); err != nil {
-		// Drop the partial copy so a rerun does not see a non-empty destination.
-		_ = os.RemoveAll(to)
-		return fmt.Errorf("copy %s to %s: %w (the source is unchanged)", from, to, err)
-	}
-	return os.RemoveAll(from)
-}
-
-func copyTree(from, to string) error {
-	return filepath.WalkDir(from, func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(from, path)
-		if err != nil {
-			return err
-		}
-		dest := filepath.Join(to, rel)
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		switch {
-		case entry.IsDir():
-			return os.MkdirAll(dest, info.Mode().Perm())
-		case entry.Type()&os.ModeSymlink != 0:
-			return fscopy.CopySymlink(path, dest)
-		default:
-			return fscopy.CopyFile(path, dest)
-		}
-	})
+	return fscopy.Move(from, to)
 }
 
 // relink retargets symlinks under worktree that point at oldRoot/<rel> to

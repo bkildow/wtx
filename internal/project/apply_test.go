@@ -216,6 +216,27 @@ func TestApplySymlinks(t *testing.T) {
 	}
 }
 
+// A shared entry that links to a directory (as wtx share makes in a
+// checkout) merges into a worktree's real directory like a shared directory.
+func TestApplySymlinksMergesLinkedDirectory(t *testing.T) {
+	root, wt, rootConfig := t.TempDir(), t.TempDir(), t.TempDir()
+	mustWrite(t, filepath.Join(rootConfig, "local.yml"), "x")
+	symlinkDir := filepath.Join(root, "shared", "symlink")
+	mustSymlink(t, rootConfig, filepath.Join(symlinkDir, "config"))
+	mustWrite(t, filepath.Join(wt, "config", "tracked.yml"), "own")
+
+	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
+	if _, err := ApplySymlinks(root, wt, cfg, false); err != nil {
+		t.Fatalf("ApplySymlinks error: %v", err)
+	}
+	if got := readlink(t, filepath.Join(wt, "config", "local.yml")); got != filepath.Join(symlinkDir, "config", "local.yml") {
+		t.Errorf("local.yml -> %s", got)
+	}
+	if data, _ := os.ReadFile(filepath.Join(wt, "config", "tracked.yml")); string(data) != "own" {
+		t.Error("the worktree's own file was replaced")
+	}
+}
+
 func TestApplySymlinksDryRun(t *testing.T) {
 	root := t.TempDir()
 	wt := t.TempDir()

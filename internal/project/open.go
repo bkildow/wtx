@@ -171,6 +171,12 @@ func (c *Clone) SharedDir() string { return c.shared }
 // bin/ of SharedDir.
 func (c *Clone) BinDir() string { return BinFor(c.shared) }
 
+// ManagedDirs are the directories wtx itself owns: WorktreesDir, SharedDir
+// and BinDir.
+func (c *Clone) ManagedDirs() []string {
+	return []string{c.worktrees, c.shared, c.BinDir()}
+}
+
 // Config is the resolved .worktree.yml: per-clone defaults are filled in.
 // Callers must not modify it.
 func (c *Clone) Config() *config.Config { return c.cfg }

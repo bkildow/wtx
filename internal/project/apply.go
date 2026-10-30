@@ -35,12 +35,17 @@ func applyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int
 	if include == nil || len(include.Files) == 0 || SamePath(include.Dir, worktreePath) {
 		return 0, nil
 	}
-
 	ui.Step("Copying .worktreeinclude files from " + include.Dir)
+	return seedFiles(include.Dir, include.Files, worktreePath, dryRun)
+}
 
+// seedFiles copies files (relative to srcDir) into worktreePath, skipping
+// any the worktree already has, and returns how many it copied (or would
+// copy under dryRun).
+func seedFiles(srcDir string, files []string, worktreePath string, dryRun bool) (int, error) {
 	var count int
-	for _, rel := range include.Files {
-		src := filepath.Join(include.Dir, rel)
+	for _, rel := range files {
+		src := filepath.Join(srcDir, rel)
 		dest := filepath.Join(worktreePath, rel)
 
 		// Seed only: never replace a file the worktree already has, so a
@@ -298,11 +303,12 @@ func ApplySymlinks(projectRoot, worktreePath string, cfg *config.Config, dryRun 
 		target := filepath.Join(symlinkDir, entry.Name())
 		link := filepath.Join(worktreePath, entry.Name())
 
-		// If source is a directory and destination is a real directory (not a
-		// symlink), symlink individual files inside instead of replacing the
-		// whole directory. This preserves worktree-local files like those in
+		// If source is a directory (or links to one, as wtx share makes in a
+		// checkout) and destination is a real directory (not a symlink),
+		// symlink individual files inside instead of replacing the whole
+		// directory. This preserves worktree-local files like those in
 		// .claude/ while still symlinking shared config files.
-		if entry.IsDir() && isRealDir(link) {
+		if IsDirOrLinkToDir(target) && isRealDir(link) {
 			n, err := symlinkDirContents(target, link, worktreePath, dryRun)
 			count += n
 			if err != nil {
@@ -329,6 +335,12 @@ func ApplySymlinks(projectRoot, worktreePath string, cfg *config.Config, dryRun 
 	}
 
 	return count, nil
+}
+
+// IsDirOrLinkToDir reports whether path is a directory or a symlink to one.
+func IsDirOrLinkToDir(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
 }
 
 // isRealDir reports whether path is a directory and not a symlink to one.
@@ -372,8 +384,8 @@ func symlinkDirContents(srcDir, destDir, worktreePath string, dryRun bool) (int,
 		src := filepath.Join(srcDir, entry.Name())
 		dest := filepath.Join(destDir, entry.Name())
 
-		// Recurse if both source and destination are real directories.
-		if entry.IsDir() && isRealDir(dest) {
+		// Recurse if the source is a directory and the destination a real one.
+		if IsDirOrLinkToDir(src) && isRealDir(dest) {
 			n, err := symlinkDirContents(src, dest, worktreePath, dryRun)
 			count += n
 			if err != nil {
