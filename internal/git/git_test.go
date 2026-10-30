@@ -774,3 +774,122 @@ func TestIntegrationResolveRefAndBaseBranch(t *testing.T) {
 		t.Errorf("ResolveRef(develop) with unpushed local commits = %q, want %q", ref, "develop")
 	}
 }
+
+func TestParseTrack(t *testing.T) {
+	tests := []struct {
+		input              string
+		wantGone           bool
+		wantAhead, wantBhd int
+		wantErr            bool
+	}{
+		{input: ""},
+		{input: "gone", wantGone: true},
+		{input: "ahead 2", wantAhead: 2},
+		{input: "behind 5", wantBhd: 5},
+		{input: "ahead 2, behind 5", wantAhead: 2, wantBhd: 5},
+		{input: "ahead", wantErr: true},
+		{input: "ahead x", wantErr: true},
+		{input: "sideways 1", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			gone, ahead, behind, err := parseTrack(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("parseTrack(%q) = (%v, %d, %d), want an error", tt.input, gone, ahead, behind)
+				}
+				return
+			}
+			if err != nil || gone != tt.wantGone || ahead != tt.wantAhead || behind != tt.wantBhd {
+				t.Errorf("parseTrack(%q) = (%v, %d, %d, %v), want (%v, %d, %d, nil)", tt.input, gone, ahead, behind, err, tt.wantGone, tt.wantAhead, tt.wantBhd)
+			}
+		})
+	}
+}
+
+func TestIntegrationUpstreamStatus(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	// The Runner's own git calls (worktree add) must not see the user's
+	// branch.autoSetupMerge either; mustRun covers the fixture commands.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	run := func(args ...string) {
+		t.Helper()
+		mustRun(t, append([]string{"git"}, args...)...)
+	}
+
+	srcDir := t.TempDir()
+	run("init", "-b", "main", srcDir)
+	run("-C", srcDir, "commit", "--allow-empty", "-m", "initial")
+	run("-C", srcDir, "branch", "tracked")
+	run("-C", srcDir, "branch", "doomed")
+
+	projectDir := t.TempDir()
+	bareDir := filepath.Join(projectDir, ".bare")
+	runner := NewRunner(bareDir, false)
+	ctx := context.Background()
+	if err := runner.CloneBare(ctx, srcDir, bareDir); err != nil {
+		t.Fatalf("CloneBare: %v", err)
+	}
+	if err := runner.ConfigureRemoteFetch(ctx); err != nil {
+		t.Fatalf("ConfigureRemoteFetch: %v", err)
+	}
+	if err := runner.Fetch(ctx, "origin"); err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	worktree := func(name string) string { return filepath.Join(projectDir, "worktrees", name) }
+	for _, branch := range []string{"tracked", "doomed"} {
+		if err := runner.WorktreeAdd(ctx, worktree(branch), branch); err != nil {
+			t.Fatalf("WorktreeAdd(%s): %v", branch, err)
+		}
+	}
+	if err := runner.WorktreeAddNew(ctx, worktree("fresh"), "fresh", "origin/main"); err != nil {
+		t.Fatalf("WorktreeAddNew(fresh): %v", err)
+	}
+	if err := runner.WorktreeAddNew(ctx, worktree("local"), "local", "main"); err != nil {
+		t.Fatalf("WorktreeAddNew(local): %v", err)
+	}
+
+	// tracked: two local commits, one upstream commit.
+	run("-C", worktree("tracked"), "commit", "--allow-empty", "-m", "local 1")
+	run("-C", worktree("tracked"), "commit", "--allow-empty", "-m", "local 2")
+	run("-C", srcDir, "switch", "-q", "tracked")
+	run("-C", srcDir, "commit", "--allow-empty", "-m", "upstream")
+	run("-C", srcDir, "switch", "-q", "main")
+	run("-C", srcDir, "branch", "-D", "doomed")
+	run("--git-dir", bareDir, "fetch", "--prune", "origin")
+
+	tests := []struct {
+		name, path, branch string
+		want               UpstreamStatus
+	}{
+		{name: "tracks its own remote branch", path: worktree("tracked"), branch: "tracked", want: UpstreamStatus{Upstream: "origin/tracked", Ahead: 2, Behind: 1}},
+		{name: "new branch tracks main", path: worktree("fresh"), branch: "fresh", want: UpstreamStatus{Upstream: "origin/main"}},
+		{name: "local-only branch", path: worktree("local"), branch: "local", want: UpstreamStatus{}},
+		{name: "upstream gone", path: worktree("doomed"), branch: "doomed", want: UpstreamStatus{Upstream: "origin/doomed", Gone: true}},
+		{name: "detached HEAD", path: worktree("tracked"), branch: "", want: UpstreamStatus{}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := runner.UpstreamStatus(ctx, tt.path, tt.branch)
+			if err != nil {
+				t.Fatalf("UpstreamStatus: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("UpstreamStatus = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("unreadable worktree", func(t *testing.T) {
+		if _, err := runner.UpstreamStatus(ctx, filepath.Join(projectDir, "missing"), "tracked"); err == nil {
+			t.Error("want an error for a worktree path that doesn't exist")
+		}
+	})
+}
