@@ -533,9 +533,18 @@ wtx status                    # Table of every worktree
 wtx status --json             # Structured status on stdout
 ```
 
-Shows branch, path, commit hash, dirty/clean status, setup state, and last commit age for all worktrees.
+Shows branch, path, commit hash, dirty/clean status, upstream, setup state, and last commit age for all worktrees.
 
-When a worktree's setup failed, a line after the table names the error and points at `wtx logs <branch>`, or at `wtx setup <branch> --foreground` when the failed run was in the foreground and left no log.
+The UPSTREAM column compares each branch with the upstream it tracks:
+
+- `↑2 ↓5`: 2 commits ahead of the upstream and 5 behind; `=` when even.
+- `(origin/main)` after the counts names the upstream when it isn't `origin/<branch>`. A new branch from `wtx add` tracks the remote branch it started from (typically `origin/main`) until you push it with `-u`.
+- `gone`: the upstream is configured but its remote branch no longer exists, for example after the branch was merged and deleted.
+- `-`: the branch has no upstream.
+
+The counts use the remote-tracking refs from the last fetch; `wtx status` makes no network calls. Run `git fetch` in any worktree to refresh them (`wtx sync` fetches too, but also pulls into every clean worktree that is behind).
+
+When git cannot read a worktree, its cells show `error` and a line after the table gives the reason. When a worktree's setup failed, a line after the table names the error and points at `wtx logs <branch>`, or at `wtx setup <branch> --foreground` when the failed run was in the foreground and left no log.
 
 Also warns when the project's filesystem is running low on space — see [Low Disk Space Warnings](#low-disk-space-warnings).
 
@@ -551,6 +560,9 @@ Also warns when the project's filesystem is running low on space — see [Low Di
       "path": "/home/me/.wtx/app/worktrees/feature/auth",
       "head": "9a1e…",
       "dirty": false,
+      "upstream": "origin/main",
+      "ahead": 2,
+      "behind": 5,
       "last_commit_age": "2 hours ago",
       "setup": {
         "status": "failed",
@@ -569,7 +581,8 @@ Also warns when the project's filesystem is running low on space — see [Low Di
 
 - `path` is absolute and `head` is the full commit hash.
 - `setup` is the worktree's `.wtx-setup.json` record, or `null` when setup has not run (the table's `-`). `status` is `running`, `complete`, `failed` or `skipped`; `completed_at` and `error` appear only when set. `log_file` is where the background setup log is now, or `""` when there is none.
-- When git cannot read a worktree, its entry stays: `dirty` or `last_commit_age` is `null` and `error` gives the one-line reason. `error` is omitted otherwise, and the command still exits 0.
+- `upstream` is the tracked branch's short name, and `ahead`/`behind` count commits against it from the last fetch. All three are `null` when the branch has no upstream (the table's `-`). When the upstream is gone, `upstream` keeps its name and `ahead`/`behind` are `null`.
+- When git cannot read a worktree, its entry stays: `dirty`, `upstream` or `last_commit_age` is `null` and `error` gives the one-line reason. `error` is omitted otherwise, and the command still exits 0.
 - An empty project gives `"worktrees": []`.
 
 Fields may be added without notice; renaming or removing one bumps `schema_version`.
