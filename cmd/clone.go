@@ -99,7 +99,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 	if dry {
 		ui.DryRunNotice("write " + filepath.Join(projectRoot, config.ConfigFileName))
 	} else {
-		if err := config.WriteAnnotatedWithValues(projectRoot, &cfg); err != nil {
+		if err := config.WriteAnnotatedWithValues(projectRoot, &cfg, version); err != nil {
 			return err
 		}
 	}

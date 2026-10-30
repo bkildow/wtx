@@ -1,0 +1,88 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "wtx .worktree.yml",
+  "description": "wtx worktree project configuration. See https://github.com/bkildow/wtx#configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "description": "Config version (do not change)",
+      "type": "integer",
+      "default": 1
+    },
+    "git_dir": {
+      "description": "Path to the git directory (.bare for wtx clone, .git for wtx init projects)",
+      "type": "string",
+      "default": ".bare"
+    },
+    "worktree_dir": {
+      "description": "Directory holding worktrees: relative to the project root, absolute, or ~/... (~/.wtx/... honors $WTX_HOME). Defaults to worktrees; for git_dir: .git projects, ~/.wtx/<name>/worktrees per clone",
+      "type": ["string", "null"],
+      "default": "worktrees"
+    },
+    "shared_dir": {
+      "description": "Directory holding copy/ and symlink/; scripts live in a bin/ next to it. Same path rules as worktree_dir. Defaults to shared; for git_dir: .git projects, ~/.wtx/<name>/shared per clone",
+      "type": ["string", "null"],
+      "default": "shared"
+    },
+    "main_branch": {
+      "description": "Primary branch (branch ref protected from deletion, used as base for new branches unless wtx add --base-branch is given)",
+      "type": "string",
+      "default": "main"
+    },
+    "editor": {
+      "description": "Preferred editor binary name for wtx open (e.g. cursor, code, zed); falls back to $EDITOR, then auto-detects",
+      "type": "string"
+    },
+    "setup": {
+      "description": "Commands to run sequentially after creating a worktree",
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": []
+    },
+    "parallel_setup": {
+      "description": "Commands to run concurrently after serial setup hooks",
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": []
+    },
+    "teardown": {
+      "description": "Commands to run sequentially before removing a worktree",
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": []
+    },
+    "parallel_teardown": {
+      "description": "Commands to run concurrently after serial teardown hooks",
+      "type": ["array", "null"],
+      "items": { "type": "string" },
+      "default": []
+    },
+    "background_setup": {
+      "description": "Run setup hooks in the background; override per command with --background or --foreground",
+      "type": "boolean",
+      "default": false
+    },
+    "scripts": {
+      "description": "Named executables for wtx run <name>: relative to the project root, absolute, or ~/...; executables in bin/ run by name without an entry",
+      "type": ["object", "null"],
+      "additionalProperties": { "type": "string" },
+      "default": {}
+    },
+    "disk_warn": {
+      "description": "Warn when free disk space is low (false disables)",
+      "type": "boolean",
+      "default": true
+    },
+    "disk_warn_percent": {
+      "description": "Warn below this percentage of free space (-1 disables this bound)",
+      "type": "integer",
+      "default": 10
+    },
+    "disk_warn_gb": {
+      "description": "Warn below this many GB of free space (-1 disables this bound)",
+      "type": "integer",
+      "default": 10
+    }
+  }
+}

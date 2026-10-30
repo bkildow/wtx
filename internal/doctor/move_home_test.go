@@ -39,7 +39,7 @@ func inRepoFixtureAt(t *testing.T, wtDir, sharedDir string) (root, gitDir, wtxHo
 	cfg.SharedDir = sharedDir
 	bin := filepath.ToSlash(project.BinFor(sharedDir))
 	cfg.Scripts = map[string]string{"check": "bin/check", "refresh": bin + "/refresh"}
-	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
+	if err := config.WriteAnnotatedWithValues(root, cfg, "dev"); err != nil {
 		t.Fatal(err)
 	}
 	shared := filepath.Join(root, sharedDir)
@@ -245,7 +245,7 @@ func TestMigrateHomeLeftoverClone(t *testing.T) {
 	cfg.SetWorktreeDir("")
 	cfg.SetSharedDir("")
 	cfg.Scripts = map[string]string{"check": "bin/check"}
-	if err := config.WriteAnnotatedWithValues(root, cfg); err != nil {
+	if err := config.WriteAnnotatedWithValues(root, cfg, "dev"); err != nil {
 		t.Fatal(err)
 	}
 	gitRun(t, "--git-dir", gitDir, "config", "--local", project.NameConfigKey, "proj")
@@ -331,7 +331,7 @@ func TestMigrateHomeRefusals(t *testing.T) {
 	t.Run("name collision", func(t *testing.T) {
 		root, _, wtxHome := inRepoFixture(t)
 		other := t.TempDir()
-		if err := config.WriteAnnotated(other); err != nil {
+		if err := config.WriteAnnotated(other, "dev"); err != nil {
 			t.Fatal(err)
 		}
 		if err := project.WriteMarker(filepath.Join(wtxHome, filepath.Base(root)), other, false); err != nil {

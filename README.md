@@ -345,7 +345,7 @@ wtx config init               # Generate annotated .worktree.yml (backs up exist
 wtx config init --update      # Merge existing values into annotated template
 ```
 
-Generates a `.worktree.yml` with documentation comments for every field. If a config already exists, it is backed up to `.worktree.yml.bak` first. Use `--update` to preserve your existing values while adding documentation comments.
+Generates a `.worktree.yml` with documentation comments for every field and a [schema header](#worktreeyml) for editor autocomplete and validation. If a config already exists, it is backed up to `.worktree.yml.bak` first. Use `--update` to preserve your existing values while adding documentation comments.
 
 <a id="wt-add"></a>
 
@@ -643,6 +643,7 @@ This is the layout `wtx clone` creates. `wtx init` adopts an existing checkout i
 ### .worktree.yml
 
 ```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bkildow/wtx/main/schema/worktree.schema.json
 version: 1
 git_dir: .bare
 main_branch: main
@@ -674,6 +675,7 @@ scripts:
 | `parallel_setup` | Commands to run concurrently after serial setup hooks | `[]` |
 | `teardown` | Commands to run sequentially before removing a worktree | `[]` |
 | `parallel_teardown` | Commands to run concurrently after serial teardown hooks | `[]` |
+| `background_setup` | Run setup hooks in the background (override per command with `--background` or `--foreground`) | `false` |
 | `scripts` | Named executables for `wtx run <name>` (see [path rules](#path-rules)); executables in `bin/` run by name without an entry | `{}` |
 | `disk_warn` | Warn when free disk space is low (`false` disables) | `true` |
 | `disk_warn_percent` | Warn below this percentage of free space (`-1` disables this bound) | `10` |
@@ -686,6 +688,23 @@ the repository directory name (see [Joining from a clone](#joining-from-a-clone)
 With `--in-repo` it writes `worktree_dir: .worktrees` and
 `shared_dir: .worktrees/shared`. Omitted paths of `git_dir: .bare` projects
 default to `worktrees` and `shared`.
+
+**Editor schema.** [`schema/worktree.schema.json`](schema/worktree.schema.json)
+is a JSON Schema for `.worktree.yml`. Editors that use
+[yaml-language-server](https://github.com/redhat-developer/yaml-language-server)
+(VS Code with the Red Hat YAML extension, Zed, Neovim, JetBrains IDEs) use it
+for autocomplete, hover docs, and validation, including flagging unknown keys.
+Configs that `wtx clone`, `wtx init` and `wtx config init` write start with a
+header pointing at the schema for the wtx release that wrote them (`main` for
+development builds):
+
+```yaml
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bkildow/wtx/v0.12.0/schema/worktree.schema.json
+```
+
+To add it to an existing config, paste that line at the top of
+`.worktree.yml`, replacing `v0.12.0` with your wtx version's tag (see
+`wtx --version`) or with `main` to track the latest schema.
 
 <a id="path-rules"></a>
 

@@ -320,5 +320,5 @@ func writeConfig(projectRoot string, cfg *config.Config, dry bool) error {
 		ui.DryRunNotice("write " + filepath.Join(projectRoot, config.ConfigFileName))
 		return nil
 	}
-	return config.WriteAnnotatedWithValues(projectRoot, cfg)
+	return config.WriteAnnotatedWithValues(projectRoot, cfg, version)
 }

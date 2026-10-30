@@ -105,7 +105,7 @@ Files ending in `.template` are copied with the suffix stripped and these variab
     scripts:                  # optional: bin/ executables also run by name
       refresh: bin/refresh    # relative to the project root
 
-`wtx config init --update` rewrites the file with documentation comments and keeps existing values.
+`wtx config init --update` rewrites the file with documentation comments and keeps existing values. Generated configs start with a `# yaml-language-server: $schema=...` header pointing at `schema/worktree.schema.json` in the wtx repo; the schema rejects unknown top-level keys.
 
 Hooks run in the worktree via `sh -c` with the `WTX_*` variables `wtx run --help` lists, except `WTX_SCRIPT_NAME`. When writing a hook that acts on per-worktree resources, name them from `$WTX_WORKTREE_ID` (e.g. `docker compose -p "$WTX_WORKTREE_ID" down -v`) instead of relying on the working directory.
 
