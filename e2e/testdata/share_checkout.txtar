@@ -1,0 +1,89 @@
+[!exec:git] skip 'git not available'
+[!exec:test] skip 'test not available'
+
+# A checkout with .env ignored and one worktree
+exec git init -b main myrepo
+cd myrepo
+cp $WORK/gitignore .gitignore
+exec git add .gitignore
+exec git commit -m 'initial'
+exec wtx init
+exec wtx add --skip-setup feature
+cp $WORK/env .env
+
+# --dry-run prints the links and changes nothing
+exec wtx --dry-run share .env --symlink
+stderr 'symlink .*/shared/symlink/\.env -> .*/myrepo/\.env'
+stderr 'symlink .*/worktrees/feature/\.env -> .*/shared/symlink/\.env'
+! exists $WTX_HOME/myrepo/shared/symlink/.env
+! exists $WTX_HOME/myrepo/worktrees/feature/.env
+
+# --symlink keeps the root's file and links every worktree to it
+exec wtx share .env --symlink
+stderr 'Shared \.env \(linked into 1 worktree'
+exec test -f .env
+! exec test -L .env
+exec test -L $WTX_HOME/myrepo/shared/symlink/.env
+exec test -L $WTX_HOME/myrepo/worktrees/feature/.env
+cmp $WTX_HOME/myrepo/worktrees/feature/.env .env
+
+# wtx doctor accepts the double link
+exec wtx doctor --json
+stdout '"findings"'
+! stdout 'shared.symlink'
+
+# Edits through a worktree land in the root's file
+cp $WORK/env2 $WTX_HOME/myrepo/worktrees/feature/.env
+cmp .env $WORK/env2
+
+# Sharing again is a no-op; new worktrees get the link from wtx add
+exec wtx share .env --symlink
+stderr 'already shared from the project root'
+stderr 'feature already links'
+exec wtx add --skip-setup other
+exec test -L $WTX_HOME/myrepo/worktrees/other/.env
+cmp $WTX_HOME/myrepo/worktrees/other/.env .env
+
+# A worktree with its own file is left alone and reported
+cp $WORK/env $WTX_HOME/myrepo/worktrees/feature/.secret
+cp $WORK/env .secret
+exec wtx share .secret --symlink
+stderr 'feature has its own \.secret; left it alone'
+! exec test -L $WTX_HOME/myrepo/worktrees/feature/.secret
+exec test -L $WTX_HOME/myrepo/worktrees/other/.secret
+
+# --copy adds the path to .worktreeinclude and seeds worktrees
+mkdir certs
+cp $WORK/env certs/dev.pem
+exec wtx share certs --copy
+stderr 'added /certs/ to \.worktreeinclude'
+grep '^/certs/$' .worktreeinclude
+cmp $WTX_HOME/myrepo/worktrees/feature/certs/dev.pem certs/dev.pem
+! exec test -L $WTX_HOME/myrepo/worktrees/feature/certs
+exec wtx add --skip-setup third
+cmp $WTX_HOME/myrepo/worktrees/third/certs/dev.pem certs/dev.pem
+
+# Refusals change nothing
+! exec wtx share missing --symlink
+stderr 'missing does not exist'
+! exec wtx share .gitignore --symlink
+stderr 'tracked by git'
+cp $WORK/env notignored
+! exec wtx share notignored --copy
+stderr 'not ignored by git'
+! grep notignored .worktreeinclude
+! exec wtx share .env --copy
+stderr '\.env is already shared with --symlink'
+! exec wtx share ../outside --symlink
+stderr 'not a path inside'
+! exec wtx share .git --symlink
+stderr 'git''s own data'
+
+-- gitignore --
+.env
+.secret
+certs/
+-- env --
+SECRET=1
+-- env2 --
+SECRET=2

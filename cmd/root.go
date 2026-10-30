@@ -59,6 +59,7 @@ func init() {
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newCdCmd())
 	rootCmd.AddCommand(newApplyCmd())
+	rootCmd.AddCommand(newShareCmd())
 	rootCmd.AddCommand(newConfigCmd())
 	rootCmd.AddCommand(newCompletionCmd())
 	rootCmd.AddCommand(newShellInitCmd())

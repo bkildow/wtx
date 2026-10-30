@@ -18,7 +18,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
+	"path/filepath"
+	"syscall"
 )
 
 // errReflinkUnsupported signals that tryReflink could not clone on this
@@ -130,4 +133,48 @@ func CopySymlink(src, dst string) error {
 		return err
 	}
 	return os.Symlink(target, dst)
+}
+
+// CopyAll copies from to to, which must not exist yet: a file, a symlink
+// (recreated with its target), or a directory walked file by file. A
+// socket, FIFO or device is an error: opening a FIFO to copy it would block.
+func CopyAll(from, to string) error {
+	return filepath.WalkDir(from, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(from, path)
+		if err != nil {
+			return err
+		}
+		dest := filepath.Join(to, rel)
+		switch {
+		case entry.IsDir():
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			return os.MkdirAll(dest, info.Mode().Perm())
+		case entry.Type()&os.ModeSymlink != 0:
+			return CopySymlink(path, dest)
+		case !entry.Type().IsRegular():
+			return fmt.Errorf("cannot copy %s: not a regular file", path)
+		default:
+			return CopyFile(path, dest)
+		}
+	})
+}
+
+// Move renames from to to, falling back to copy-then-remove across
+// filesystems. A failed copy is removed again, leaving from unchanged.
+func Move(from, to string) error {
+	err := os.Rename(from, to)
+	if !errors.Is(err, syscall.EXDEV) {
+		return err
+	}
+	if err := CopyAll(from, to); err != nil {
+		_ = os.RemoveAll(to)
+		return fmt.Errorf("copy %s to %s: %w (the source is unchanged)", from, to, err)
+	}
+	return os.RemoveAll(from)
 }

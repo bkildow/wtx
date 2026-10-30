@@ -138,3 +138,76 @@ func TestIntegrationListWorktreeIncludes(t *testing.T) {
 		}
 	})
 }
+
+func TestIntegrationShareQueries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	ctx := context.Background()
+	src := seedIncludeRepo(t)
+	addLocalFiles(t, src)
+
+	for _, tt := range []struct {
+		rel              string
+		tracked, ignored bool
+	}{
+		{".env.example", true, false},
+		{"secrets", true, false}, // holds a tracked file, so it is not ignored
+		{".env", false, true},
+		{"build", false, true},
+		{".envrc", false, false},
+	} {
+		tracked, err := IsTracked(ctx, src, tt.rel)
+		if err != nil || tracked != tt.tracked {
+			t.Errorf("IsTracked(%s) = %v, %v; want %v", tt.rel, tracked, err, tt.tracked)
+		}
+		ignored, err := IsIgnored(ctx, src, tt.rel)
+		if err != nil || ignored != tt.ignored {
+			t.Errorf("IsIgnored(%s) = %v, %v; want %v", tt.rel, ignored, err, tt.ignored)
+		}
+	}
+
+	got, err := ListUntracked(ctx, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{".env", ".envrc", "build/", "secrets/key.txt"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("ListUntracked = %v, want %v", got, want)
+	}
+}
+
+func TestIntegrationWorktreeIncludeSelects(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test")
+	}
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not available")
+	}
+	ctx := context.Background()
+	src := seedIncludeRepo(t)
+	addLocalFiles(t, src)
+	writeFiles(t, src, map[string]string{
+		".worktreeinclude": ".env*\nsecrets/\n/build/out.txt\n",
+		"build/other.txt":  "other\n",
+	})
+
+	for _, tt := range []struct {
+		rel  string
+		want bool
+	}{
+		{".env", true},
+		{"secrets", true},
+		{"build/out.txt", true},
+		{"build", false}, // only part of it is selected
+		{"build/other.txt", false},
+	} {
+		got, err := WorktreeIncludeSelects(ctx, src, tt.rel)
+		if err != nil || got != tt.want {
+			t.Errorf("WorktreeIncludeSelects(%s) = %v, %v; want %v", tt.rel, got, err, tt.want)
+		}
+	}
+}

@@ -225,6 +225,7 @@ wtx prune
 | `wtx cd [name]` | Print worktree path for shell navigation |
 | `wtx root` | Print project root path for shell navigation |
 | `wtx apply [name]` | Apply shared files to a worktree |
+| `wtx share [path]` | Share a machine-local file with every worktree |
 | `wtx open [name]` | Open a worktree in an IDE |
 | `wtx status` | Show status of all worktrees (`--json` for scripts) |
 | `wtx logs [name]` | Print a worktree's background setup log |
@@ -510,6 +511,30 @@ wtx apply --all               # Apply to all worktrees
 Copies [`.worktreeinclude`](#worktreeinclude) files the worktree is missing, then copies files from `shared/copy/` (with template substitution) and creates symlinks from `shared/symlink/`. Shows each file copied and symlink created, with a summary count.
 
 `wtx apply` only targets worktrees wtx manages. In a checkout, the project root is the `.worktreeinclude` source, so `wtx apply main` refuses it.
+
+<a id="wt-share"></a>
+
+### wtx share
+
+```bash
+wtx share .env --symlink      # Every worktree links to the same .env
+wtx share certs --copy        # Every worktree gets its own copy of certs/
+wtx share                     # Pick an untracked file, then the mode
+```
+
+Shares a machine-local file or directory with every worktree. The path must be untracked; worktrees that already have their own file at that path are left alone and listed.
+
+In a checkout, the file stays in the project root, which is not a worktree wtx applies to:
+
+- `--symlink` links `shared/symlink/<path>` to the root's file, then links each worktree to `shared/symlink/<path>`. The root and every worktree read and write the root's file, and `wtx add` links new worktrees too.
+- `--copy` adds `/<path>` to [`.worktreeinclude`](#worktreeinclude) (commit it so other clones share the rule) and copies the file into worktrees that lack it. The path must be gitignored.
+
+In a bare layout, run it from the worktree that has the file:
+
+- `--symlink` moves the file into `shared/symlink/` and links it back into that worktree and every other one.
+- `--copy` copies the file into `shared/copy/` and into worktrees that lack it.
+
+A relative path is read from the current directory when it is inside the root (or, in a bare layout, the current worktree), and from the root otherwise. `--dry-run` prints the links and copies without making them.
 
 <a id="wt-open"></a>
 
