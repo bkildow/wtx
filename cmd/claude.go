@@ -296,17 +296,12 @@ type hookContext struct {
 
 // loadHookContext reads the JSON payload from stdin, validates it, resolves the
 // project root, and opens its Clone. Both hook handlers share this setup.
-// Hooks ignore --dry-run, and their git commands never prompt (BatchMode).
+// Hooks ignore --dry-run, and BatchMode keeps their git commands from
+// prompting and their teardown hooks off Claude Code's stdin pipe.
 func loadHookContext(ctx context.Context) (*hookContext, error) {
 	payload, err := readHookPayload(os.Stdin)
 	if err != nil {
 		return nil, err
-	}
-
-	// Replace process stdin with /dev/null so downstream operations
-	// (teardown hooks, git commands) cannot read from Claude Code's pipe.
-	if devNull, err := os.Open(os.DevNull); err == nil {
-		os.Stdin = devNull
 	}
 
 	// Validate required fields based on event type.

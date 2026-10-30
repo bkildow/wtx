@@ -52,13 +52,14 @@ func (pw *prefixWriter) flush() {
 type HookProgressFunc func(index int, cmdStr string, err error)
 
 // hookCommand builds the shell command for one hook: it runs inside the
-// worktree with the WTX_* variables from env exported. Script-only variables
-// inherited from an enclosing 'wtx run' (WTX_SCRIPT_NAME and the legacy WT_*
-// names) are dropped, so a hook never sees another worktree's values.
+// worktree, reads env.Stdin, and has the WTX_* variables from env exported.
+// Script-only variables inherited from an enclosing 'wtx run'
+// (WTX_SCRIPT_NAME and the legacy WT_* names) are dropped, so a hook never
+// sees another worktree's values.
 func hookCommand(ctx context.Context, cmdStr string, env ProjectEnv) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "sh", "-c", cmdStr)
 	cmd.Dir = env.Vars.WorktreePath
-	cmd.Stdin = os.Stdin
+	cmd.Stdin = env.Stdin
 
 	values := env.environ()
 	drop := []string{"WTX_SCRIPT_NAME=", "WT_SCRIPT_NAME="}

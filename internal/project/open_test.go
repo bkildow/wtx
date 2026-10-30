@@ -3,6 +3,7 @@ package project
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -578,5 +579,18 @@ func TestCloneCheckOwnedRefusesBeforeClaiming(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("refusal claimed %s: %v", dir, err)
+	}
+}
+
+func TestProjectEnvStdin(t *testing.T) {
+	for _, batch := range []bool{false, true} {
+		c := &Clone{cfg: &config.Config{}, runner: &git.Runner{BatchMode: batch}}
+		var want io.Reader
+		if !batch {
+			want = os.Stdin
+		}
+		if got := c.ProjectEnv(TemplateVars{}, Worktrees{}).Stdin; got != want {
+			t.Errorf("BatchMode %v: Stdin = %v, want %v", batch, got, want)
+		}
 	}
 }

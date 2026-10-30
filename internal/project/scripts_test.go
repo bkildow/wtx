@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -283,6 +284,32 @@ func TestRunScriptDualEnvironment(t *testing.T) {
 			}
 			if stdout.String() != want.String() {
 				t.Fatalf("environment output = %q, want %q", stdout.String(), want.String())
+			}
+		})
+	}
+}
+
+func TestRunScriptStdin(t *testing.T) {
+	root := t.TempDir()
+	script := filepath.Join(root, "echo-stdin")
+	writeScript(t, script, "cat\necho \"rc=$?\"\n", 0o755)
+
+	for _, tt := range []struct {
+		name  string
+		stdin io.Reader
+		want  string
+	}{
+		{"caller's stdin", strings.NewReader("hello\n"), "hello\nrc=0\n"},
+		{"nil reads EOF", nil, "rc=0\n"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			run := ScriptRun{Name: "echo-stdin", Path: script, Dir: root, ProjectEnv: ProjectEnv{Stdin: tt.stdin}}
+			var stdout, stderr bytes.Buffer
+			if err := runScript(context.Background(), run, false, &stdout, &stderr); err != nil {
+				t.Fatalf("runScript error: %v (stderr %q)", err, stderr.String())
+			}
+			if stdout.String() != tt.want {
+				t.Errorf("stdout = %q, want %q", stdout.String(), tt.want)
 			}
 		})
 	}

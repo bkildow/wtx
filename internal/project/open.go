@@ -50,8 +50,9 @@ type Options struct {
 	// Quiet keeps the Clone's Runner from echoing the git commands it runs,
 	// for structured reports such as wtx doctor.
 	Quiet bool
-	// BatchMode keeps the Clone's Runner from prompting for credentials,
-	// for non-interactive callers such as the Claude Code hooks.
+	// BatchMode keeps the Clone's Runner from prompting for credentials and
+	// gives its hooks and scripts no stdin (see ProjectEnv), for
+	// non-interactive callers such as the Claude Code hooks.
 	BatchMode bool
 }
 
@@ -254,9 +255,13 @@ func (c *Clone) Classify(all []git.WorktreeInfo) Worktrees {
 }
 
 // ProjectEnv is the environment a hook or script gets for vars, given w, the
-// Clone's worktrees (see Worktrees).
+// Clone's worktrees (see Worktrees). Hooks and scripts read os.Stdin unless
+// the Clone is in BatchMode.
 func (c *Clone) ProjectEnv(vars TemplateVars, w Worktrees) ProjectEnv {
 	env := ProjectEnv{Vars: vars, SharedPath: c.shared, MainBranch: c.cfg.MainBranchOrDefault()}
+	if !c.runner.BatchMode {
+		env.Stdin = os.Stdin
+	}
 	if w.HasMain {
 		env.MainWorktreePath = w.Main.Path
 	}

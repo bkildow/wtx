@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bkildow/wtx/internal/config"
 )
@@ -254,5 +255,56 @@ func TestHooksExportProjectEnv(t *testing.T) {
 		if string(data) != want {
 			t.Errorf("%s = %q, want %q", out, data, want)
 		}
+	}
+}
+
+// TestHooksWithoutStdinReadEOF runs a hook with a nil Stdin while the test
+// process's own stdin is a pipe that never closes. A hook that reached that
+// pipe would block until the deadline; instead `read` must hit EOF.
+// Swapping os.Stdin is safe because no test in this package runs in parallel.
+func TestHooksWithoutStdinReadEOF(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() {
+		os.Stdin = orig
+		_ = w.Close()
+		_ = r.Close()
+	})
+
+	wt := t.TempDir()
+	cfg := &config.Config{Setup: []string{"read line; echo $? > out.txt"}}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := RunSetupHooks(ctx, cfg, envAt(wt), false, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(wt, "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.TrimSpace(string(data)) == "0" {
+		t.Error("read succeeded, want EOF")
+	}
+}
+
+func TestHooksReadCallerStdin(t *testing.T) {
+	wt := t.TempDir()
+	env := envAt(wt)
+	env.Stdin = strings.NewReader("hello\n")
+	cfg := &config.Config{Setup: []string{"cat > out.txt"}}
+
+	if err := RunSetupHooks(context.Background(), cfg, env, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(wt, "out.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "hello\n" {
+		t.Errorf("hook read %q, want %q", data, "hello\n")
 	}
 }
