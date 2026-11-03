@@ -343,11 +343,11 @@ combined with `--in-repo`. `wtx doctor` points in-repo projects at
 ### wtx config init
 
 ```bash
-wtx config init               # Generate annotated .worktree.yml (backs up existing)
+wtx config init               # Reset .worktree.yml to the annotated template, keeping its layout
 wtx config init --update      # Merge existing values into annotated template
 ```
 
-Generates a `.worktree.yml` with documentation comments for every field and a [schema header](#worktreeyml) for editor autocomplete and validation. If a config already exists, it is backed up to `.worktree.yml.bak` first. Use `--update` to preserve your existing values while adding documentation comments.
+Rewrites `.worktree.yml` with documentation comments for every field and a [schema header](#worktreeyml) for editor autocomplete and validation. It backs up the existing file to `.worktree.yml.bak`, keeps `git_dir`, `worktree_dir`, `shared_dir` and `main_branch` so the project keeps its layout, and resets every other setting to the template. Use `--update` to keep all your existing values while adding documentation comments.
 
 <a id="wt-add"></a>
 

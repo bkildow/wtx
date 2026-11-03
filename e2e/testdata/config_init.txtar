@@ -1,0 +1,48 @@
+[!exec:git] skip 'git not available'
+
+# A Checkout layout (wtx init) keeps git_dir: .git and its per-clone dirs
+exec git init myrepo
+cd myrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init
+exec sh -c 'printf "setup:\n  - echo hi\n" >> .worktree.yml'
+cp .worktree.yml $WORK/checkout-before
+
+exec wtx config init
+stderr 'keeping git_dir, worktree_dir, shared_dir and main_branch'
+cmp .worktree.yml.bak $WORK/checkout-before
+grep '^git_dir: .git$' .worktree.yml
+grep '^main_branch: \w' .worktree.yml
+! grep '^worktree_dir:' .worktree.yml
+! grep '^shared_dir:' .worktree.yml
+! grep '^setup:' .worktree.yml
+
+# The project still works and its worktrees stay under WTX_HOME
+exec wtx add --skip-setup feature
+exists $WTX_HOME/myrepo/worktrees/feature/.git
+! exists worktrees
+! exists .bare
+
+# An In-repo layout keeps its explicit dirs
+cd $WORK
+exec git init inrepo
+cd inrepo
+exec git commit --allow-empty -m 'initial'
+exec wtx init --in-repo
+exec wtx config init
+grep '^git_dir: .git$' .worktree.yml
+grep '^worktree_dir: .worktrees$' .worktree.yml
+grep '^shared_dir: .worktrees/shared$' .worktree.yml
+! grep '^scripts:' .worktree.yml
+exec wtx add --skip-setup feature
+exists .worktrees/feature/.git
+
+# An unparseable config is left alone, with no backup
+cp $WORK/broken.yml .worktree.yml
+snapshot
+! exec wtx config init
+stderr 'failed to load existing config'
+unchanged
+
+-- broken.yml --
+git_dir: [.git

@@ -75,7 +75,7 @@ A failing check names what to use instead. When the user corrects a mistake, fix
 | Rule | Enforced by |
 | --- | --- |
 | `--dry-run` changes nothing, for every command | `e2e/testdata/dry_run_sweep.txtar`; `cmd/dryrun_coverage_test.go` fails for a command the sweep does not run |
-| Commands get config, Runner and root from a Clone, not `config.Load`, `config.Exists`, `git.NewRunner` or `project.FindRoot` | `cmd/clone_access_test.go`; lines that run before a Clone exists end in `// raw-load: <reason>` |
+| Commands get config, Runner and root from a Clone, not `config.Load`, `config.Parse`, `config.Exists`, `git.NewRunner` or `project.FindRoot` | `cmd/clone_access_test.go`; lines that run before a Clone exists end in `// raw-load: <reason>` |
 | Only `internal/config` and `internal/project` write config path fields; others read a Clone's resolved dirs | `internal/project/pathfields_test.go` |
 | Git runs only through `Runner.command` or `gitAt` | `internal/git/exec_ratchet_test.go` (ratchet: no new hand-built git commands) |
 | One `git worktree list` per command | `cmd/worktree_list_count_test.go` |

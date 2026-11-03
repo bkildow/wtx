@@ -11,8 +11,9 @@ import (
 // rawLoad matches the calls that rebuild what a Clone already resolves: the
 // config, the git Runner and the Project root. A Clone threads --dry-run into
 // its Runner and resolves the per-clone ~/.wtx paths; these calls skip both.
-// findProjectRoot is cmd's own wrapper around project.FindRoot.
-var rawLoad = regexp.MustCompile(`\b(config\.Load|config\.Exists|git\.NewRunner|project\.FindRoot|findProjectRoot)\(`)
+// findProjectRoot is cmd's own wrapper around project.FindRoot, and
+// config.Parse is config.Load without the file read.
+var rawLoad = regexp.MustCompile(`\b(config\.Load|config\.Parse|config\.Exists|git\.NewRunner|project\.FindRoot|findProjectRoot)\(`)
 
 // rawLoadAllowed marks a line that genuinely runs before any Clone exists.
 const rawLoadAllowed = "// raw-load: "

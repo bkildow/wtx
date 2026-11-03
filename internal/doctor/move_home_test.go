@@ -332,7 +332,7 @@ func TestMigrateHomeRefusals(t *testing.T) {
 	t.Run("name collision", func(t *testing.T) {
 		root, _, wtxHome := inRepoFixture(t)
 		other := t.TempDir()
-		if err := config.WriteAnnotated(other, "dev"); err != nil {
+		if err := config.WriteAnnotatedWithValues(other, new(config.DefaultConfig()), "dev"); err != nil {
 			t.Fatal(err)
 		}
 		if err := project.WriteMarker(filepath.Join(wtxHome, filepath.Base(root)), other, false); err != nil {

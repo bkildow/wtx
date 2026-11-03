@@ -155,6 +155,23 @@ func DefaultConfig() Config {
 	}
 }
 
+// LayoutOnly returns a DefaultConfig that keeps only c's layout: git_dir and
+// main_branch, and worktree_dir and shared_dir when c spells them out.
+// Writing it resets every other setting without moving the project's git
+// data, worktrees or shared files, or changing which worktree is the Main one.
+func (c *Config) LayoutOnly() *Config {
+	fresh := DefaultConfig()
+	fresh.GitDir = c.GitDir
+	fresh.MainBranch = c.MainBranch
+	if c.worktreeDirSet {
+		fresh.SetWorktreeDir(c.WorktreeDir)
+	}
+	if c.sharedDirSet {
+		fresh.SetSharedDir(c.SharedDir)
+	}
+	return &fresh
+}
+
 // Load reads .worktree.yml from projectRoot (see Parse).
 func Load(projectRoot string) (*Config, error) {
 	path := filepath.Join(projectRoot, ConfigFileName)
@@ -218,8 +235,8 @@ func schemaURL(version string) string {
 
 // renderAnnotatedConfig builds YAML with documentation comments, starting
 // with a yaml-language-server modeline pointing at schemaURL(version).
-// If cfg is nil, defaults are used with optional fields commented out.
-// If cfg is non-nil, existing values are rendered uncommented.
+// Set values are rendered uncommented; unset optional fields appear as
+// commented-out examples.
 func renderAnnotatedConfig(cfg *Config, version string) string {
 	var b strings.Builder
 
@@ -228,20 +245,12 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 	b.WriteString("# https://github.com/bkildow/wtx\n\n")
 
 	b.WriteString("# Config schema version (do not change)\n")
-	if cfg != nil {
-		fmt.Fprintf(&b, "version: %d\n", cfg.Version)
-	} else {
-		b.WriteString("version: 1\n")
-	}
+	fmt.Fprintf(&b, "version: %d\n", cfg.Version)
 
 	b.WriteString("\n# Path to the git directory (.bare for wtx clone, .git for wtx init)\n")
-	if cfg != nil {
-		fmt.Fprintf(&b, "git_dir: %s\n", YAMLQuote(cfg.GitDir))
-	} else {
-		fmt.Fprintf(&b, "git_dir: %s\n", DefaultGitDir)
-	}
+	fmt.Fprintf(&b, "git_dir: %s\n", YAMLQuote(cfg.GitDir))
 
-	home := cfg != nil && cfg.HomeDefaults()
+	home := cfg.HomeDefaults()
 	if home {
 		b.WriteString("\n# Worktrees, shared files and scripts live outside the repository, per clone,\n")
 		b.WriteString("# in ~/.wtx/<name>/ (worktrees/, shared/, bin/; $WTX_HOME replaces ~/.wtx).\n")
@@ -254,10 +263,8 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 	case home && !cfg.worktreeDirSet:
 		b.WriteString("# An explicit value overrides the per-clone default for every clone.\n")
 		b.WriteString("# worktree_dir: ~/.wtx/<name>/worktrees\n")
-	case cfg != nil:
-		fmt.Fprintf(&b, "worktree_dir: %s\n", YAMLQuote(cfg.WorktreeDir))
 	default:
-		fmt.Fprintf(&b, "worktree_dir: %s\n", DefaultWorktreeDir)
+		fmt.Fprintf(&b, "worktree_dir: %s\n", YAMLQuote(cfg.WorktreeDir))
 	}
 
 	b.WriteString("\n# Directory for shared files (copy/ and symlink/ subdirectories); same path\n")
@@ -265,14 +272,12 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 	switch {
 	case home && !cfg.sharedDirSet:
 		b.WriteString("# shared_dir: ~/.wtx/<name>/shared\n")
-	case cfg != nil:
-		fmt.Fprintf(&b, "shared_dir: %s\n", YAMLQuote(cfg.SharedDir))
 	default:
-		fmt.Fprintf(&b, "shared_dir: %s\n", DefaultSharedDir)
+		fmt.Fprintf(&b, "shared_dir: %s\n", YAMLQuote(cfg.SharedDir))
 	}
 
 	b.WriteString("\n# The primary branch of the repository (used as base for new branches, branch ref protected from deletion)\n")
-	if cfg != nil && cfg.MainBranch != "" {
+	if cfg.MainBranch != "" {
 		fmt.Fprintf(&b, "main_branch: %s\n", YAMLQuote(cfg.MainBranch))
 	} else {
 		b.WriteString("# main_branch: main\n")
@@ -280,7 +285,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 
 	b.WriteString("\n# Editor for 'wtx open' (e.g. cursor, code, zed)\n")
 	b.WriteString("# Falls back to $EDITOR, then auto-detects\n")
-	if cfg != nil && cfg.Editor != "" {
+	if cfg.Editor != "" {
 		fmt.Fprintf(&b, "editor: %s\n", YAMLQuote(cfg.Editor))
 	} else {
 		b.WriteString("# editor: cursor\n")
@@ -288,7 +293,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 
 	b.WriteString("\n# Run setup hooks in the background (default: false)\n")
 	b.WriteString("# Override per-command with --background or --foreground\n")
-	if cfg != nil && cfg.BackgroundSetup {
+	if cfg.BackgroundSetup {
 		b.WriteString("background_setup: true\n")
 	} else {
 		b.WriteString("# background_setup: false\n")
@@ -296,21 +301,21 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 
 	b.WriteString("\n# Warn when free disk space runs low and suggest 'wtx prune' (default: on)\n")
 	b.WriteString("# Checked on 'wtx add' and 'wtx status'. Set WTX_NO_DISK_WARN=1 to silence per-command.\n")
-	if cfg != nil && cfg.DiskWarn != nil && !*cfg.DiskWarn {
+	if cfg.DiskWarn != nil && !*cfg.DiskWarn {
 		b.WriteString("disk_warn: false\n")
 	} else {
 		b.WriteString("# disk_warn: false\n")
 	}
 
 	b.WriteString("\n# Warn below this percentage of free space (-1 to disable this bound)\n")
-	if cfg != nil && cfg.DiskWarnPercent != 0 {
+	if cfg.DiskWarnPercent != 0 {
 		fmt.Fprintf(&b, "disk_warn_percent: %d\n", cfg.DiskWarnPercent)
 	} else {
 		fmt.Fprintf(&b, "# disk_warn_percent: %d\n", disk.DefaultWarnPercent)
 	}
 
 	b.WriteString("\n# Warn below this many GB of free space (-1 to disable this bound)\n")
-	if cfg != nil && cfg.DiskWarnGB != 0 {
+	if cfg.DiskWarnGB != 0 {
 		fmt.Fprintf(&b, "disk_warn_gb: %d\n", cfg.DiskWarnGB)
 	} else {
 		fmt.Fprintf(&b, "# disk_warn_gb: %d\n", disk.DefaultWarnGB)
@@ -319,7 +324,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 	b.WriteString("\n# Hooks run in the worktree with WTX_PROJECT_ROOT, WTX_WORKTREE_PATH,\n")
 	b.WriteString("# WTX_WORKTREE_ID, WTX_BRANCH_NAME and the other variables 'wtx run --help' lists\n")
 	b.WriteString("\n# Commands to run after creating a new worktree\n")
-	if cfg != nil && len(cfg.Setup) > 0 {
+	if len(cfg.Setup) > 0 {
 		b.WriteString("setup:\n")
 		for _, s := range cfg.Setup {
 			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(s))
@@ -332,7 +337,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 
 	b.WriteString("\n# Commands to run in parallel after creating a new worktree\n")
 	b.WriteString("# These run concurrently after serial setup hooks complete\n")
-	if cfg != nil && len(cfg.ParallelSetup) > 0 {
+	if len(cfg.ParallelSetup) > 0 {
 		b.WriteString("parallel_setup:\n")
 		for _, s := range cfg.ParallelSetup {
 			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(s))
@@ -344,7 +349,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 	}
 
 	b.WriteString("\n# Commands to run before removing a worktree\n")
-	if cfg != nil && len(cfg.Teardown) > 0 {
+	if len(cfg.Teardown) > 0 {
 		b.WriteString("teardown:\n")
 		for _, t := range cfg.Teardown {
 			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(t))
@@ -356,7 +361,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 
 	b.WriteString("\n# Commands to run in parallel before removing a worktree\n")
 	b.WriteString("# These run concurrently after serial teardown hooks complete\n")
-	if cfg != nil && len(cfg.ParallelTeardown) > 0 {
+	if len(cfg.ParallelTeardown) > 0 {
 		b.WriteString("parallel_teardown:\n")
 		for _, t := range cfg.ParallelTeardown {
 			fmt.Fprintf(&b, "  - %s\n", YAMLQuote(t))
@@ -371,7 +376,7 @@ func renderAnnotatedConfig(cfg *Config, version string) string {
 	b.WriteString("# Paths are executables: relative to the project root, absolute, or ~/...\n")
 	b.WriteString("# Executables in the bin/ directory next to shared_dir run by file name without\n")
 	b.WriteString("# an entry here (e.g. 'wtx run refresh'); an entry here wins over bin/.\n")
-	if cfg != nil && len(cfg.Scripts) > 0 {
+	if len(cfg.Scripts) > 0 {
 		b.WriteString("scripts:\n")
 		names := make([]string, 0, len(cfg.Scripts))
 		for name := range cfg.Scripts {
@@ -407,16 +412,9 @@ func readsAsString(s string) bool {
 	return yaml.Unmarshal([]byte(s), &v) == nil && v == s
 }
 
-// WriteAnnotated writes a fresh .worktree.yml with default values and
+// WriteAnnotatedWithValues writes .worktree.yml using cfg's values, with
 // documentation comments for every field. version is the wtx build version,
 // which picks the schema the file references (see schemaURL).
-func WriteAnnotated(projectRoot, version string) error {
-	return WriteAnnotatedWithValues(projectRoot, nil, version)
-}
-
-// WriteAnnotatedWithValues writes .worktree.yml using the given config's
-// values (defaults when cfg is nil), with documentation comments for every
-// field (see WriteAnnotated).
 func WriteAnnotatedWithValues(projectRoot string, cfg *Config, version string) error {
 	content := renderAnnotatedConfig(cfg, version)
 	path := filepath.Join(projectRoot, ConfigFileName)

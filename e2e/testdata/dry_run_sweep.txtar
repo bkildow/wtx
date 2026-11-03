@@ -50,6 +50,8 @@ exec wtx --dry-run repair
 unchanged
 exec wtx --dry-run open master
 unchanged
+exec wtx --dry-run config init
+unchanged
 exec wtx --dry-run config init --update
 unchanged
 exec wtx --dry-run claude init
