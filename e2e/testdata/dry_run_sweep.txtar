@@ -60,6 +60,11 @@ exec wtx --dry-run doctor --fix
 unchanged
 exec wtx --dry-run doctor --migrate-home
 unchanged
+cd worktrees/wip
+exec wtx --dry-run share --symlink dirty.txt
+unchanged
+exec wtx --dry-run share --copy dirty.txt
+unchanged
 cd $WORK/checkout
 exec wtx --dry-run init
 unchanged
