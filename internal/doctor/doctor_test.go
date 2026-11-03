@@ -32,9 +32,6 @@ func write(t *testing.T, path, content string, mode os.FileMode) {
 func gitRun(t *testing.T, args ...string) {
 	t.Helper()
 	c := exec.Command("git", args...)
-	c.Env = append(os.Environ(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_AUTHOR_NAME=Test", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=Test", "GIT_COMMITTER_EMAIL=t@t",
-		// Background auto-maintenance writes lock files that race file snapshots.
-		"GIT_CONFIG_COUNT=2", "GIT_CONFIG_KEY_0=maintenance.auto", "GIT_CONFIG_VALUE_0=false", "GIT_CONFIG_KEY_1=gc.auto", "GIT_CONFIG_VALUE_1=0")
 	out, err := c.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v: %s", args, err, out)
@@ -463,6 +460,9 @@ func TestScanBoundsAndUserDiscovery(t *testing.T) {
 }
 
 func TestOperationalReportsAndStrict(t *testing.T) {
+	// The test writes this clone's Owner marker; keep it out of the ~/.wtx
+	// other tests scan for orphans.
+	t.Setenv("WTX_HOME", t.TempDir())
 	r := Run(context.Background(), Options{StartDir: t.TempDir()})
 	if r.SchemaVersion != 1 || !r.Unsuccessful(false) {
 		t.Fatalf("invalid discovery failure report: %+v", r)

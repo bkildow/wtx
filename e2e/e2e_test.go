@@ -2,19 +2,35 @@ package e2e_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bkildow/wtx/cmd"
 	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/testenv"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
 func TestMain(m *testing.M) {
-	testscript.Main(m, map[string]func(){
+	// testscript re-runs this binary as "wtx" inside each script, whose
+	// environment the script sets; isolate only the top-level test run.
+	// testscript.Main exits the process, so a deferred RemoveAll would never
+	// run; removeAfter deletes Isolate's temp dir once the tests finish.
+	var tm testscript.TestingM = m
+	if filepath.Base(os.Args[0]) != "wtx" {
+		dir, err := testenv.Isolate()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "testenv:", err)
+			os.Exit(1)
+		}
+		tm = removeAfter{m, dir}
+	}
+	testscript.Main(tm, map[string]func(){
 		"wtx": func() {
 			// Mirror cmd/wtx/main.go so scripts can assert on error text.
 			if err := cmd.Execute(); err != nil {
@@ -25,6 +41,18 @@ func TestMain(m *testing.M) {
 			}
 		},
 	})
+}
+
+// removeAfter runs the tests, then deletes the isolated temp dir.
+type removeAfter struct {
+	m   *testing.M
+	dir string
+}
+
+func (r removeAfter) Run() int {
+	code := r.m.Run()
+	_ = os.RemoveAll(r.dir)
+	return code
 }
 
 func TestScripts(t *testing.T) {
@@ -39,6 +67,8 @@ func TestScripts(t *testing.T) {
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"setup-repo":    cmdSetupRepo,
 			"setup-project": cmdSetupProject,
+			"snapshot":      cmdSnapshot,
+			"unchanged":     cmdUnchanged,
 		},
 	})
 }
@@ -47,32 +77,17 @@ func TestScripts(t *testing.T) {
 func setupEnv(env *testscript.Env) error {
 	env.Setenv("NO_COLOR", "1")
 	env.Setenv("TERM", "dumb")
-	env.Setenv("GIT_AUTHOR_NAME", "Test")
-	env.Setenv("GIT_AUTHOR_EMAIL", "test@test.com")
-	env.Setenv("GIT_COMMITTER_NAME", "Test")
-	env.Setenv("GIT_COMMITTER_EMAIL", "test@test.com")
-	env.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, kv := range testenv.GitVars() {
+		name, value, _ := strings.Cut(kv, "=")
+		env.Setenv(name, value)
+	}
 	env.Setenv("GIT_PAGER", "cat")
 	// A low-disk CI runner would otherwise inject a warning into command output.
 	env.Setenv("WTX_NO_DISK_WARN", "1")
 	// testscript has no usable HOME; keep ~/.wtx state inside the test dir.
 	env.Setenv("WTX_HOME", filepath.Join(env.WorkDir, ".wtx-home"))
+	env.Values[snapshotKey{}] = &snapshotState{}
 	return nil
-}
-
-// gitEnv returns the environment for git commands run from the setup helpers.
-// These run outside the testscript environment, so they do not inherit the
-// identity set in setupEnv and would otherwise depend on the caller's global
-// git config -- which is absent on CI runners, where commit fails outright.
-func gitEnv() []string {
-	return append(
-		os.Environ(),
-		"GIT_AUTHOR_NAME=Test",
-		"GIT_AUTHOR_EMAIL=test@test.com",
-		"GIT_COMMITTER_NAME=Test",
-		"GIT_COMMITTER_EMAIL=test@test.com",
-		"GIT_CONFIG_NOSYSTEM=1",
-	)
 }
 
 // cmdSetupRepo creates a git repository at $WORK/remote with an initial
@@ -86,7 +101,6 @@ func cmdSetupRepo(ts *testscript.TestScript, neg bool, args []string) {
 	gitRun := func(gitArgs ...string) {
 		c := exec.Command("git", gitArgs...)
 		c.Dir = repoDir
-		c.Env = gitEnv()
 		out, err := c.CombinedOutput()
 		if err != nil {
 			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)
@@ -128,7 +142,6 @@ func cmdSetupProject(ts *testscript.TestScript, neg bool, args []string) { //nol
 	bareDir := filepath.Join(projectDir, config.DefaultGitDir)
 
 	c := exec.Command("git", "clone", "--bare", remoteDir, bareDir)
-	c.Env = gitEnv()
 	out, err := c.CombinedOutput()
 	if err != nil {
 		ts.Fatalf("git clone --bare: %v\n%s", err, out)
@@ -136,7 +149,6 @@ func cmdSetupProject(ts *testscript.TestScript, neg bool, args []string) { //nol
 
 	gitRun := func(gitArgs ...string) {
 		c := exec.Command("git", append([]string{"--git-dir", bareDir}, gitArgs...)...)
-		c.Env = gitEnv()
 		out, err := c.CombinedOutput()
 		if err != nil {
 			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)
