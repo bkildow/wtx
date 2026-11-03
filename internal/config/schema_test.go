@@ -39,12 +39,9 @@ func TestSchemaURL(t *testing.T) {
 }
 
 func TestRenderAnnotatedStartsWithSchemaModeline(t *testing.T) {
-	cfg := DefaultConfig()
-	for _, c := range []*Config{nil, &cfg} {
-		first, _, _ := strings.Cut(renderAnnotatedConfig(c, "v1.2.3"), "\n")
-		if want := "# yaml-language-server: $schema=" + schemaURL("v1.2.3"); first != want {
-			t.Errorf("first line = %q, want %q", first, want)
-		}
+	first, _, _ := strings.Cut(renderAnnotatedConfig(new(DefaultConfig()), "v1.2.3"), "\n")
+	if want := "# yaml-language-server: $schema=" + schemaURL("v1.2.3"); first != want {
+		t.Errorf("first line = %q, want %q", first, want)
 	}
 }
 
@@ -128,7 +125,7 @@ func TestGeneratedConfigsValidateAgainstSchema(t *testing.T) {
 	scalars.Scripts = map[string]string{"123": "~"}
 
 	for name, cfg := range map[string]*Config{
-		"defaults": nil,
+		"defaults": new(DefaultConfig()),
 		"bare":     &bare,
 		"checkout": &checkout,
 		"full":     &full,

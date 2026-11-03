@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -173,11 +174,11 @@ func TestExists(t *testing.T) {
 	}
 }
 
-func TestWriteAnnotated(t *testing.T) {
+func TestWriteAnnotatedDefaults(t *testing.T) {
 	dir := t.TempDir()
 
-	if err := WriteAnnotated(dir, "dev"); err != nil {
-		t.Fatalf("WriteAnnotated error: %v", err)
+	if err := WriteAnnotatedWithValues(dir, new(DefaultConfig()), "dev"); err != nil {
+		t.Fatalf("WriteAnnotatedWithValues error: %v", err)
 	}
 
 	data, err := os.ReadFile(filepath.Join(dir, ConfigFileName))
@@ -697,5 +698,54 @@ func TestRenderAnnotatedOmitsPerClonePaths(t *testing.T) {
 	bare := DefaultConfig()
 	if out := renderAnnotatedConfig(&bare, "dev"); !strings.Contains(out, "\nworktree_dir: worktrees\n") || strings.Contains(out, "~/.wtx/<name>/") {
 		t.Errorf("bare layout rendering changed:\n%s", out)
+	}
+}
+
+func TestLayoutOnlyKeepsOnlyLayoutFields(t *testing.T) {
+	extra := "editor: cursor\nbackground_setup: true\ndisk_warn: false\n" +
+		"setup:\n  - npm install\nteardown:\n  - make clean\nscripts:\n  seed: bin/seed\n"
+	tests := []struct {
+		name, layout string
+		want         func() *Config
+	}{
+		{"checkout", "git_dir: .git\n", func() *Config {
+			c := DefaultConfig()
+			c.GitDir = ".git"
+			return &c
+		}},
+		{"in-repo", "git_dir: .git\nworktree_dir: .worktrees\nshared_dir: .worktrees/shared\n", func() *Config {
+			c := DefaultConfig()
+			c.GitDir = ".git"
+			c.SetWorktreeDir(".worktrees")
+			c.SetSharedDir(".worktrees/shared")
+			return &c
+		}},
+		{"bare with custom dirs", "git_dir: .bare\nworktree_dir: trees\nshared_dir: common\n", func() *Config {
+			c := DefaultConfig()
+			c.SetWorktreeDir("trees")
+			c.SetSharedDir("common")
+			return &c
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			existing, err := Parse([]byte("version: 1\nmain_branch: develop\n" + tt.layout + extra))
+			if err != nil {
+				t.Fatal(err)
+			}
+			dir := t.TempDir()
+			if err := WriteAnnotatedWithValues(dir, existing.LayoutOnly(), "dev"); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Load(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := tt.want()
+			want.MainBranch = "develop"
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("written config = %+v, want %+v", got, want)
+			}
+		})
 	}
 }
