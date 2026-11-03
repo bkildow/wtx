@@ -68,12 +68,11 @@ homebrew_casks:
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wt"]
           end
 
+# scripts/release creates the GitHub release with GitHub's generated notes
+# before the tag push starts this run; keep-existing leaves those notes alone.
+# github-native gives a bare tag push the same notes.
+release:
+  mode: keep-existing
+
 changelog:
-  sort: asc
-  filters:
-    exclude:
-      - "^docs:"
-      - "^chore:"
-      - "^ci:"
-      - "^test:"
-      - "^Merge"
+  use: github-native

@@ -15,10 +15,10 @@
 
 ---
 
-> ### Migrating from `wt` to `wtx` (v0.12.0)
+> ### Migrating from `wt` to `wtx`
 >
-> v0.12.0 is the last release before v1.0.0 removes the `wt` shim, the `wt`
-> cask, and the legacy `WT_*` script variables. Migrate now:
+> v1.0.0 removes the `wt` shim, the `wt` cask, and the legacy `WT_*` script
+> variables. Migrate now:
 >
 > - `wtx` is the command. The deprecated `wt` shim still works but prints a
 >   deprecation banner on every run (`WTX_NO_DEPRECATION_WARN=1` silences it).
@@ -843,12 +843,12 @@ header pointing at the schema for the wtx release that wrote them (`main` for
 development builds):
 
 ```yaml
-# yaml-language-server: $schema=https://raw.githubusercontent.com/bkildow/wtx/v0.12.0/schema/worktree.schema.json
+# yaml-language-server: $schema=https://raw.githubusercontent.com/bkildow/wtx/main/schema/worktree.schema.json
 ```
 
 To add it to an existing config, paste that line at the top of
-`.worktree.yml`, replacing `v0.12.0` with your wtx version's tag (see
-`wtx --version`) or with `main` to track the latest schema.
+`.worktree.yml`. It tracks the latest schema; to pin it, replace `main` with
+your wtx version's tag (see `wtx --version`).
 
 <a id="path-rules"></a>
 
