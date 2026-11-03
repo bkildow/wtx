@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -42,12 +43,45 @@ func GitVars() []string {
 // under a new temporary directory, which it returns. It clears every GIT_*,
 // WTX_* and WT_* variable the caller inherited (a test run from a git hook
 // or a wtx run script would otherwise see that repository or worktree), then
-// sets GitVars and an empty global git config.
+// sets GitVars and an empty global git config. The Go toolchain's module
+// and build caches stay where they were (see goVars).
 func Isolate() (string, error) {
 	dir, err := os.MkdirTemp("", "wtx-test-")
 	if err != nil {
 		return "", err
 	}
+	if err := isolate(dir); err != nil {
+		_ = os.RemoveAll(dir)
+		return "", err
+	}
+	return dir, nil
+}
+
+// goVars pins the Go toolchain's per-user directories to where they are
+// before HOME moves. Without it a test that runs `go build` (the e2e binary
+// tests) would download every module and rebuild the cache under the temp
+// home. It asks the go command, so values set with `go env -w` carry over.
+func goVars() []string {
+	names := []string{"GOPATH", "GOMODCACHE", "GOCACHE", "GOENV"}
+	out, err := exec.Command("go", append([]string{"env"}, names...)...).Output()
+	if err != nil {
+		return nil
+	}
+	values := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(values) != len(names) {
+		return nil
+	}
+	var vars []string
+	for i, name := range names {
+		if values[i] != "" {
+			vars = append(vars, name+"="+values[i])
+		}
+	}
+	return vars
+}
+
+func isolate(dir string) error {
+	goEnv := goVars()
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
 		if strings.HasPrefix(name, "GIT_") || strings.HasPrefix(name, "WTX_") || strings.HasPrefix(name, "WT_") {
@@ -56,22 +90,20 @@ func Isolate() (string, error) {
 	}
 	gitconfig := filepath.Join(dir, "gitconfig")
 	if err := os.WriteFile(gitconfig, nil, 0o644); err != nil {
-		return "", err
+		return err
 	}
 	vars := append(GitVars(), "GIT_CONFIG_GLOBAL="+gitconfig)
+	vars = append(vars, goEnv...)
 	for name, sub := range homes {
 		vars = append(vars, name+"="+filepath.Join(dir, sub))
 	}
 	for _, kv := range vars {
 		name, value, _ := strings.Cut(kv, "=")
 		if err := os.Setenv(name, value); err != nil {
-			return "", err
+			return err
 		}
 	}
-	if err := os.MkdirAll(filepath.Join(dir, homes["HOME"]), 0o755); err != nil {
-		return "", err
-	}
-	return dir, nil
+	return os.MkdirAll(filepath.Join(dir, homes["HOME"]), 0o755)
 }
 
 // Main runs m under Isolate and exits with its result. A test that writes

@@ -78,7 +78,7 @@ A failing check names what to use instead. When the user corrects a mistake, fix
 | Only `internal/config` and `internal/project` write config path fields; others read a Clone's resolved dirs | `internal/project/pathfields_test.go` |
 | Git runs only through `Runner.command` or `gitAt` | `internal/git/exec_ratchet_test.go` (ratchet: no new hand-built git commands) |
 | One `git worktree list` per command | `cmd/worktree_list_count_test.go` |
-| Tests never see the real HOME, `~/.wtx`, git config or an enclosing wtx/git environment | `internal/testenv.Main` in every package's `TestMain`, required by `internal/testenv/coverage_test.go`; it also fails a run that writes under the shared home |
+| Tests never see the real HOME, `~/.wtx`, git config or an enclosing wtx/git environment | `internal/testenv.Main` in every package's `TestMain` (`testenv.Isolate` in e2e), required by `internal/testenv/coverage_test.go`; `Main` also fails a run that writes under the shared home |
 | The agent skill is never named `SKILL.md`; its frontmatter matches `skills/wtx/SKILL.md` | `cmd/skill_test.go` |
 | A command that loops over worktrees, branches or batches reports a failed item and carries on (an error row or warning), so one bad worktree never aborts the rest | Judgment, nothing enforces it |
 | `/simplify` and `/code-review --fix` run before every commit and stay inside the plan | Judgment, nothing enforces it |

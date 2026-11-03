@@ -19,15 +19,18 @@ import (
 func TestMain(m *testing.M) {
 	// testscript re-runs this binary as "wtx" inside each script, whose
 	// environment the script sets; isolate only the top-level test run.
-	// testscript.Main exits the process, so the temp dir Isolate made is
-	// left for the OS to clean; a deferred RemoveAll would never run.
+	// testscript.Main exits the process, so a deferred RemoveAll would never
+	// run; removeAfter deletes Isolate's temp dir once the tests finish.
+	var tm testscript.TestingM = m
 	if filepath.Base(os.Args[0]) != "wtx" {
-		if _, err := testenv.Isolate(); err != nil {
+		dir, err := testenv.Isolate()
+		if err != nil {
 			fmt.Fprintln(os.Stderr, "testenv:", err)
 			os.Exit(1)
 		}
+		tm = removeAfter{m, dir}
 	}
-	testscript.Main(m, map[string]func(){
+	testscript.Main(tm, map[string]func(){
 		"wtx": func() {
 			// Mirror cmd/wtx/main.go so scripts can assert on error text.
 			if err := cmd.Execute(); err != nil {
@@ -38,6 +41,18 @@ func TestMain(m *testing.M) {
 			}
 		},
 	})
+}
+
+// removeAfter runs the tests, then deletes the isolated temp dir.
+type removeAfter struct {
+	m   *testing.M
+	dir string
+}
+
+func (r removeAfter) Run() int {
+	code := r.m.Run()
+	_ = os.RemoveAll(r.dir)
+	return code
 }
 
 func TestScripts(t *testing.T) {

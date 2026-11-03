@@ -34,7 +34,7 @@ func TestCommandsReadThroughTheClone(t *testing.T) {
 		}
 		for i, line := range strings.Split(string(data), "\n") {
 			call := rawLoad.FindString(line)
-			if call == "" || strings.Contains(line, rawLoadAllowed) || strings.HasPrefix(line, "func ") {
+			if call == "" || strings.Contains(line, rawLoadAllowed) || strings.HasPrefix(line, "func "+call) {
 				continue
 			}
 			t.Errorf("cmd/%s:%d calls %s; open the Clone with openClone(ctx), or project.OpenAt(ctx, root, ...) for a known root, and use its Config(), Runner() and Root(). "+

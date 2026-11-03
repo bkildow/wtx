@@ -41,6 +41,6 @@ func TestGitCommandsUseTheBuilders(t *testing.T) {
 	case inside > gitExecBaseline:
 		t.Errorf("internal/git builds %d git commands by hand, more than the %d allowed; build the new one with Runner.command (or gitAt for git -C) so it honors BatchMode, Quiet and dry-run", inside, gitExecBaseline)
 	case inside < gitExecBaseline:
-		t.Logf("internal/git builds %d git commands by hand; lower gitExecBaseline to %d", inside, inside)
+		t.Errorf("internal/git builds %d git commands by hand; lower gitExecBaseline to %d so the freed slot cannot be reused", inside, inside)
 	}
 }
