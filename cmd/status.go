@@ -91,12 +91,9 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			entry.Error = gitErrorReason(gitErr)
 		}
 
-		// An unreadable state is reported like a missing one. The recorded
-		// log path goes stale when the worktree moves, so report where the
-		// log is now, or "" when there is none.
-		if entry.Setup, _ = project.ResolveSetupStatus(wt.Path); entry.Setup != nil {
-			entry.Setup.LogFile = project.SetupLog(wt.Path, entry.Setup)
-		}
+		// An unreadable state is reported like a missing one.
+		entry.Setup, _ = project.ResolveSetupStatus(wt.Path)
+		reportCurrentLog(wt.Path, entry.Setup)
 		entries = append(entries, entry)
 	}
 
@@ -144,6 +141,15 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 	warnLowDisk(projectRoot, cfg)
 	return nil
+}
+
+// reportCurrentLog points a setup state's LogFile at where the log is now, or
+// "" when there is none, for JSON output: the recorded path goes stale when
+// the worktree moves.
+func reportCurrentLog(worktreePath string, state *project.SetupState) {
+	if state != nil {
+		state.LogFile = project.SetupLog(worktreePath, state)
+	}
 }
 
 // setupFailureHint tells the user where to look after a failed setup. Only a

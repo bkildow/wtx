@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -12,6 +11,7 @@ import (
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/termstatus"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
 )
@@ -228,28 +228,32 @@ func runSetupForeground(cmd *cobra.Command, cfg *config.Config, env project.Proj
 	worktreePath := env.Vars.WorktreePath
 	startedAt := time.Now()
 
-	var setupErr error
-	setupErr = project.RunSetupHooks(ctx, cfg, env, dry, nil)
-	if pErr := project.RunParallelSetupHooks(ctx, cfg, env, dry); pErr != nil {
-		setupErr = errors.Join(setupErr, pErr)
+	// Record progress as background setup does, so wtx wait and wtx status
+	// see a foreground run too, and report it to this terminal. An empty
+	// LogFile marks the run as foreground: wtx remove leaves it alone.
+	var term *termstatus.Terminal
+	state := &project.SetupState{
+		Status:     project.SetupRunning,
+		PID:        os.Getpid(),
+		StartedAt:  startedAt,
+		HooksTotal: len(cfg.Setup) + len(cfg.ParallelSetup),
 	}
-
-	if !dry {
-		state := &project.SetupState{
-			Status:         project.SetupComplete,
-			StartedAt:      startedAt,
-			CompletedAt:    time.Now(),
-			HooksTotal:     len(cfg.Setup) + len(cfg.ParallelSetup),
-			HooksCompleted: len(cfg.Setup) + len(cfg.ParallelSetup),
-		}
-		if setupErr != nil {
-			state.Status = project.SetupFailed
-			state.Error = setupErr.Error()
+	snap := project.SetupSnapshot{SetupTarget: project.SetupTarget{Branch: env.Vars.BranchName, Path: worktreePath}, State: state}
+	record := func() {
+		term.Report(setupReport("", snap))
+		if dry {
+			return
 		}
 		if err := project.WriteSetupState(worktreePath, state); err != nil {
 			ui.Warning("Failed to write setup state: " + err.Error())
 		}
 	}
+	if !dry {
+		term = termstatus.Detect(os.Stderr, os.Getenv)
+	}
+	record()
+
+	setupErr := project.RunRecordedSetup(ctx, cfg, env, dry, state, record)
 
 	elapsed := ui.FormatDuration(time.Since(startedAt))
 	if setupErr != nil {
@@ -313,7 +317,7 @@ func runSetupBackground(projectRoot, worktreePath, branch string, cfg *config.Co
 	}
 
 	ui.Success(msg)
-	ui.Step("Setup is running in the background. Run 'wtx logs " + branch + "' to see its output or 'wtx status' to check progress.")
+	ui.Step("Setup is running in the background. Run 'wtx wait " + branch + "' to wait for it or 'wtx logs " + branch + "' to see its output.")
 	fmt.Println(worktreePath)
 	return nil
 }

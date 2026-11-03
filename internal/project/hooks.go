@@ -3,12 +3,14 @@ package project
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/ui"
@@ -119,6 +121,28 @@ func RunSetupHooks(ctx context.Context, cfg *config.Config, env ProjectEnv, dryR
 		return fmt.Errorf("%d setup hook(s) failed", failCount)
 	}
 	return nil
+}
+
+// RunRecordedSetup runs the setup and parallel setup hooks, keeping state's
+// progress current: after each serial hook, and once more with the outcome.
+// It calls record after every change. The caller records the starting state.
+func RunRecordedSetup(ctx context.Context, cfg *config.Config, env ProjectEnv, dryRun bool, state *SetupState, record func()) error {
+	err := RunSetupHooks(ctx, cfg, env, dryRun, func(index int, _ string, _ error) {
+		state.HooksCompleted = index + 1
+		record()
+	})
+	if pErr := RunParallelSetupHooks(ctx, cfg, env, dryRun); pErr != nil {
+		err = errors.Join(err, pErr)
+	}
+	state.HooksCompleted = state.HooksTotal
+	state.CompletedAt = time.Now()
+	state.Status = SetupComplete
+	if err != nil {
+		state.Status = SetupFailed
+		state.Error = err.Error()
+	}
+	record()
+	return err
 }
 
 // RunTeardownHooks executes each command in cfg.Teardown inside the worktree

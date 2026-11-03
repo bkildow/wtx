@@ -63,7 +63,7 @@ Run git commands inside a worktree. In a Bare layout the project root has no `.g
 
 `wtx add <branch>` checks out the remote branch if one exists and otherwise creates a new branch from `main_branch` (override with `--base-branch <ref>`). It then applies shared files and runs setup hooks.
 
-When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. The worktree is ready when its entry in `wtx status --json` (select it by `branch`) has `.setup.status` of `complete`, or `setup` is `null` when no hooks are configured. `running` means wait and check again; `skipped` means `--skip-setup` left the hooks unrun; `failed` means run `wtx logs <branch>` to read the setup output before working there. `wtx setup <name> --foreground` re-runs setup.
+When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--foreground` whenever you will build or test in the new worktree right away. Otherwise run `wtx wait <branch> --timeout 90s` before working there and branch on its exit status: `0` ready (setup complete, skipped, or none recorded); `75` still running, so run the same command again; `2` setup failed, so run `wtx logs <branch>` to read the setup output before working there. `--json` adds the final `setup` record on stdout. `wtx setup <name> --foreground` re-runs setup.
 
 ## Removing worktrees
 

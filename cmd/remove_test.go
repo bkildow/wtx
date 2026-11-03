@@ -52,6 +52,17 @@ func TestTerminateBackgroundSetup(t *testing.T) {
 		t.Fatalf("could not write setup state: %v", err)
 	}
 
+	// A foreground setup (no log file) belongs to another terminal's wtx add.
+	terminateBackgroundSetup(worktree, "feature-x", false)
+	if !project.IsProcessAlive(pid) {
+		t.Fatal("terminateBackgroundSetup killed a foreground setup")
+	}
+
+	state.LogFile = project.SetupLogPath(worktree)
+	if err := project.WriteSetupState(worktree, state); err != nil {
+		t.Fatalf("could not write setup state: %v", err)
+	}
+
 	terminateBackgroundSetup(worktree, "feature-x", true)
 	if !project.IsProcessAlive(pid) {
 		t.Fatal("dry-run terminateBackgroundSetup killed the setup process; it must only report")

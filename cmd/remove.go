@@ -126,13 +126,15 @@ func runTeardownHooks(ctx context.Context, cfg *config.Config, env project.Proje
 }
 
 // terminateBackgroundSetup kills an in-progress background setup process.
-// Under dry-run it reports the process it would signal and leaves it running.
+// A foreground setup (no log file) is someone's wtx add or wtx setup in
+// another terminal, so it is left alone. Under dry-run it reports the process
+// it would signal and leaves it running.
 func terminateBackgroundSetup(worktreePath, branch string, dryRun bool) {
 	state, err := project.ReadSetupState(worktreePath)
 	if err != nil || state == nil {
 		return
 	}
-	if state.Status != project.SetupRunning {
+	if state.Status != project.SetupRunning || state.LogFile == "" {
 		return
 	}
 
