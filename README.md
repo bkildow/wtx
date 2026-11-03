@@ -476,15 +476,15 @@ Lists every worktree. In a checkout, the project root is the first row, marked `
   "schema_version": 1,
   "project_root": "/home/me/code/app",
   "worktrees": [
-    {"branch": "main", "path": "/home/me/code/app", "head": "4f2c…", "project_root": true},
-    {"branch": "feature/auth", "path": "/home/me/.wtx/app/worktrees/feature/auth", "head": "9a1e…", "project_root": false}
+    {"branch": "main", "path": "/home/me/code/app", "head": "4f2c…", "is_project_root": true},
+    {"branch": "feature/auth", "path": "/home/me/.wtx/app/worktrees/feature/auth", "head": "9a1e…", "is_project_root": false}
   ]
 }
 ```
 
 - `path` is absolute and `head` is the full commit hash.
 - `branch` is `""` for a detached HEAD.
-- `project_root` is `true` only for the project root in a checkout; a bare project has no such entry.
+- `is_project_root` is `true` only for the project root in a checkout; a bare project has no such entry. The top-level `project_root` is the project root's path.
 - An empty project gives `"worktrees": []`.
 
 Fields may be added without notice; renaming or removing one bumps `schema_version`.
@@ -592,7 +592,6 @@ Also warns when the project's filesystem is running low on space — see [Low Di
       "last_commit_age": "2 hours ago",
       "setup": {
         "status": "failed",
-        "pid": 41237,
         "started_at": "2026-10-30T09:12:04-04:00",
         "completed_at": "2026-10-30T09:13:40-04:00",
         "hooks_total": 2,
@@ -606,7 +605,7 @@ Also warns when the project's filesystem is running low on space — see [Low Di
 ```
 
 - `path` is absolute and `head` is the full commit hash.
-- `setup` is the worktree's `.wtx-setup.json` record, or `null` when setup has not run (the table's `-`). `status` is `running`, `complete`, `failed` or `skipped`; `completed_at` and `error` appear only when set. `log_file` is where the background setup log is now, or `""` when there is none.
+- `setup` is the worktree's setup record, or `null` when setup has not run (the table's `-`). A `.wtx-setup.json` that cannot be read reports `"status": "failed"` with `error` starting `cannot read setup state:`. `status` is `running`, `complete`, `failed` or `skipped`; `started_at`, `completed_at` and `error` appear only when set. `log_file` is where the background setup log is now, or `""` when there is none.
 - `upstream` is the tracked branch's short name, and `ahead`/`behind` count commits against it from the last fetch. All three are `null` when the branch has no upstream (the table's `-`). When the upstream is gone, `upstream` keeps its name and `ahead`/`behind` are `null`.
 - When git cannot read a worktree, its entry stays: `dirty`, `upstream` or `last_commit_age` is `null` and `error` gives the one-line reason. `error` is omitted otherwise, and the command still exits 0.
 - An empty project gives `"worktrees": []`.

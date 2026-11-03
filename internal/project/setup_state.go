@@ -151,6 +151,18 @@ func ResolveSetupStatus(worktreePath string) (*SetupState, error) {
 	return state, nil
 }
 
+// ObserveSetupState is the setup state to report for a worktree: nil when no
+// setup is recorded, and a failed state when the record cannot be read, so
+// nothing treats a worktree with a corrupt record as ready. That failed state
+// has no times: the record does not say when setup started or ended.
+func ObserveSetupState(worktreePath string) *SetupState {
+	state, err := ResolveSetupStatus(worktreePath)
+	if err != nil {
+		return &SetupState{Status: SetupFailed, Error: "cannot read setup state: " + err.Error()}
+	}
+	return state
+}
+
 // ResolveDeadSetupProcess updates only a running record whose process has exited.
 func ResolveDeadSetupProcess(state *SetupState) bool {
 	if state.Status == SetupRunning && !IsProcessAlive(state.PID) {

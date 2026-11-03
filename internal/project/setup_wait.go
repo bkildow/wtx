@@ -89,12 +89,10 @@ func SetupSnapshotsSettled(snaps []SetupSnapshot) bool {
 // read, so a running state that disappears is reported as failed.
 func readSetupSnapshot(t SetupTarget, prev *SetupState) SetupSnapshot {
 	snap := SetupSnapshot{SetupTarget: t}
-	state, err := ResolveSetupStatus(t.Path)
+	state := ObserveSetupState(t.Path)
 	switch {
 	case state == nil && !exists(t.Path):
 		snap.State = failedSetupState("worktree was removed")
-	case err != nil:
-		snap.State = failedSetupState("cannot read setup state: " + err.Error())
 	case state == nil && prev != nil && prev.Status == SetupRunning:
 		snap.State = failedSetupState("setup state disappeared")
 	case state == nil:

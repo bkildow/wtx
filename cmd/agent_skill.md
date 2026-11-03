@@ -57,7 +57,7 @@ Run git commands inside a worktree. In a Bare layout the project root has no `.g
 
 ## Paths and navigation
 
-`wtx cd <name>` prints a path and changes nothing. Move with `cd "$(wtx cd <name>)"`. `wtx cd .` prints the current worktree and `wtx root` prints the project root. In a project set up with `wtx init` on a checkout, the main worktree is the project root: `wtx cd main` and `wtx open main` resolve to it, and `wtx list --json` gives it `"project_root": true`. It is not a managed worktree, so `wtx apply`, `wtx remove` and `wtx setup` reject it.
+`wtx cd <name>` prints a path and changes nothing. Move with `cd "$(wtx cd <name>)"`. `wtx cd .` prints the current worktree and `wtx root` prints the project root. In a project set up with `wtx init` on a checkout, the main worktree is the project root: `wtx cd main` and `wtx open main` resolve to it, and `wtx list --json` gives it `"is_project_root": true`. It is not a managed worktree, so `wtx apply`, `wtx remove` and `wtx setup` reject it.
 
 ## Creating a worktree
 
@@ -113,7 +113,7 @@ Hooks run in the worktree via `sh -c` with the `WTX_*` variables `wtx run --help
 
 ## Project health
 
-- `wtx status --json` reports every managed worktree's `branch`, `path`, `head`, `dirty`, `upstream`, `ahead`, `behind`, `last_commit_age` and `setup` state. `ahead`/`behind` count commits against `upstream` (e.g. `origin/main` for a branch not yet pushed with `-u`) from the last fetch, without fetching; run `git fetch` in a worktree first for fresh counts (not `wtx sync`, which also pulls into every clean worktree that is behind). All three are null with no upstream; a gone upstream keeps `upstream` with null counts. A worktree git cannot read keeps its entry, with `dirty`, `upstream` or `last_commit_age` null and a one-line `error`. Read this instead of the `wtx status` table, whose columns change.
+- `wtx status --json` reports every managed worktree's `branch`, `path`, `head`, `dirty`, `upstream`, `ahead`, `behind`, `last_commit_age` and `setup` state. `setup` is `null` only when no setup was recorded; an unreadable record reports `"status": "failed"` with an `error`, so never treat it as ready. `ahead`/`behind` count commits against `upstream` (e.g. `origin/main` for a branch not yet pushed with `-u`) from the last fetch, without fetching; run `git fetch` in a worktree first for fresh counts (not `wtx sync`, which also pulls into every clean worktree that is behind). All three are null with no upstream; a gone upstream keeps `upstream` with null counts. A worktree git cannot read keeps its entry, with `dirty`, `upstream` or `last_commit_age` null and a one-line `error`. Read this instead of the `wtx status` table, whose columns change.
 - `wtx logs <name>` prints a worktree's background setup log to stdout. Foreground setup prints to the terminal and keeps no log.
 - `wtx doctor --json` reports project health and wt-to-wtx migration readiness, and changes nothing. `wtx doctor --help` covers repairs.
 - `wtx doctor --migrate-home` moves an in-repo project (`init --in-repo`, or `worktrees/` and `shared/` at the repository root) to `~/.wtx/<name>/`. Only run it when the user asks; preview with `wtx --dry-run doctor --migrate-home`.

@@ -62,7 +62,8 @@ func TestListJSONCheckoutLayout(t *testing.T) {
 	root := filepath.Dir(filepath.Dir(worktree))
 
 	var report listReport
-	decodeJSON(t, runJSON(t, newListCmd), &report)
+	out := runJSON(t, newListCmd)
+	decodeJSON(t, out, &report)
 
 	if report.SchemaVersion != 1 {
 		t.Errorf("schema_version = %d, want 1", report.SchemaVersion)
@@ -74,14 +75,18 @@ func TestListJSONCheckoutLayout(t *testing.T) {
 		t.Fatalf("got %d worktrees, want 2: %+v", len(report.Worktrees), report.Worktrees)
 	}
 	main, feature := report.Worktrees[0], report.Worktrees[1]
-	if !main.ProjectRoot || !samePath(t, main.Path, root) || main.Branch == "" {
+	if !main.IsProjectRoot || !samePath(t, main.Path, root) || main.Branch == "" {
 		t.Errorf("project root entry = %+v", main)
 	}
-	if feature.ProjectRoot || feature.Branch != "feature" || !samePath(t, feature.Path, worktree) {
+	if feature.IsProjectRoot || feature.Branch != "feature" || !samePath(t, feature.Path, worktree) {
 		t.Errorf("feature entry = %+v", feature)
 	}
 	if len(feature.Head) != 40 {
 		t.Errorf("head %q should be the full hash", feature.Head)
+	}
+	// project_root names only the top-level path; entries use is_project_root.
+	if strings.Count(out, `"project_root"`) != 1 || !strings.Contains(out, `"is_project_root": true`) {
+		t.Errorf("want one top-level project_root and is_project_root on entries:\n%s", out)
 	}
 }
 
@@ -93,7 +98,7 @@ func TestListJSONBareLayout(t *testing.T) {
 
 	branches := map[string]bool{}
 	for _, wt := range report.Worktrees {
-		if wt.ProjectRoot {
+		if wt.IsProjectRoot {
 			t.Errorf("bare layout has a project root entry: %+v", wt)
 		}
 		if !filepath.IsAbs(wt.Path) {

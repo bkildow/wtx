@@ -33,17 +33,18 @@ type statusReport struct {
 // statusEntry is one Managed worktree's status. Dirty and LastCommitAge are
 // nil when git could not read them, and Error says why. Upstream is nil when
 // the branch has none; Ahead and Behind are nil then and when it is gone.
+// Setup is nil when no setup is recorded; an unreadable record is a failed one.
 type statusEntry struct {
-	Branch        string              `json:"branch"`
-	Path          string              `json:"path"`
-	Head          string              `json:"head"`
-	Dirty         *bool               `json:"dirty"`
-	Upstream      *string             `json:"upstream"`
-	Ahead         *int                `json:"ahead"`
-	Behind        *int                `json:"behind"`
-	LastCommitAge *string             `json:"last_commit_age"`
-	Setup         *project.SetupState `json:"setup"`
-	Error         string              `json:"error,omitempty"`
+	Branch        string     `json:"branch"`
+	Path          string     `json:"path"`
+	Head          string     `json:"head"`
+	Dirty         *bool      `json:"dirty"`
+	Upstream      *string    `json:"upstream"`
+	Ahead         *int       `json:"ahead"`
+	Behind        *int       `json:"behind"`
+	LastCommitAge *string    `json:"last_commit_age"`
+	Setup         *setupJSON `json:"setup"`
+	Error         string     `json:"error,omitempty"`
 
 	// The table renders the upstream lookup itself: a failed lookup and a
 	// missing upstream both leave Upstream nil.
@@ -91,9 +92,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			entry.Error = gitErrorReason(gitErr)
 		}
 
-		// An unreadable state is reported like a missing one.
-		entry.Setup, _ = project.ResolveSetupStatus(wt.Path)
-		reportCurrentLog(wt.Path, entry.Setup)
+		entry.Setup = newSetupJSON(wt.Path, project.ObserveSetupState(wt.Path))
 		entries = append(entries, entry)
 	}
 
@@ -130,7 +129,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			hints = append(hints, "Could not read status for "+entry.Branch+": "+entry.Error)
 		}
 		if entry.Setup != nil && entry.Setup.Status == project.SetupFailed {
-			hints = append(hints, setupFailureHint(entry.Branch, entry.Path, entry.Setup))
+			hints = append(hints, setupFailureHint(entry.Branch, entry.Setup))
 		}
 
 		t.Row(entry.Branch, paths.Path(entry.Path), shortHead(entry.Head), styledStatus, renderUpstream(entry.Branch, entry.upstream, entry.upstreamErr), renderSetupStatus(entry.Setup), age)
@@ -143,23 +142,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// reportCurrentLog points a setup state's LogFile at where the log is now, or
-// "" when there is none, for JSON output: the recorded path goes stale when
-// the worktree moves.
-func reportCurrentLog(worktreePath string, state *project.SetupState) {
-	if state != nil {
-		state.LogFile = project.SetupLog(worktreePath, state)
-	}
-}
-
 // setupFailureHint tells the user where to look after a failed setup. Only a
 // background run has a log; a foreground run printed its output to the terminal.
-func setupFailureHint(branch, worktreePath string, state *project.SetupState) string {
+func setupFailureHint(branch string, setup *setupJSON) string {
 	hint := "Setup failed for " + branch
-	if firstLine, _, _ := strings.Cut(state.Error, "\n"); firstLine != "" {
+	if firstLine, _, _ := strings.Cut(setup.Error, "\n"); firstLine != "" {
 		hint += ": " + firstLine
 	}
-	if project.SetupLog(worktreePath, state) != "" {
+	if setup.LogFile != "" {
 		return hint + " — run 'wtx logs " + branch + "'"
 	}
 	return hint + " — re-run with 'wtx setup " + branch + " --foreground'"
@@ -210,7 +200,7 @@ func renderUpstream(branch string, up git.UpstreamStatus, err error) string {
 	return cell
 }
 
-func renderSetupStatus(state *project.SetupState) string {
+func renderSetupStatus(state *setupJSON) string {
 	if state == nil {
 		return ui.StyleMuted.Render("-")
 	}
