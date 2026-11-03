@@ -41,7 +41,6 @@ func TestRenameShellCompatibility(t *testing.T) {
 	}
 	gitRun := func(args ...string) {
 		c := exec.Command("git", args...)
-		c.Env = gitEnv()
 		if out, err := c.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}

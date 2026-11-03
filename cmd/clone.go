@@ -55,7 +55,7 @@ func runClone(cmd *cobra.Command, args []string) error {
 	// Clone bare
 	bareDir := filepath.Join(projectRoot, config.DefaultGitDir)
 	ui.Step("Cloning bare repository")
-	runner := git.NewRunner(bareDir, dry)
+	runner := git.NewRunner(bareDir, dry) // raw-load: creates the bare repo, before any Clone exists
 	if err := runner.CloneBare(ctx, url, bareDir); err != nil {
 		return err
 	}

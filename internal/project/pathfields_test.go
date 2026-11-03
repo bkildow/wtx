@@ -1,12 +1,11 @@
 package project
 
 import (
-	"io/fs"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/bkildow/wtx/internal/testenv"
 )
 
 // pathFieldWrite matches an assignment to worktree_dir or shared_dir, alone
@@ -28,33 +27,9 @@ var clonePathRead = regexp.MustCompile(`\.Config\(\)\.(WorktreeDir|SharedDir|Git
 // a Config from a ConfigPaths, and doctor compares the spellings of a
 // rewritten .worktree.yml with the ones it meant to write.
 func TestPathFieldsWrittenOnlyInProject(t *testing.T) {
-	moduleRoot, err := filepath.Abs(filepath.Join("..", ".."))
-	if err != nil {
-		t.Fatal(err)
-	}
-	allowed := []string{filepath.Join("internal", "project"), filepath.Join("internal", "config")}
-	err = filepath.WalkDir(moduleRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(moduleRoot, path)
-		if d.IsDir() {
-			if strings.HasPrefix(d.Name(), ".") && rel != "." {
-				return filepath.SkipDir
-			}
-			for _, dir := range allowed {
-				if rel == dir {
-					return filepath.SkipDir
-				}
-			}
-			return nil
-		}
-		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
+	testenv.GoFiles(t, func(rel string, data []byte) {
+		if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, "internal/project/") || strings.HasPrefix(rel, "internal/config/") {
+			return
 		}
 		for i, line := range strings.Split(string(data), "\n") {
 			if pathFieldWrite.MatchString(line) {
@@ -64,9 +39,5 @@ func TestPathFieldsWrittenOnlyInProject(t *testing.T) {
 				t.Errorf("%s:%d reads a path spelling from Clone.Config(); use the Clone's accessor: %s", rel, i+1, strings.TrimSpace(line))
 			}
 		}
-		return nil
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
 }

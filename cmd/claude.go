@@ -358,7 +358,7 @@ func readHookPayload(r io.Reader) (hookPayload, error) {
 // resolveProjectRoot determines the project root from the hook payload.
 func resolveProjectRoot(payload hookPayload) (string, error) {
 	if payload.Cwd != "" {
-		root, err := project.FindRoot(payload.Cwd)
+		root, err := project.FindRoot(payload.Cwd) // raw-load: the root comes from the hook payload's cwd; the caller opens it with OpenAt
 		if err == nil {
 			return root, nil
 		}
