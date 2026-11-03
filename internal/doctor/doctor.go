@@ -94,7 +94,6 @@ type inspection struct {
 	report       Report
 	repairs      []repair
 	guards       []snapshot
-	seenSettings map[string]bool
 	seenScan     map[string]bool
 	seenLinks    map[string]bool
 	gitDir       string // resolved Git directory, excluded from scans
@@ -229,7 +228,7 @@ func (s *inspection) problem(id, path string, err error) {
 var (
 	worktreeChecks = []string{"home.layout", "git.compatibility", "git.branches", "shared.copy", "shared.symlink", "setup.state"}
 	gitChecks      = append([]string{"git.worktrees", "git.exclude"}, worktreeChecks...)
-	configChecks   = append([]string{"home.paths", "home.marker", "home.orphans", "scripts", "teardown", "disk", "migration.references", "claude.hooks"}, gitChecks...)
+	configChecks   = append([]string{"home.paths", "home.marker", "home.orphans", "scripts", "teardown", "disk", "migration.references"}, gitChecks...)
 )
 
 func (s *inspection) blocked(ids ...string) {
@@ -239,7 +238,7 @@ func (s *inspection) blocked(ids ...string) {
 }
 
 func inspect(ctx context.Context, opts Options) *inspection {
-	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenSettings: map[string]bool{}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}, seenBlobs: map[string]bool{}}
+	s := &inspection{report: Report{SchemaVersion: 1, Scope: "project", Findings: []Finding{}, Repairs: []RepairOutcome{}}, seenScan: map[string]bool{}, seenLinks: map[string]bool{}, resolvedDirs: map[string]string{}, seenBlobs: map[string]bool{}}
 	if opts.User {
 		s.report.Scope = "user"
 		if opts.Fix || opts.MigrateHome {
@@ -306,7 +305,6 @@ func inspect(ctx context.Context, opts Options) *inspection {
 	s.scripts()
 	s.disk()
 	s.teardown(root)
-	s.claudeSettings(root)
 	s.scanProject()
 	runner := clone.Runner()
 	s.gitVersion(ctx)
@@ -373,7 +371,7 @@ func inspect(ctx context.Context, opts Options) *inspection {
 			s.shared(wt.Path, f)
 			s.teardown(wt.Path)
 		}
-		s.claudeSettings(wt.Path)
+		s.scanLocalClaudeSettings(wt.Path)
 		s.scanTracked(wt.Path, f)
 	}
 	if opts.MigrateHome {

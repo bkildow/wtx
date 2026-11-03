@@ -87,16 +87,10 @@ worktree_dir: worktrees
 shared_dir: shared
 -- probe.sh --
 #!/bin/sh
-# Both prefixes must be exported and agree, including empty worktree values.
+# Every variable is exported, including empty worktree values.
 set -eu
-[ "${WTX_SCRIPT_NAME?}" = "${WT_SCRIPT_NAME?}" ]
-[ "${WTX_PROJECT_ROOT?}" = "${WT_PROJECT_ROOT?}" ]
-[ "${WTX_WORKTREE_PATH?}" = "${WT_WORKTREE_PATH?}" ]
-[ "${WTX_WORKTREE_ID?}" = "${WT_WORKTREE_ID?}" ]
-[ "${WTX_BRANCH_NAME?}" = "${WT_BRANCH_NAME?}" ]
-[ "${WTX_SHARED_PATH?}" = "${WT_SHARED_PATH?}" ]
-[ "${WTX_MAIN_BRANCH?}" = "${WT_MAIN_BRANCH?}" ]
-[ "${WTX_MAIN_WORKTREE_PATH?}" = "${WT_MAIN_WORKTREE_PATH?}" ]
+: "${WTX_SCRIPT_NAME?}" "${WTX_PROJECT_ROOT?}" "${WTX_WORKTREE_PATH?}" "${WTX_WORKTREE_ID?}"
+: "${WTX_BRANCH_NAME?}" "${WTX_SHARED_PATH?}" "${WTX_MAIN_BRANCH?}" "${WTX_MAIN_WORKTREE_PATH?}"
 {
   echo "name=$WTX_SCRIPT_NAME"
   echo "root=$WTX_PROJECT_ROOT"

@@ -132,16 +132,16 @@ type ProjectEnv struct {
 	Stdin io.Reader
 }
 
-// environ returns the variables as NAME=value, without a prefix.
+// environ returns the WTX_* variables as NAME=value.
 func (e ProjectEnv) environ() []string {
 	return []string{
-		"PROJECT_ROOT=" + e.Vars.ProjectRoot,
-		"SHARED_PATH=" + e.SharedPath,
-		"MAIN_BRANCH=" + e.MainBranch,
-		"MAIN_WORKTREE_PATH=" + e.MainWorktreePath,
-		"WORKTREE_PATH=" + e.Vars.WorktreePath,
-		"WORKTREE_ID=" + e.Vars.WorktreeID,
-		"BRANCH_NAME=" + e.Vars.BranchName,
+		"WTX_PROJECT_ROOT=" + e.Vars.ProjectRoot,
+		"WTX_SHARED_PATH=" + e.SharedPath,
+		"WTX_MAIN_BRANCH=" + e.MainBranch,
+		"WTX_MAIN_WORKTREE_PATH=" + e.MainWorktreePath,
+		"WTX_WORKTREE_PATH=" + e.Vars.WorktreePath,
+		"WTX_WORKTREE_ID=" + e.Vars.WorktreeID,
+		"WTX_BRANCH_NAME=" + e.Vars.BranchName,
 	}
 }
 
@@ -151,24 +151,19 @@ type ScriptRun struct {
 	Path       string   // absolute path to the executable
 	Args       []string // pass-through arguments
 	Dir        string   // working directory for the script
-	ProjectEnv          // exported as WTX_* and WT_* environment variables
+	ProjectEnv          // exported as WTX_* environment variables
 }
 
-// ScriptEnv returns the WTX_* and legacy WT_* variables exported to a script.
+// ScriptEnv returns the WTX_* variables exported to a script.
 func ScriptEnv(run ScriptRun) []string {
-	values := append([]string{"SCRIPT_NAME=" + run.Name}, run.environ()...)
-	env := make([]string, 0, 2*len(values))
-	for _, value := range values {
-		env = append(env, "WTX_"+value, "WT_"+value)
-	}
-	return env
+	return append([]string{"WTX_SCRIPT_NAME=" + run.Name}, run.environ()...)
 }
 
 // RunScript executes the script with run.Stdin, stdout and stderr attached. The
 // script's stdout goes to the process stdout (not ui.Output) so that
-// `wt run export > file` and `$(wt run ...)` capture script output while wt's
+// `wtx run export > file` and `$(wtx run ...)` capture script output while wtx's
 // own messages stay on stderr. The process inherits the parent environment
-// plus the WTX_* and WT_* variables. A non-zero exit is returned as an error carrying
+// plus the WTX_* variables. A non-zero exit is returned as an error carrying
 // the exit code.
 func RunScript(ctx context.Context, run ScriptRun, dryRun bool) error {
 	return runScript(ctx, run, dryRun, os.Stdout, os.Stderr)

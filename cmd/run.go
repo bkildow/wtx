@@ -33,8 +33,6 @@ and receives these environment variables:
   WTX_WORKTREE_ID         Sanitized branch name (empty outside a worktree)
   WTX_BRANCH_NAME         Branch of the current worktree (empty outside a worktree)
 
-Deprecated WT_ aliases are also exported for compatibility.
-
 Arguments after the script name are passed through to the script verbatim.
 Because of this, wtx flags must come before the script name:
 

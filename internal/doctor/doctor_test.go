@@ -118,7 +118,7 @@ func TestReadOnlyPreviewAndGitRepairs(t *testing.T) {
 		t.Run(fmt.Sprint(bare), func(t *testing.T) {
 			root, gitDir, wt := fixture(t, bare)
 			exclude := filepath.Join(gitDir, "info", "exclude")
-			write(t, exclude, "# custom\nprivate/\n# wt-cli managed files\n.wt-setup.json\n", 0o640)
+			write(t, exclude, "# custom\nprivate/\n", 0o640)
 			if err := os.Chmod(exclude, 0o640); err != nil { //nolint:gosec // Verify preservation of an existing group-readable file.
 				t.Fatal(err)
 			}
@@ -150,7 +150,7 @@ func TestReadOnlyPreviewAndGitRepairs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !bytes.Contains(data, []byte("# custom\nprivate/\n")) || bytes.Contains(data, []byte("# wt-cli")) {
+			if !bytes.Contains(data, []byte("# custom\nprivate/\n")) {
 				t.Fatalf("custom exclusions changed: %s", data)
 			}
 			info, _ := os.Stat(exclude)
@@ -182,23 +182,20 @@ func TestReadOnlyPreviewAndGitRepairs(t *testing.T) {
 
 func TestSetupRecordsAndPartialRepairs(t *testing.T) {
 	root, _, wt := fixture(t, true)
-	legacy := filepath.Join(wt, ".wt-setup.json")
-	write(t, legacy, `{"status":"running","pid":2147483647,"hooks_total":2,"hooks_completed":1}`, 0o640)
-	log := filepath.Join(wt, ".wt-setup.log")
+	state := filepath.Join(wt, project.SetupStateFile)
+	write(t, state, `{"status":"running","pid":2147483647,"hooks_total":2,"hooks_completed":1}`, 0o640)
+	log := filepath.Join(wt, project.SetupLogFile)
 	write(t, log, "keep this log", 0o600)
 	r := Run(context.Background(), Options{StartDir: root, Fix: true})
 	if !r.Unsuccessful(false) {
 		t.Fatal("failed setup must remain unsuccessful")
 	}
-	f := finding(r, "setup.state", legacy)
+	f := finding(r, "setup.state", state)
 	if f == nil || f.Repairable || f.Severity != "fail" {
 		t.Fatalf("bad reconciled state: %+v", f)
 	}
 	if data, _ := os.ReadFile(log); string(data) != "keep this log" {
 		t.Fatal("log changed")
-	}
-	if _, err := os.Stat(filepath.Join(wt, project.SetupStateFile)); !os.IsNotExist(err) {
-		t.Fatal("created new state over legacy state")
 	}
 	write(t, filepath.Join(wt, project.SetupStateFile), fmt.Sprintf(`{"status":"running","pid":%d}`, os.Getpid()), 0o600)
 	before := files(t, root)
@@ -402,6 +399,50 @@ func TestUnlinkedWorktreeInBareRepository(t *testing.T) {
 	}
 	if f := finding(r, "git.worktrees", path); f == nil || f.Severity != "warn" || !strings.Contains(f.Remedy, "prune") {
 		t.Fatalf("unlinked registration: %+v", f)
+	}
+}
+
+func TestScanReportsLegacyClaudeHooks(t *testing.T) {
+	root, _, wt := fixture(t, true)
+	hook := `{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`
+	tracked := filepath.Join(wt, ".claude", "settings.json")
+	local := filepath.Join(wt, ".claude", "settings.local.json")
+	write(t, tracked, hook, 0o600)
+	write(t, local, hook, 0o600)
+	gitRun(t, "-C", wt, "add", ".claude/settings.json")
+	r := Run(context.Background(), Options{StartDir: root})
+	for _, path := range []string{tracked, local} {
+		if f := finding(r, "migration.references", path); f == nil || f.Subject != "wt" {
+			t.Errorf("legacy hook in %s not reported: %+v", path, f)
+		}
+	}
+}
+
+// wtx claude init links each worktree's settings.local.json into shared/:
+// the scan reports it once, at the shared file, and does not count the link
+// as a skipped file.
+func TestScanSharedClaudeSettingsLink(t *testing.T) {
+	root, _, wt := fixture(t, true)
+	clone, err := project.Open(context.Background(), root, project.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shared := filepath.Join(clone.SharedDir(), "symlink", ".claude", "settings.local.json")
+	write(t, shared, `{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`, 0o600)
+	if err := os.MkdirAll(filepath.Join(wt, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(shared, filepath.Join(wt, ".claude", "settings.local.json")); err != nil {
+		t.Fatal(err)
+	}
+	r := Run(context.Background(), Options{StartDir: root})
+	if f := finding(r, "migration.references", shared); f == nil || f.Subject != "wt" {
+		t.Errorf("legacy hook in %s not reported: %+v", shared, f)
+	}
+	for _, f := range r.Findings {
+		if strings.HasPrefix(f.Explanation, "Scan limitation") {
+			t.Errorf("shared settings link counted as skipped: %+v", f)
+		}
 	}
 }
 

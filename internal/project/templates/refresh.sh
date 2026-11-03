@@ -45,9 +45,6 @@
 #   WTX_WORKTREE_ID         Branch name sanitized for filesystem use
 #   WTX_SCRIPT_NAME         "refresh"
 #
-# Legacy WT_* aliases are still exported until v1.0.0 removes them. The
-# examples below use WTX_* only.
-#
 # The examples use docker compose because it is common; substitute the
 # project's own tooling (ddev, lando, make, npm scripts, ...).
 

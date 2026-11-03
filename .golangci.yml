@@ -28,7 +28,7 @@ linters:
         - diagnostic
         - style
     gosec:
-      # wt is a local CLI that operates on paths from the user's own project and
+      # wtx is a local CLI that operates on paths from the user's own project and
       # launches the editor they configured, so these rules fire on the tool
       # doing exactly what it exists to do. G702/G703 are the taint-analysis
       # equivalents of G204/G304, which were already excluded below.

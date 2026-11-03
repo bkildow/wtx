@@ -2,7 +2,6 @@ package doctor
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/bkildow/wtx/internal/claude"
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/ui"
 )
@@ -43,68 +41,11 @@ func shellLike(path string, data []byte) bool {
 	switch filepath.Base(path) {
 	case "Makefile", "GNUmakefile", "Justfile", "justfile", ".envrc":
 		return true
+	case "settings.json", "settings.local.json":
+		// Claude Code hook commands are shell commands.
+		return filepath.Base(filepath.Dir(path)) == ".claude"
 	}
 	return false
-}
-
-func (s *inspection) settings(path string) {
-	actual, err := filepath.EvalSymlinks(path)
-	if os.IsNotExist(err) {
-		// Missing optional files are normal; broken settings links are not.
-		if _, linkErr := os.Lstat(path); linkErr == nil {
-			s.add("claude.hooks", "warn", path, "Settings link is broken.", "Review and repair the settings link manually.")
-		}
-		return
-	}
-	if err != nil {
-		s.problem("claude.hooks", path, err)
-		return
-	}
-	if s.seenSettings[actual] {
-		return
-	}
-	s.seenSettings[actual] = true
-	if !s.managed(actual) {
-		s.add("claude.hooks", "warn", path, "Settings resolve outside the project.", "Review legacy hook commands in the external settings manually.")
-		return
-	}
-	file, err := takeSnapshot(actual)
-	if err != nil {
-		s.problem("claude.hooks", actual, err)
-		return
-	}
-	updated, changed, unresolved, err := claude.MigrateLegacyHooks(file.data)
-	if errors.Is(err, claude.ErrManualMigration) {
-		s.add("claude.hooks.manual", "warn", actual, "Legacy hook commands cannot be rewritten in place safely.", "Replace wt with wtx in the hook commands manually before v1.0.")
-		return
-	}
-	if err != nil {
-		s.problem("claude.hooks", actual, err)
-		return
-	}
-	if unresolved > 0 {
-		s.add("claude.hooks.manual", "warn", actual, "Legacy hooks require a replacement executable that is not available.", "Install wtx on PATH for bare wt commands, or an executable sibling wtx for absolute paths; otherwise edit the command manually before v1.0.")
-	}
-	if changed == 0 {
-		if unresolved == 0 {
-			s.add("claude.hooks", "ok", actual, "No recognized legacy hooks need migration.", "")
-		}
-		return
-	}
-	i := s.add("claude.hooks", "warn", actual, fmt.Sprintf("%d recognized legacy hook command(s) can be migrated.", changed), "Run wtx doctor --fix to replace recognized wt executables before v1.0.")
-	s.planContent(i, file, updated, func() error {
-		if ui.CanonicalPath(path) != actual {
-			return fmt.Errorf("settings link changed since inspection: %s", path)
-		}
-		now, n, _, err := claude.MigrateLegacyHooks(file.data)
-		if err != nil {
-			return err
-		}
-		if n != changed || !bytes.Equal(now, updated) {
-			return fmt.Errorf("hook executable availability changed since inspection")
-		}
-		return nil
-	})
 }
 
 func skippedName(name string) bool {
@@ -120,17 +61,10 @@ func repairArtifact(name string) bool {
 	return strings.HasPrefix(name, ".wtx-doctor-")
 }
 
-// claudeSettings inspects both Claude settings files under dir/.claude.
-func (s *inspection) claudeSettings(dir string) {
-	for _, name := range []string{"settings.local.json", "settings.json"} {
-		s.settings(filepath.Join(dir, ".claude", name))
-	}
-}
-
 func (s *inspection) scanProject() {
 	root := s.clone.Root()
-	s.add("migration.scan", "ok", root, "Bounded candidate scan: configuration, configured scripts, bin/, shared text, root agent instructions, and tracked worktree files only. Skips Git internals, dependency/build directories, symlinks, binary/non-UTF-8 files, and files over 1 MiB; arbitrary shell includes are not followed.", "")
-	for _, name := range []string{config.ConfigFileName, "AGENTS.md", "CLAUDE.md"} {
+	s.add("migration.scan", "ok", root, "Bounded candidate scan: configuration, configured scripts, bin/, shared text, root agent instructions, Claude settings, and tracked worktree files only. Skips Git internals, dependency/build directories, symlinks, binary/non-UTF-8 files, and files over 1 MiB; arbitrary shell includes are not followed.", "")
+	for _, name := range []string{config.ConfigFileName, "AGENTS.md", "CLAUDE.md", filepath.Join(".claude", "settings.json")} {
 		s.scanFile(filepath.Join(root, name), scopeProject)
 	}
 	for _, path := range s.clone.Config().Scripts {
@@ -139,14 +73,28 @@ func (s *inspection) scanProject() {
 		}
 		s.scanFile(path, scopeProject)
 	}
-	s.scanDir(filepath.Join(root, "bin"), false)
+	s.scanLocalClaudeSettings(root)
+	s.scanDir(filepath.Join(root, "bin"))
 	if bin := s.clone.BinDir(); bin != filepath.Join(root, "bin") {
-		s.scanDir(bin, false)
+		s.scanDir(bin)
 	}
-	s.scanDir(s.clone.SharedDir(), true)
+	s.scanDir(s.clone.SharedDir())
 }
 
-func (s *inspection) scanDir(root string, settings bool) {
+// scanLocalClaudeSettings scans dir's .claude/settings.local.json, which is
+// machine-local and so missed by the tracked-file scan (a tracked
+// settings.json is scanned there). A link into shared/, as wtx claude init
+// creates, is scanned with shared/, so it is not counted as skipped.
+func (s *inspection) scanLocalClaudeSettings(dir string) {
+	path := filepath.Join(dir, ".claude", "settings.local.json")
+	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink != 0 &&
+		ui.Within(ui.CanonicalPath(s.clone.SharedDir()), ui.CanonicalPath(path)) {
+		return
+	}
+	s.scanFile(path, scopeProject)
+}
+
+func (s *inspection) scanDir(root string) {
 	if info, err := os.Lstat(root); err == nil && info.Mode()&os.ModeSymlink != 0 {
 		s.add("migration.scan", "warn", root, "Directory symlink omitted from the reference scan.", "Review its target manually.")
 		return
@@ -164,9 +112,6 @@ func (s *inspection) scanDir(root string, settings bool) {
 				return filepath.SkipDir
 			}
 			return nil
-		}
-		if settings && entry.Name() == ".claude" && (entry.IsDir() || entry.Type()&os.ModeSymlink != 0) {
-			s.claudeSettings(filepath.Dir(path))
 		}
 		if entry.IsDir() {
 			return nil
@@ -247,7 +192,7 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 			if identifier == "wt" && !bareWT {
 				continue
 			}
-			// ${WTX_X:-${WT_X}} style fallbacks are transition compatibility.
+			// ${WTX_X:-${WT_X}} style fallbacks already read the WTX_ name.
 			if identifier != "wt" && strings.Contains(text, "WTX_"+strings.TrimPrefix(identifier, "WT_")) {
 				continue
 			}
@@ -262,16 +207,14 @@ func (s *inspection) scanFile(path string, scope scanScope) {
 			if identifier == "wt" {
 				replacement = "wtx"
 			}
-			remedy := fmt.Sprintf("Review candidate %s reference and replace with %s before v1.0.", identifier, replacement)
-			if identifier == "WT_THEME" || identifier == "WT_NO_DISK_WARN" {
-				remedy = fmt.Sprintf("%s is no longer read since v0.12.0; replace it with %s.", identifier, replacement)
-			}
-			if scope == scopeUser && identifier == "wt" {
-				if strings.Contains(text, "wt shell-init") {
-					remedy = "Replace the wt shell-init startup invocation with wtx shell-init before v1.0."
-				} else {
-					remedy = "Review custom wrapper/command candidate wt and update to wtx before v1.0."
-				}
+			remedy := fmt.Sprintf("wtx no longer exports %s; review the reference and replace it with %s.", identifier, replacement)
+			switch {
+			case identifier == "WT_THEME" || identifier == "WT_NO_DISK_WARN":
+				remedy = fmt.Sprintf("wtx does not read %s; replace it with %s.", identifier, replacement)
+			case identifier == "wt" && scope == scopeUser && strings.Contains(text, "wt shell-init"):
+				remedy = "There is no wt command; replace the wt shell-init startup line with wtx shell-init."
+			case identifier == "wt":
+				remedy = "There is no wt command; review the reference and replace it with wtx."
 			}
 			i := s.addSubject("migration.references", path, identifier, "Legacy identifier candidate: "+identifier+" (text match; execution not established).", remedy)
 			s.report.Findings[i].Line = line + 1
@@ -304,7 +247,7 @@ func (s *inspection) user() {
 	}
 	for _, suffix := range []string{"THEME", "NO_DISK_WARN"} {
 		if os.Getenv("WT_"+suffix) != "" {
-			s.add("user.environment", "warn", "", "Ignored legacy input setting: WT_"+suffix+" (no longer read since v0.12.0)", "Replace WT_"+suffix+" with WTX_"+suffix+"; values are intentionally omitted.")
+			s.add("user.environment", "warn", "", "Ignored legacy input setting: WT_"+suffix+" (wtx does not read it)", "Replace WT_"+suffix+" with WTX_"+suffix+"; values are intentionally omitted.")
 		}
 	}
 	home, err := os.UserHomeDir()

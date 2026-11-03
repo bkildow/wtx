@@ -5,14 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 ```bash
-make                # Build wtx and the deprecated wt shim
+make                # Build wtx
 make test           # Run all tests
 make test-short     # Skip integration tests
 make vet            # Lint (golangci-lint)
 make fmt            # Format code (gofumpt)
 make dev            # fmt + vet + test + build
-make clean          # Remove both built binaries
-make install        # Install wtx and the deprecated wt shim to $GOBIN
+make clean          # Remove the built binary
+make install        # Install wtx to $GOBIN
 scripts/release --dry-run   # Preview the next release (minor bump) and its notes; drop --dry-run to publish
 ```
 
@@ -20,7 +20,7 @@ Raw `go` commands for reference:
 
 ```bash
 go build -o wtx ./cmd/wtx                   # Build binary
-go install ./cmd/wtx ./cmd/wt              # Install wtx and the deprecated wt shim
+go install ./cmd/wtx                      # Install wtx
 go test ./...                             # Run all tests
 go test ./internal/git/                   # Run tests for a single package
 go test ./internal/git/ -run TestDryRun   # Run a specific test

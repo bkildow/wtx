@@ -102,7 +102,7 @@ func (s *inspection) exclusions() {
 		s.add("git.exclude", "ok", path, "Managed exclusions are current.", "")
 		return
 	}
-	i := s.add("git.exclude", "warn", path, "Managed exclusions have a legacy marker or missing setup-state/log patterns.", "Run wtx doctor --fix to update managed exclusions.")
+	i := s.add("git.exclude", "warn", path, "Managed exclusions are missing setup-state/log patterns.", "Run wtx doctor --fix to update managed exclusions.")
 	s.planContent(i, file, updated, nil)
 }
 
@@ -189,51 +189,49 @@ func (s *inspection) branches(ctx context.Context, worktrees []git.WorktreeInfo)
 }
 
 func (s *inspection) states(root string) {
-	for _, name := range []string{project.SetupStateFile, project.LegacySetupStateFile} {
-		path := filepath.Join(root, name)
-		file, err := takeSnapshot(path)
+	path := project.SetupStatePath(root)
+	file, err := takeSnapshot(path)
+	if err != nil {
+		s.problem("setup.state", path, err)
+		return
+	}
+	if file.info == nil {
+		return
+	}
+	var state project.SetupState
+	if err := json.Unmarshal(file.data, &state); err != nil {
+		s.problem("setup.state", path, err)
+		return
+	}
+	switch state.Status {
+	case project.SetupRunning, project.SetupComplete, project.SetupFailed, project.SetupSkipped:
+	default:
+		s.problem("setup.state", path, fmt.Errorf("invalid setup status"))
+		return
+	}
+	if state.HooksCompleted < 0 || state.HooksTotal < 0 || state.HooksCompleted > state.HooksTotal || (state.Status == project.SetupRunning && state.PID <= 0) {
+		s.problem("setup.state", path, fmt.Errorf("invalid setup counters or process ID"))
+		return
+	}
+	pid := state.PID
+	switch {
+	case project.ResolveDeadSetupProcess(&state):
+		i := s.add("setup.state", "fail", path, "Setup is marked running but its process has exited.", "Run wtx doctor --fix to reconcile state; review the retained log before rerunning wtx setup.")
+		data, err := project.EncodeSetupState(&state)
 		if err != nil {
 			s.problem("setup.state", path, err)
-			continue
+			return
 		}
-		if file.info == nil {
-			continue
-		}
-		var state project.SetupState
-		if err := json.Unmarshal(file.data, &state); err != nil {
-			s.problem("setup.state", path, err)
-			continue
-		}
-		switch state.Status {
-		case project.SetupRunning, project.SetupComplete, project.SetupFailed, project.SetupSkipped:
-		default:
-			s.problem("setup.state", path, fmt.Errorf("invalid setup status"))
-			continue
-		}
-		if state.HooksCompleted < 0 || state.HooksTotal < 0 || state.HooksCompleted > state.HooksTotal || (state.Status == project.SetupRunning && state.PID <= 0) {
-			s.problem("setup.state", path, fmt.Errorf("invalid setup counters or process ID"))
-			continue
-		}
-		pid := state.PID
-		switch {
-		case project.ResolveDeadSetupProcess(&state):
-			i := s.add("setup.state", "fail", path, "Setup is marked running but its process has exited.", "Run wtx doctor --fix to reconcile state; review the retained log before rerunning wtx setup.")
-			data, err := project.EncodeSetupState(&state)
-			if err != nil {
-				s.problem("setup.state", path, err)
-				continue
+		s.planContent(i, file, data, func() error {
+			if project.IsProcessAlive(pid) {
+				return fmt.Errorf("setup process is now alive; refusing repair")
 			}
-			s.planContent(i, file, data, func() error {
-				if project.IsProcessAlive(pid) {
-					return fmt.Errorf("setup process is now alive; refusing repair")
-				}
-				return nil
-			})
-		case state.Status == project.SetupFailed:
-			s.add("setup.state", "fail", path, "Setup failed; logs have been retained.", "Review the setup log and rerun wtx setup when ready.")
-		default:
-			s.add("setup.state", "ok", path, "Setup status: "+string(state.Status)+".", "")
-		}
+			return nil
+		})
+	case state.Status == project.SetupFailed:
+		s.add("setup.state", "fail", path, "Setup failed; logs have been retained.", "Review the setup log and rerun wtx setup when ready.")
+	default:
+		s.add("setup.state", "ok", path, "Setup status: "+string(state.Status)+".", "")
 	}
 }
 

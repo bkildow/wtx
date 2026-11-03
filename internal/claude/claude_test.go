@@ -2,11 +2,9 @@ package claude
 
 import (
 	"encoding/json"
-	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -222,13 +220,13 @@ func readSettingsFile(t *testing.T, projectRoot string) map[string]any {
 	return settings
 }
 
-func TestConfigureHooks_migratesAndPreservesCustomHooks(t *testing.T) {
+func TestConfigureHooks_updatesManagedAndPreservesCustomHooks(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "shared", "symlink")
-	custom := map[string]any{"type": "command", "command": "echo wt claude hook-worktree-create", "timeout": float64(5)}
-	managed := map[string]any{"type": "command", "command": "/opt/bin/wt claude hook-worktree-create", "timeout": float64(30), "async": true}
+	custom := map[string]any{"type": "command", "command": "echo wtx claude hook-worktree-create", "timeout": float64(5)}
+	managed := map[string]any{"type": "command", "command": "/opt/bin/wtx claude hook-worktree-create", "timeout": float64(30), "async": true}
 	settings := map[string]any{"permissions": map[string]any{"allow": []any{"Bash"}}, "hooks": map[string]any{
 		HookWorktreeCreate: []any{map[string]any{"matcher": "custom", "hooks": []any{managed, custom}}},
-		HookWorktreeRemove: buildHooksConfig("wt")[HookWorktreeRemove],
+		HookWorktreeRemove: buildHooksConfig("/opt/bin/wtx")[HookWorktreeRemove],
 		"PreToolUse":       []any{map[string]any{"matcher": "Bash", "hooks": []any{custom}}},
 	}}
 	if err := writeSettings(filepath.Join(dir, SettingsFile), settings); err != nil {
@@ -242,7 +240,7 @@ func TestConfigureHooks_migratesAndPreservesCustomHooks(t *testing.T) {
 	managed["command"] = "wtx claude hook-worktree-create"
 	settings["hooks"].(map[string]any)[HookWorktreeRemove] = buildHooksConfig("wtx")[HookWorktreeRemove]
 	if got := readSettingsFile(t, dir); !reflect.DeepEqual(got, settings) {
-		t.Fatalf("migration changed custom settings: got %#v, want %#v", got, settings)
+		t.Fatalf("configure changed custom settings: got %#v, want %#v", got, settings)
 	}
 	if err := RemoveHooks(dir); err != nil {
 		t.Fatal(err)
@@ -287,21 +285,21 @@ func TestConfigureHooks_preservesMalformedSettings(t *testing.T) {
 }
 
 func TestManagedHookRecognition(t *testing.T) {
-	for _, command := range []string{"wt claude hook-worktree-create", "wtx claude hook-worktree-create", "/opt/bin/wt claude hook-worktree-create"} {
+	for _, command := range []string{"wtx claude hook-worktree-create", "/opt/bin/wtx claude hook-worktree-create"} {
 		if !isManagedHook(map[string]any{"type": "command", "command": command}, HookWorktreeCreate, "") {
 			t.Errorf("missed managed command %q", command)
 		}
 	}
-	for _, command := range []string{"echo wt claude hook-worktree-create", "wt claude hook-worktree-create && echo done", "other claude hook-worktree-create", "$(echo wt) claude hook-worktree-create", "wt claude hook-worktree-remove"} {
+	for _, command := range []string{"wt claude hook-worktree-create", "/opt/bin/wt claude hook-worktree-create", "echo wtx claude hook-worktree-create", "wtx claude hook-worktree-create && echo done", "other claude hook-worktree-create", "$(echo wtx) claude hook-worktree-create", "wtx claude hook-worktree-remove"} {
 		if isManagedHook(map[string]any{"type": "command", "command": command}, HookWorktreeCreate, "") {
 			t.Errorf("claimed custom command %q", command)
 		}
 	}
 }
 
-func TestConfigureHooks_customBinaryMigration(t *testing.T) {
+func TestConfigureHooks_switchesBinary(t *testing.T) {
 	dir := t.TempDir()
-	if err := ConfigureHooks(dir, "wt"); err != nil {
+	if err := ConfigureHooks(dir, "wtx"); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
@@ -312,50 +310,5 @@ func TestConfigureHooks_customBinaryMigration(t *testing.T) {
 	expected := map[string]any{"hooks": buildHooksConfig("/opt/bin/custom")}
 	if got := readSettingsFile(t, dir); !reflect.DeepEqual(got, expected) {
 		t.Fatalf("got %#v, want %#v", got, expected)
-	}
-}
-
-func TestMigrateLegacyHooks_preservesFormatting(t *testing.T) {
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "wtx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	input := "{\n    \"zeta\": \"a && b <c>\",\n    \"hooks\": {\n        \"WorktreeCreate\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"wt claude hook-worktree-create\"}]}]\n    },\n    \"alpha\": 1\n}\n"
-	got, changed, unresolved, err := MigrateLegacyHooks([]byte(input))
-	if err != nil || changed != 1 || unresolved != 0 {
-		t.Fatalf("got %d %d %v", changed, unresolved, err)
-	}
-	want := strings.Replace(input, `"wt claude`, `"wtx claude`, 1)
-	if string(got) != want {
-		t.Fatalf("formatting changed:\n%s\nwant:\n%s", got, want)
-	}
-}
-
-func TestMigrateLegacyHooks_toleratesAbsentShapes(t *testing.T) {
-	for _, input := range []string{
-		`{"hooks":null}`,
-		`{"hooks":{"WorktreeCreate":null}}`,
-		`{"hooks":{"WorktreeCreate":[{"matcher":""}]}}`,
-		`{"hooks":{"WorktreeCreate":[{"hooks":null}]}}`,
-		`{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command"}]}]}}`,
-		`{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":7}]}]}}`,
-	} {
-		got, changed, _, err := MigrateLegacyHooks([]byte(input))
-		if err != nil || changed != 0 || string(got) != input {
-			t.Errorf("%s: got %q %d %v", input, got, changed, err)
-		}
-	}
-}
-
-func TestMigrateLegacyHooks_refusesAmbiguousReplacement(t *testing.T) {
-	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "wtx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", bin)
-	input := `{"note":"wt claude hook-worktree-create","hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`
-	if _, _, _, err := MigrateLegacyHooks([]byte(input)); !errors.Is(err, ErrManualMigration) {
-		t.Fatal("rewrote an unrelated string with the same text")
 	}
 }
