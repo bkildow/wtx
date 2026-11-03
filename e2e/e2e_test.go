@@ -2,6 +2,7 @@ package e2e_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,11 +10,22 @@ import (
 
 	"github.com/bkildow/wtx/cmd"
 	"github.com/bkildow/wtx/internal/config"
+	"github.com/bkildow/wtx/internal/testenv"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/rogpeppe/go-internal/testscript"
 )
 
 func TestMain(m *testing.M) {
+	// testscript re-runs this binary as "wtx" inside each script, whose
+	// environment the script sets; isolate only the top-level test run.
+	// testscript.Main exits the process, so the temp dir Isolate made is
+	// left for the OS to clean; a deferred RemoveAll would never run.
+	if filepath.Base(os.Args[0]) != "wtx" {
+		if _, err := testenv.Isolate(); err != nil {
+			fmt.Fprintln(os.Stderr, "testenv:", err)
+			os.Exit(1)
+		}
+	}
 	testscript.Main(m, map[string]func(){
 		"wtx": func() {
 			// Mirror cmd/wtx/main.go so scripts can assert on error text.

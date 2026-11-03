@@ -463,6 +463,9 @@ func TestScanBoundsAndUserDiscovery(t *testing.T) {
 }
 
 func TestOperationalReportsAndStrict(t *testing.T) {
+	// The test writes this clone's Owner marker; keep it out of the ~/.wtx
+	// other tests scan for orphans.
+	t.Setenv("WTX_HOME", t.TempDir())
 	r := Run(context.Background(), Options{StartDir: t.TempDir()})
 	if r.SchemaVersion != 1 || !r.Unsuccessful(false) {
 		t.Fatalf("invalid discovery failure report: %+v", r)
