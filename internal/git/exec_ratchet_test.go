@@ -16,7 +16,7 @@ var gitExec = regexp.MustCompile(`exec\.Command(Context)?\([^)]*"git"`)
 
 // gitExecBaseline is how many hand-built git commands internal/git still
 // has. Lower it when you route one through the builders; never raise it.
-const gitExecBaseline = 13
+const gitExecBaseline = 9
 
 // TestGitCommandsUseTheBuilders keeps new git calls on Runner.command and
 // gitAt: none outside internal/git, and no more inside it than today.

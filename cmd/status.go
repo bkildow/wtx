@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"cmp"
+	"fmt"
 	"strings"
 
+	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 	"github.com/bkildow/wtx/internal/ui"
 	"github.com/spf13/cobra"
@@ -29,15 +31,24 @@ type statusReport struct {
 }
 
 // statusEntry is one Managed worktree's status. Dirty and LastCommitAge are
-// nil when git could not read them, and Error says why.
+// nil when git could not read them, and Error says why. Upstream is nil when
+// the branch has none; Ahead and Behind are nil then and when it is gone.
 type statusEntry struct {
 	Branch        string              `json:"branch"`
 	Path          string              `json:"path"`
 	Head          string              `json:"head"`
 	Dirty         *bool               `json:"dirty"`
+	Upstream      *string             `json:"upstream"`
+	Ahead         *int                `json:"ahead"`
+	Behind        *int                `json:"behind"`
 	LastCommitAge *string             `json:"last_commit_age"`
 	Setup         *project.SetupState `json:"setup"`
 	Error         string              `json:"error,omitempty"`
+
+	// The table renders the upstream lookup itself: a failed lookup and a
+	// missing upstream both leave Upstream nil.
+	upstream    git.UpstreamStatus
+	upstreamErr error
 }
 
 func runStatus(cmd *cobra.Command, args []string) error {
@@ -69,7 +80,14 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		if ageErr == nil {
 			entry.LastCommitAge = &age
 		}
-		if gitErr := cmp.Or(dirtyErr, ageErr); gitErr != nil {
+		entry.upstream, entry.upstreamErr = runner.UpstreamStatus(ctx, wt.Path, wt.Branch)
+		if up := entry.upstream; entry.upstreamErr == nil && up.Upstream != "" {
+			entry.Upstream = &up.Upstream
+			if !up.Gone {
+				entry.Ahead, entry.Behind = &up.Ahead, &up.Behind
+			}
+		}
+		if gitErr := cmp.Or(dirtyErr, ageErr, entry.upstreamErr); gitErr != nil {
 			entry.Error = gitErrorReason(gitErr)
 		}
 
@@ -94,7 +112,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	ui.Heading("Worktree Status")
 
-	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT", "STATUS", "SETUP", "LAST COMMIT")
+	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT", "STATUS", "UPSTREAM", "SETUP", "LAST COMMIT")
 	paths := ui.NewPathDisplay(projectRoot)
 	var hints []string
 	for _, entry := range entries {
@@ -118,7 +136,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 			hints = append(hints, setupFailureHint(entry.Branch, entry.Path, entry.Setup))
 		}
 
-		t.Row(entry.Branch, paths.Path(entry.Path), shortHead(entry.Head), styledStatus, renderSetupStatus(entry.Setup), age)
+		t.Row(entry.Branch, paths.Path(entry.Path), shortHead(entry.Head), styledStatus, renderUpstream(entry.Branch, entry.upstream, entry.upstreamErr), renderSetupStatus(entry.Setup), age)
 	}
 	ui.PrintTable(t)
 	for _, hint := range hints {
@@ -152,6 +170,38 @@ func gitErrorReason(err error) string {
 	}
 	reason, _, _ := strings.Cut(msg, "\n")
 	return reason
+}
+
+// renderUpstream shows the commits ahead (↑) and behind (↓) the upstream, or
+// "=" when even, naming the upstream when it isn't origin/<branch>.
+func renderUpstream(branch string, up git.UpstreamStatus, err error) string {
+	switch {
+	case err != nil:
+		return ui.StyleError.Render("error")
+	case up.Upstream == "":
+		return ui.StyleMuted.Render("-")
+	}
+
+	var cell string
+	switch {
+	case up.Gone:
+		cell = ui.StyleWarning.Render("gone")
+	case up.Ahead == 0 && up.Behind == 0:
+		cell = ui.StyleSuccess.Render("=")
+	default:
+		var counts []string
+		if up.Ahead > 0 {
+			counts = append(counts, fmt.Sprintf("↑%d", up.Ahead))
+		}
+		if up.Behind > 0 {
+			counts = append(counts, fmt.Sprintf("↓%d", up.Behind))
+		}
+		cell = strings.Join(counts, " ")
+	}
+	if up.Upstream != "origin/"+branch {
+		cell += " " + ui.StyleMuted.Render("("+up.Upstream+")")
+	}
+	return cell
 }
 
 func renderSetupStatus(state *project.SetupState) string {

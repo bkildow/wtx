@@ -1,14 +1,18 @@
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	lipgloss "charm.land/lipgloss/v2"
+	"github.com/bkildow/wtx/internal/git"
 	"github.com/bkildow/wtx/internal/project"
 )
 
@@ -253,7 +257,8 @@ func TestStatusJSONBrokenWorktree(t *testing.T) {
 	if !ok {
 		t.Fatalf("missing alpha entry:\n%s", out)
 	}
-	if alpha.Dirty != nil || alpha.LastCommitAge != nil || !strings.HasPrefix(alpha.Error, "fatal:") {
+	if alpha.Dirty != nil || alpha.LastCommitAge != nil || alpha.Upstream != nil || alpha.Ahead != nil || alpha.Behind != nil ||
+		!strings.HasPrefix(alpha.Error, "fatal:") {
 		t.Errorf("broken entry should have null fields and a fatal error: %+v", alpha)
 	}
 	if feature := entries["feature"]; feature.Dirty == nil || *feature.Dirty || feature.Error != "" {
@@ -273,4 +278,177 @@ func TestStatusJSONEmpty(t *testing.T) {
 	}
 	var report statusReport
 	decodeJSON(t, out, &report)
+}
+
+func TestRenderUpstream(t *testing.T) {
+	tests := []struct {
+		name string
+		up   git.UpstreamStatus
+		err  error
+		want string
+	}{
+		{name: "even", up: git.UpstreamStatus{Upstream: "origin/feat"}, want: "="},
+		{name: "ahead and behind", up: git.UpstreamStatus{Upstream: "origin/feat", Ahead: 2, Behind: 5}, want: "↑2 ↓5"},
+		{name: "ahead only", up: git.UpstreamStatus{Upstream: "origin/feat", Ahead: 2}, want: "↑2"},
+		{name: "behind only", up: git.UpstreamStatus{Upstream: "origin/feat", Behind: 5}, want: "↓5"},
+		{name: "other upstream", up: git.UpstreamStatus{Upstream: "origin/main", Ahead: 2, Behind: 5}, want: "↑2 ↓5 (origin/main)"},
+		{name: "even with other upstream", up: git.UpstreamStatus{Upstream: "origin/main"}, want: "= (origin/main)"},
+		{name: "gone", up: git.UpstreamStatus{Upstream: "origin/feat", Gone: true}, want: "gone"},
+		{name: "gone with other upstream", up: git.UpstreamStatus{Upstream: "origin/main", Gone: true}, want: "gone (origin/main)"},
+		{name: "no upstream", want: "-"},
+		{name: "lookup failed", err: errors.New("boom"), want: "error"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Fprint drops the styling, as it does for a non-terminal.
+			var plain bytes.Buffer
+			_, _ = lipgloss.Fprint(&plain, renderUpstream("feat", tt.up, tt.err))
+			if got := plain.String(); got != tt.want {
+				t.Errorf("got %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// upstreamProject builds a Bare layout project cloned from a source repo,
+// with three worktrees: "tracked" tracks origin/tracked and is two commits
+// ahead and one behind; "fresh" was created the way wtx add creates a new
+// branch, so it tracks origin/main; "local" has no upstream.
+func upstreamProject(t *testing.T) {
+	t.Helper()
+	t.Setenv("WTX_HOME", t.TempDir())
+	t.Setenv("WTX_NO_DISK_WARN", "1")
+	// Keep the user's config (branch.autoSetupMerge, signing) out of it.
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_AUTHOR_NAME", "Test")
+	t.Setenv("GIT_AUTHOR_EMAIL", "test@example.com")
+	t.Setenv("GIT_COMMITTER_NAME", "Test")
+	t.Setenv("GIT_COMMITTER_EMAIL", "test@example.com")
+	runGit := func(args ...string) {
+		t.Helper()
+		if out, err := exec.Command("git", args...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+
+	base := t.TempDir()
+	src := filepath.Join(base, "src")
+	runGit("init", "-b", "main", src)
+	runGit("-C", src, "commit", "--allow-empty", "-m", "initial")
+	runGit("-C", src, "branch", "tracked")
+
+	root := filepath.Join(base, "proj")
+	gitDir := filepath.Join(root, ".bare")
+	runGit("clone", "--bare", src, gitDir)
+	runGit("--git-dir", gitDir, "config", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")
+	runGit("--git-dir", gitDir, "fetch", "origin")
+	if err := os.WriteFile(filepath.Join(root, ".worktree.yml"), []byte("version: 1\ngit_dir: .bare\nworktree_dir: worktrees\nshared_dir: shared\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := func(name string) string { return filepath.Join(root, "worktrees", name) }
+	runGit("--git-dir", gitDir, "worktree", "add", worktree("tracked"), "tracked")
+	runGit("--git-dir", gitDir, "branch", "--set-upstream-to=origin/tracked", "tracked")
+	runGit("--git-dir", gitDir, "worktree", "add", "-b", "fresh", worktree("fresh"), "origin/main")
+	runGit("--git-dir", gitDir, "worktree", "add", "-b", "local", worktree("local"), "main")
+
+	runGit("-C", worktree("tracked"), "commit", "--allow-empty", "-m", "local 1")
+	runGit("-C", worktree("tracked"), "commit", "--allow-empty", "-m", "local 2")
+	runGit("-C", src, "switch", "-q", "tracked")
+	runGit("-C", src, "commit", "--allow-empty", "-m", "upstream")
+	runGit("--git-dir", gitDir, "fetch", "origin")
+	t.Chdir(root)
+}
+
+func TestStatusUpstream(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping integration test in short mode")
+	}
+	upstreamProject(t)
+
+	t.Run("table", func(t *testing.T) {
+		gitLog := spyGit(t)
+		out := captureUI(t)
+		command := newStatusCmd()
+		command.SetContext(context.Background())
+		if err := runStatus(command, nil); err != nil {
+			t.Fatal(err)
+		}
+
+		got := out.String()
+		// Cells per branch, from table rows like "│ fresh │ worktrees/fresh │ … │".
+		cells := map[string][]string{}
+		var header []string
+		for line := range strings.Lines(got) {
+			fields := strings.Split(line, "│")
+			if len(fields) < 3 {
+				continue
+			}
+			for i := range fields {
+				fields[i] = strings.TrimSpace(fields[i])
+			}
+			if fields[1] == "BRANCH" {
+				header = fields
+				continue
+			}
+			cells[fields[1]] = fields
+		}
+		column := slices.Index(header, "UPSTREAM")
+		if column < 0 {
+			t.Fatalf("missing UPSTREAM column:\n%s", got)
+		}
+		for branch, want := range map[string]string{"tracked": "↑2 ↓1", "fresh": "= (origin/main)", "local": "-"} {
+			row, ok := cells[branch]
+			if !ok {
+				t.Errorf("missing %s row:\n%s", branch, got)
+				continue
+			}
+			if row[column] != want {
+				t.Errorf("%s UPSTREAM = %q, want %q", branch, row[column], want)
+			}
+		}
+		if strings.Contains(got, "(origin/tracked)") {
+			t.Errorf("an upstream of origin/<branch> should not be named:\n%s", got)
+		}
+
+		// Counts come from the last fetch; status never touches the network.
+		calls := gitLog()
+		if !strings.Contains(calls, "for-each-ref") {
+			t.Fatalf("git spy saw no for-each-ref call:\n%s", calls)
+		}
+		for line := range strings.Lines(calls) {
+			if slices.ContainsFunc(strings.Fields(line), func(arg string) bool {
+				return slices.Contains([]string{"fetch", "pull", "push", "ls-remote"}, arg)
+			}) {
+				t.Errorf("status ran a network command: git %s", strings.TrimSpace(line))
+			}
+		}
+	})
+
+	t.Run("json", func(t *testing.T) {
+		var report statusReport
+		out := runJSON(t, newStatusCmd)
+		decodeJSON(t, out, &report)
+		entries := map[string]statusEntry{}
+		for _, entry := range report.Worktrees {
+			entries[entry.Branch] = entry
+		}
+
+		check := func(branch, upstream string, ahead, behind int) {
+			t.Helper()
+			e := entries[branch]
+			if e.Upstream == nil || *e.Upstream != upstream || e.Ahead == nil || *e.Ahead != ahead || e.Behind == nil || *e.Behind != behind {
+				t.Errorf("%s entry = %+v, want upstream %q, ahead %d, behind %d", branch, e, upstream, ahead, behind)
+			}
+		}
+		check("tracked", "origin/tracked", 2, 1)
+		check("fresh", "origin/main", 0, 0)
+		if local := entries["local"]; local.Upstream != nil || local.Ahead != nil || local.Behind != nil || local.Error != "" {
+			t.Errorf("local entry should have null upstream fields and no error: %+v", local)
+		}
+		if !strings.Contains(out, `"upstream": null`) {
+			t.Errorf("no upstream should be null:\n%s", out)
+		}
+	})
 }

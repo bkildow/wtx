@@ -52,6 +52,7 @@ type Git interface {
 	GetDefaultBranch(ctx context.Context) (string, error)
 	GetLastCommitAge(ctx context.Context, worktreePath string) (string, error)
 	GetBehindCount(ctx context.Context, worktreePath string) (int, error)
+	UpstreamStatus(ctx context.Context, worktreePath, branch string) (UpstreamStatus, error)
 	Pull(ctx context.Context, worktreePath string) error
 	PullRebase(ctx context.Context, worktreePath string) error
 }
@@ -365,7 +366,7 @@ func (r *Runner) FinishWorktree(ctx context.Context, path, branch string) error 
 	// Set up tracking when the branch exists upstream. A bare clone copies
 	// remote branches into refs/heads/* without tracking config, and
 	// `git worktree add` won't add it when the local branch already exists, so
-	// @{upstream}-dependent features (wt status behind-count, wt pull) break
+	// @{upstream}-dependent features (wtx status ahead/behind counts, wtx sync) break
 	// without this. Best-effort: a failure here shouldn't fail the worktree.
 	if _, err := r.Run(ctx, "rev-parse", "--verify", "origin/"+branch); err == nil {
 		if err := r.SetUpstream(ctx, branch); err != nil {
@@ -376,7 +377,7 @@ func (r *Runner) FinishWorktree(ctx context.Context, path, branch string) error 
 }
 
 // SetUpstream points the local branch at origin/<branch> so that @{upstream},
-// `wt status` behind-counts, and `wt pull` work.
+// `wtx status` ahead/behind counts, and `wtx sync` work.
 func (r *Runner) SetUpstream(ctx context.Context, branch string) error {
 	_, err := r.Run(ctx, "branch", "--set-upstream-to=origin/"+branch, branch)
 	return err
@@ -492,20 +493,11 @@ func isNotFullyMerged(output string) bool {
 }
 
 func (r *Runner) IsWorktreeDirty(ctx context.Context, worktreePath string) (bool, error) {
-	args := []string{"-C", worktreePath, "status", "--porcelain"}
-	cmdStr := "git " + strings.Join(args, " ")
-
-	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return false, fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
+	out, err := r.queryWorktree(ctx, worktreePath, "status", "--porcelain")
+	if err != nil {
+		return false, err
 	}
-
-	return parseDirtyStatus(stdout.String()), nil
+	return parseDirtyStatus(out), nil
 }
 
 func parseDirtyStatus(output string) bool {
@@ -860,45 +852,58 @@ func (r *Runner) WorktreePrune(ctx context.Context) error {
 }
 
 func (r *Runner) GetLastCommitAge(ctx context.Context, worktreePath string) (string, error) {
-	args := []string{"-C", worktreePath, "log", "-1", "--format=%cr"}
-	cmdStr := "git " + strings.Join(args, " ")
-
-	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
-	}
-
-	return strings.TrimSpace(stdout.String()), nil
+	out, err := r.queryWorktree(ctx, worktreePath, "log", "-1", "--format=%cr")
+	return strings.TrimSpace(out), err
 }
 
 func (r *Runner) GetBehindCount(ctx context.Context, worktreePath string) (int, error) {
-	checkArgs := []string{"-C", worktreePath, "rev-parse", "--verify", "--quiet", "@{upstream}"}
-	checkStr := "git " + strings.Join(checkArgs, " ")
-
-	ui.Command(checkStr)
-	if err := exec.CommandContext(ctx, "git", checkArgs...).Run(); err != nil {
+	if _, err := r.queryWorktree(ctx, worktreePath, "rev-parse", "--verify", "--quiet", "@{upstream}"); err != nil {
 		return 0, nil
 	}
-
-	args := []string{"-C", worktreePath, "rev-list", "--count", "HEAD..@{upstream}"}
-	cmdStr := "git " + strings.Join(args, " ")
-
-	ui.Command(cmdStr)
-	cmd := exec.CommandContext(ctx, "git", args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		return 0, fmt.Errorf("%s: %w\n%s", cmdStr, err, stderr.String())
+	out, err := r.queryWorktree(ctx, worktreePath, "rev-list", "--count", "HEAD..@{upstream}")
+	if err != nil {
+		return 0, err
 	}
+	return parseBehindCount(out), nil
+}
 
-	return parseBehindCount(stdout.String()), nil
+// UpstreamStatus is where a branch stands against its upstream, counted from
+// the last-fetched remote-tracking refs.
+type UpstreamStatus struct {
+	Upstream      string // Short name, e.g. "origin/main"; "" when there is none.
+	Gone          bool   // Configured, but the upstream ref no longer exists.
+	Ahead, Behind int
+}
+
+// UpstreamStatus reports how far the branch checked out at worktreePath is
+// ahead of and behind its upstream. A detached HEAD (branch "") or a branch
+// with no upstream gives the zero value. It reads local refs only and never
+// fetches.
+func (r *Runner) UpstreamStatus(ctx context.Context, worktreePath, branch string) (UpstreamStatus, error) {
+	if branch == "" {
+		return UpstreamStatus{}, nil
+	}
+	// for-each-ref prints the track atom untranslated, unlike git branch.
+	out, err := r.queryWorktree(ctx, worktreePath, "for-each-ref",
+		"--format=%(upstream)%00%(upstream:short)%00%(upstream:track,nobracket)", "refs/heads/"+branch)
+	if err != nil {
+		return UpstreamStatus{}, err
+	}
+	fields := strings.Split(strings.TrimSpace(out), "\x00")
+	if len(fields) != 3 || fields[0] == "" {
+		return UpstreamStatus{}, nil
+	}
+	status := UpstreamStatus{Upstream: fields[1]}
+	if status.Gone, status.Ahead, status.Behind, err = parseTrack(fields[2]); err != nil {
+		return UpstreamStatus{}, err
+	}
+	return status, nil
+}
+
+// queryWorktree runs a read-only git command inside worktreePath (git -C)
+// rather than against the Runner's git dir, so HEAD is that worktree's.
+func (r *Runner) queryWorktree(ctx context.Context, worktreePath string, args ...string) (string, error) {
+	return gitAt(ctx, worktreePath, nil, !r.Quiet, args...)
 }
 
 func (r *Runner) Pull(ctx context.Context, worktreePath string) error {
@@ -972,6 +977,32 @@ func parseBehindCount(output string) int {
 		return 0
 	}
 	return n
+}
+
+// parseTrack parses for-each-ref's %(upstream:track,nobracket): "" when even,
+// "gone", or "ahead N", "behind N" or "ahead N, behind M".
+func parseTrack(track string) (gone bool, ahead, behind int, err error) {
+	switch track {
+	case "":
+		return false, 0, 0, nil
+	case "gone":
+		return true, 0, 0, nil
+	}
+	for part := range strings.SplitSeq(track, ", ") {
+		word, num, _ := strings.Cut(part, " ")
+		n, convErr := strconv.Atoi(num)
+		switch {
+		case convErr != nil:
+			return false, 0, 0, fmt.Errorf("unexpected upstream track %q", track)
+		case word == "ahead":
+			ahead = n
+		case word == "behind":
+			behind = n
+		default:
+			return false, 0, 0, fmt.Errorf("unexpected upstream track %q", track)
+		}
+	}
+	return false, ahead, behind, nil
 }
 
 // LocalConfig reads key from the repository's own config file (the common

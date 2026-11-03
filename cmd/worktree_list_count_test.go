@@ -13,9 +13,8 @@ import (
 )
 
 // spyGit puts a git wrapper first on PATH that logs each invocation's
-// arguments, one line per call, and returns a func counting the
-// `git worktree list` calls.
-func spyGit(t *testing.T) func() int {
+// arguments, one line per call, and returns a func reading the log so far.
+func spyGit(t *testing.T) func() string {
 	t.Helper()
 	gitPath, err := exec.LookPath("git")
 	if err != nil {
@@ -28,9 +27,9 @@ func spyGit(t *testing.T) func() int {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	return func() int {
+	return func() string {
 		data, _ := os.ReadFile(log)
-		return strings.Count(string(data), "worktree list")
+		return string(data)
 	}
 }
 
@@ -92,13 +91,13 @@ func TestCommandsListWorktreesOnce(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			listingProject(t)
-			count := spyGit(t)
+			gitLog := spyGit(t)
 			command := tt.cmd()
 			command.SetContext(context.Background())
 			if err := command.RunE(command, tt.args); err != nil && (!tt.reports || !errors.Is(err, ErrDoctorUnhealthy)) {
 				t.Fatal(err)
 			}
-			if n := count(); n != 1 {
+			if n := strings.Count(gitLog(), "worktree list"); n != 1 {
 				t.Errorf("git worktree list ran %d times, want 1", n)
 			}
 		})
