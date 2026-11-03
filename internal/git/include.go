@@ -85,3 +85,48 @@ func parseNULList(output string) []string {
 	}
 	return paths
 }
+
+// IsTracked reports whether git tracks rel (relative to dir), or any file
+// below it, in the repository discovered from dir.
+func IsTracked(ctx context.Context, dir, rel string) (bool, error) {
+	out, err := gitInWorktree(ctx, dir, nil, "ls-files", "-z", "--", ":(literal)"+rel)
+	return out != "", err
+}
+
+// IsIgnored reports whether git ignores rel (relative to dir).
+func IsIgnored(ctx context.Context, dir, rel string) (bool, error) {
+	out, err := gitInWorktree(ctx, dir, nil, "check-ignore", "--", rel)
+	return out != "", err
+}
+
+// ListUntracked returns the untracked and ignored paths of the worktree at
+// dir, relative to it. A directory holding no tracked files is listed once,
+// with a trailing "/".
+func ListUntracked(ctx context.Context, dir string) ([]string, error) {
+	out, err := gitInWorktree(ctx, dir, nil, "ls-files", "-z", "--others", "--directory")
+	return parseNULList(out), err
+}
+
+// WorktreeIncludeSelects reports whether mainWorktree/.worktreeinclude
+// matches rel and, for a directory, every untracked file below it. Like
+// ListWorktreeIncludes it does not check that the match is gitignored;
+// callers check rel with IsIgnored.
+func WorktreeIncludeSelects(ctx context.Context, mainWorktree, rel string) (bool, error) {
+	includeFile := filepath.Join(mainWorktree, WorktreeIncludeFile)
+	if _, err := os.Stat(includeFile); errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	pathspec := ":(literal)" + rel
+	selected, err := gitInWorktree(ctx, mainWorktree, nil,
+		"ls-files", "-z", "--others", "--ignored", "--exclude-from="+includeFile, "--", pathspec)
+	if err != nil || selected == "" {
+		return false, err
+	}
+	// A pattern that selects only part of a directory (e.g. /config/.env
+	// for config) does not select rel.
+	all, err := gitInWorktree(ctx, mainWorktree, nil, "ls-files", "-z", "--others", "--", pathspec)
+	if err != nil {
+		return false, err
+	}
+	return len(parseNULList(selected)) == len(parseNULList(all)), nil
+}

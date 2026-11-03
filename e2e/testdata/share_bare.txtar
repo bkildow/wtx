@@ -1,0 +1,47 @@
+[!exec:git] skip 'git not available'
+[!exec:test] skip 'test not available'
+
+setup-repo develop
+setup-project
+
+cd $WORK/project
+exec wtx add --skip-setup master
+exec wtx add --skip-setup develop
+
+# Outside a worktree there is nothing to share from
+! exec wtx share .env --symlink
+stderr 'run wtx share from inside the worktree that has the file'
+
+# --dry-run changes nothing
+cd worktrees/master
+cp $WORK/env .env
+exec wtx --dry-run share .env --symlink
+stderr 'move .*/worktrees/master/\.env -> .*/shared/symlink/\.env'
+stderr 'symlink .*/worktrees/develop/\.env -> .*/shared/symlink/\.env'
+! exec test -L .env
+! exists $WORK/project/shared/symlink/.env
+
+# --symlink moves the file into shared/symlink and links every worktree
+exec wtx share .env --symlink
+stderr 'Shared \.env \(linked into 1 worktree'
+exec test -f $WORK/project/shared/symlink/.env
+! exec test -L $WORK/project/shared/symlink/.env
+exec test -L .env
+exec test -L $WORK/project/worktrees/develop/.env
+cmp $WORK/project/worktrees/develop/.env $WORK/env
+
+# --copy copies into shared/copy and seeds the other worktrees
+cp $WORK/env local.yml
+exec wtx share local.yml --copy
+cmp $WORK/project/shared/copy/local.yml local.yml
+cmp $WORK/project/worktrees/develop/local.yml local.yml
+! exec test -L local.yml
+
+# Sharing again, or in the other mode, is refused
+! exec wtx share local.yml --copy
+stderr 'already exists'
+! exec wtx share local.yml --symlink
+stderr 'already shared with --copy'
+
+-- env --
+SECRET=1

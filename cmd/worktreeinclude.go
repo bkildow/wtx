@@ -37,11 +37,7 @@ func includeSource(ctx context.Context, clone *project.Clone, wts project.Worktr
 		ui.Warning("Could not read .worktreeinclude: " + err.Error())
 		return nil
 	}
-	files = dropManagedPaths(files, mainPath, []string{
-		clone.WorktreesDir(),
-		clone.SharedDir(),
-		clone.BinDir(),
-	})
+	files = dropManagedPaths(files, mainPath, clone.ManagedDirs())
 	if len(files) == 0 {
 		return nil
 	}

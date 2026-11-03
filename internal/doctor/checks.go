@@ -264,7 +264,7 @@ func (s *inspection) links(source, dest string) {
 		}
 		src, target := filepath.Join(source, entry.Name()), filepath.Join(dest, entry.Name())
 		info, err := os.Lstat(target)
-		if err == nil && entry.IsDir() && info.IsDir() {
+		if err == nil && info.IsDir() && project.IsDirOrLinkToDir(src) {
 			s.links(src, target)
 			continue
 		}

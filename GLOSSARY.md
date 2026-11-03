@@ -88,6 +88,10 @@ _Avoid_: include list, worktree include
 Copying a file into a worktree only when the worktree does not already have it.
 _Avoid_: syncing, applying (when no overwrite is meant)
 
+**Sharing**:
+Making a machine-local file in one worktree reach every worktree, either as links to one copy or as a copy each. In a Checkout layout the file stays in the Project root.
+_Avoid_: publishing, syncing
+
 **Migration**:
 Moving a Clone from the In-repo layout to a Checkout layout that uses a Clone dir.
 _Avoid_: relocation, move-home

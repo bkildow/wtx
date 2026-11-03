@@ -11,6 +11,7 @@ import (
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/project"
+	"github.com/bkildow/wtx/internal/project/fscopy"
 	"github.com/bkildow/wtx/internal/ui"
 )
 
@@ -408,8 +409,8 @@ func TestMigrateHomeRefusals(t *testing.T) {
 	})
 }
 
-// copyTree is the cross-device fallback of moveDir; rename never hits it
-// within one temp filesystem, so exercise it directly.
+// fscopy.CopyAll is the cross-device fallback of moveDir; rename never hits
+// it within one temp filesystem, so exercise it directly.
 func TestCopyTreeAndRemoveEmptyDirs(t *testing.T) {
 	src, dst := t.TempDir(), filepath.Join(t.TempDir(), "out")
 	write(t, filepath.Join(src, "copy", ".env"), "x", 0o600)
@@ -417,7 +418,7 @@ func TestCopyTreeAndRemoveEmptyDirs(t *testing.T) {
 	if err := os.Symlink("../copy/.env", filepath.Join(src, "bin", "link")); err != nil {
 		t.Fatal(err)
 	}
-	if err := copyTree(src, dst); err != nil {
+	if err := fscopy.CopyAll(src, dst); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(filepath.Join(dst, "bin", "run")); err != nil || info.Mode().Perm() != 0o755 {

@@ -82,6 +82,8 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 
 Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. After changing them, run `wtx apply --all` (or `wtx apply <name>`) to update existing worktrees.
 
+To share an untracked local file with every worktree, run `wtx share <path> --symlink` (one file everyone reads and writes) or `wtx share <path> --copy` (a copy per worktree); always pass the path and one of the flags. In a checkout the file stays in the project root: `--symlink` links `shared/symlink/<path>` back to the root's file, and `--copy` appends `/<path>` to `.worktreeinclude`, which the user should commit. In a bare layout run it from inside the worktree that has the file; it moves (`--symlink`) or copies (`--copy`) the file into `shared/`. Worktrees that already have their own file at the path are left alone and listed in the output.
+
 `.worktreeinclude` (gitignore syntax, committed at the repo root) lists ignored files such as `.env` to copy from the main worktree (the `main_branch` worktree in a Bare layout). Only files that match and are gitignored are copied, and existing files are never overwritten. Order: `.worktreeinclude`, then `shared/copy/`, then `shared/symlink/`; later layers win. To give worktrees a local secret, add its pattern to `.worktreeinclude` rather than copying it by hand.
 
 Files ending in `.template` are copied with the suffix stripped and these variables substituted:

@@ -45,12 +45,15 @@ func selectHeight(itemCount int) int {
 }
 
 func selectFromStrings(title string, items []string) (string, error) {
-	var selected string
 	opts := make([]huh.Option[string], len(items))
 	for i, v := range items {
 		opts[i] = huh.NewOption(v, v)
 	}
+	return selectOptions(title, opts)
+}
 
+func selectOptions(title string, opts []huh.Option[string]) (string, error) {
+	var selected string
 	field := huh.NewSelect[string]().
 		Title(title).
 		Options(opts...)
@@ -98,4 +101,19 @@ func (p *InteractivePrompter) InputString(title, placeholder string) (string, er
 		Value(&value)
 
 	return value, runForm(field)
+}
+
+// SelectPath picks one of paths.
+func (p *InteractivePrompter) SelectPath(title string, paths []string) (string, error) {
+	return selectFromStrings(title, paths)
+}
+
+// SelectOption picks the value of one of options, each a {label, value}
+// pair.
+func (p *InteractivePrompter) SelectOption(title string, options [][2]string) (string, error) {
+	opts := make([]huh.Option[string], len(options))
+	for i, o := range options {
+		opts[i] = huh.NewOption(o[0], o[1])
+	}
+	return selectOptions(title, opts)
 }
