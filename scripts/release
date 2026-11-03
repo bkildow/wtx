@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# Cut a wtx GitHub release from main with GitHub's auto-generated notes.
+#
+# Creating the release pushes its tag, which starts release.yml: GoReleaser
+# builds the archives, uploads them to this release (keeping these notes, per
+# release.mode in .goreleaser.yaml), and pushes the wtx cask to
+# bkildow/homebrew-tap.
+#
+# Usage: scripts/release [vX.Y.Z | major | minor | patch] [options]
+#   (default bump: minor)
+#
+# Options:
+#   --dry-run          Preview the version, target commit and notes; create nothing
+#   --notes-file FILE  Prepend FILE (e.g. upgrade notes) to the generated notes
+#   --draft            Create a draft instead; publishing it later pushes the tag
+#   -y, --yes          Skip the confirmation prompt
+#   --watch            Follow the release.yml run until it finishes
+#
+# Examples:
+#   scripts/release --dry-run
+#   scripts/release --watch
+#   scripts/release v1.0.0 --notes-file upgrade.md --draft
+
+set -euo pipefail
+
+info() { printf '\033[33m[INFO]\033[0m %s\n' "$*"; }
+warn() { printf '\033[31m[WARN]\033[0m %s\n' "$*" >&2; }
+die() {
+  warn "$*"
+  exit 1
+}
+
+usage() { sed -n '2,/^$/{s/^# \{0,1\}//;p;}' "$0"; }
+
+dryRun=0
+assumeYes=0
+watch=0
+draft=0
+notesFile=""
+target=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --dry-run) dryRun=1 ;;
+    -y | --yes) assumeYes=1 ;;
+    --watch) watch=1 ;;
+    --draft) draft=1 ;;
+    --notes-file)
+      [[ $# -ge 2 ]] || die "--notes-file needs a file."
+      notesFile=$2
+      shift
+      ;;
+    -h | --help)
+      usage
+      exit 0
+      ;;
+    -*) die "Unknown option '$1'. See --help." ;;
+    *)
+      [[ -z "$target" ]] || die "Only one version may be given."
+      target=$1
+      ;;
+  esac
+  shift
+done
+
+if [[ -n "$notesFile" && ! -r "$notesFile" ]]; then
+  die "Cannot read notes file '$notesFile'."
+fi
+if [[ $draft -eq 1 && $watch -eq 1 ]]; then
+  die "--watch has nothing to follow for a draft: the tag is pushed when it is published."
+fi
+
+command -v gh >/dev/null || die "The GitHub CLI (gh) is not installed."
+gh auth status -h github.com >/dev/null 2>&1 || die "gh is not authenticated. Run 'gh auth login' first."
+
+# Resolve the repo from this script's checkout, not the caller's directory.
+repo=$(cd "$(dirname "$0")" && gh repo view --json nameWithOwner -q .nameWithOwner)
+latest=$(gh release view -R "$repo" --json tagName -q .tagName)
+
+semver='^v([0-9]+)\.([0-9]+)\.([0-9]+)$'
+[[ "$latest" =~ $semver ]] || die "Latest release '$latest' is not vX.Y.Z."
+major=${BASH_REMATCH[1]} minor=${BASH_REMATCH[2]} patch=${BASH_REMATCH[3]}
+
+case "${target:-minor}" in
+  major) next="v$((major + 1)).0.0" ;;
+  minor) next="v$major.$((minor + 1)).0" ;;
+  patch) next="v$major.$minor.$((patch + 1))" ;;
+  *) next="v${target#v}" ;;
+esac
+
+[[ "$next" =~ $semver ]] || die "'$target' is not a version (vX.Y.Z) or major/minor/patch."
+# --latest below marks this release Latest, and the next bump starts from it,
+# so the new version must sort after the current latest release.
+# If next sorts first (or ties), it is not newer.
+if [[ "$(printf '%s\n' "${next#v}" "${latest#v}" | sort -V | head -n 1)" == "${next#v}" ]]; then
+  die "'$next' is not newer than the latest release '$latest'."
+fi
+if gh release view "$next" -R "$repo" >/dev/null 2>&1 ||
+  gh api "repos/$repo/git/ref/tags/$next" >/dev/null 2>&1; then
+  die "Tag or release '$next' already exists."
+fi
+
+# Pin everything to this SHA so the release created after confirmation is
+# exactly the commit and notes previewed, even if main moves in between.
+mainSha=$(gh api "repos/$repo/commits/main" -q .sha)
+aheadBy=$(gh api "repos/$repo/compare/$latest...$mainSha?per_page=1" -q .ahead_by)
+
+# CI must not have failed on the exact commit being tagged; pending or
+# missing checks need an explicit answer below.
+checks=$(gh api "repos/$repo/commits/$mainSha/check-runs?per_page=100" \
+  -q '.check_runs[] | "\(.status) \(.conclusion // "-") \(.name)"')
+failed=$(awk '$1 == "completed" && $2 !~ /^(success|skipped|neutral)$/' <<<"$checks")
+pending=$(awk '$1 != "completed"' <<<"$checks")
+
+notes=$(gh api "repos/$repo/releases/generate-notes" \
+  -f tag_name="$next" \
+  -f target_commitish="$mainSha" \
+  -f previous_tag_name="$latest" \
+  -q .body)
+if [[ -n "$notesFile" ]]; then
+  notes="$(cat "$notesFile")"$'\n\n'"$notes"
+fi
+
+info "Repository: $repo"
+info "Release:    $latest -> $next$([[ $draft -eq 1 ]] && echo ' (draft)')"
+info "Target:     main @ ${mainSha:0:9} ($aheadBy commits since $latest)"
+echo
+printf '%s\n\n' "$notes"
+
+# flag MESSAGE [DETAIL]: warn, and require an explicit answer even with -y.
+needsAnswer=0
+flag() {
+  warn "$1"
+  [[ -z "${2:-}" ]] || printf '  %s\n' "$2" >&2
+  needsAnswer=1
+}
+if [[ -n "$failed" ]]; then
+  flag "CI did not pass on ${mainSha:0:9}:" "$failed"
+  [[ $dryRun -eq 1 ]] || die "Fix or re-run CI on main before releasing."
+fi
+[[ -n "$checks" ]] || flag "No CI checks found on ${mainSha:0:9}."
+[[ -z "$pending" ]] || flag "CI is still running on ${mainSha:0:9}:" "$pending"
+[[ "$aheadBy" -ne 0 ]] || flag "main has no commits since $latest."
+
+if [[ $dryRun -eq 1 ]]; then
+  info "Dry run: nothing created."
+  exit 0
+fi
+
+# A warning above always needs an explicit answer, even with -y.
+if [[ $assumeYes -eq 0 || $needsAnswer -eq 1 ]]; then
+  [[ -t 0 ]] || die "Confirmation required but no terminal is attached."
+  if [[ $draft -eq 1 ]]; then
+    prompt="Create draft release $next?"
+  else
+    prompt="Publish $next? This pushes the tag; release.yml builds it and updates the Homebrew tap."
+  fi
+  read -r -p "$prompt [y/N] " answer
+  [[ "$answer" =~ ^[Yy]$ ]] || {
+    info "Aborted."
+    exit 1
+  }
+fi
+
+createArgs=(--target "$mainSha" --title "$next" --notes "$notes")
+if [[ $draft -eq 1 ]]; then
+  createArgs+=(--draft)
+else
+  createArgs+=(--latest)
+fi
+url=$(gh release create "$next" -R "$repo" "${createArgs[@]}")
+info "Created: $url"
+
+[[ $watch -eq 1 ]] || exit 0
+
+# The tag's release.yml run takes a few seconds to register; match it by tag
+# name so the previous release's run is never picked up.
+info "Waiting for the release.yml run for $next..."
+runId=""
+for _ in {1..30}; do
+  runId=$(gh run list -R "$repo" --workflow release.yml --event push \
+    --branch "$next" --limit 1 --json databaseId -q '.[0].databaseId // empty' || true)
+  [[ -n "$runId" ]] && break
+  sleep 2
+done
+[[ -n "$runId" ]] || die "No release.yml run found for $next after 60s. Check: gh run list -R $repo --workflow release.yml"
+
+gh run watch "$runId" -R "$repo" --exit-status
+info "Released: $url"

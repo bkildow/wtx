@@ -22,6 +22,14 @@ jobs:
         with:
           go-version-file: go.mod
 
+      # Backstop for tags pushed without scripts/release (which checks CI
+      # first): never package or push the Homebrew cask from a broken commit.
+      - name: Install shells for compatibility tests
+        run: sudo apt-get update && sudo apt-get install -y zsh fish
+
+      - name: Test
+        run: go test ./... -count=1
+
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:

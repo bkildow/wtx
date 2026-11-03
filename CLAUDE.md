@@ -13,6 +13,7 @@ make fmt            # Format code (gofumpt)
 make dev            # fmt + vet + test + build
 make clean          # Remove both built binaries
 make install        # Install wtx and the deprecated wt shim to $GOBIN
+scripts/release --dry-run   # Preview the next release (minor bump) and its notes; drop --dry-run to publish
 ```
 
 Raw `go` commands for reference:
