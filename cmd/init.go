@@ -70,10 +70,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	if !info.IsDir() {
 		return fmt.Errorf(".git is a file, not a directory — this may already be a worktree of another repo")
 	}
-	runner := git.NewRunner(gitPath, dry)
+	runner := git.NewRunner(gitPath, dry) // raw-load: init sets up the Clone, so none exists yet
 
-	if config.Exists(projectRoot) {
-		cfg, err := config.Load(projectRoot)
+	if config.Exists(projectRoot) { // raw-load: init sets up the Clone, so none exists yet
+		cfg, err := config.Load(projectRoot) // raw-load: init sets up the Clone, so none exists yet
 		if err != nil {
 			return err
 		}

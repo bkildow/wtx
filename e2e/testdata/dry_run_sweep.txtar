@@ -1,0 +1,100 @@
+# Every command run with --dry-run leaves the filesystem exactly as it was:
+# no worktree, branch, config, shared file, hook or script side effect.
+# cmd/dryrun_coverage_test.go fails until each new command is run here (or
+# exempted there with a reason), so a new command cannot skip this check.
+
+[!exec:git] skip 'git not available'
+
+setup-repo develop wip
+setup-project
+
+# Everything a command may touch lives under $WORK, so the snapshot sees it.
+env HOME=$WORK/home
+mkdir $WORK/home
+env EDITOR=$WORK/editor.sh
+chmod 755 $WORK/editor.sh
+
+cd $WORK/project
+cp $WORK/config.yml .worktree.yml
+mkdir bin
+cp $WORK/probe.sh bin/probe
+chmod 755 bin/probe
+cp $WORK/copied.txt shared/copy/copied.txt
+
+exec wtx add --skip-setup master
+exec wtx add --skip-setup develop
+exec wtx add --skip-setup wip
+cp $WORK/copied.txt worktrees/wip/dirty.txt
+
+# A plain checkout for init to adopt.
+exec git clone -q $WORK/remote $WORK/checkout
+
+snapshot
+
+# Commands that change things.
+exec wtx --dry-run add feature-new
+unchanged
+exec wtx --dry-run apply master
+unchanged
+exec wtx --dry-run setup master
+unchanged
+exec wtx --dry-run run probe
+unchanged
+exec wtx --dry-run remove --force wip
+unchanged
+exec wtx --dry-run prune --force --yes
+unchanged
+exec wtx --dry-run sync
+unchanged
+exec wtx --dry-run repair
+unchanged
+exec wtx --dry-run open master
+unchanged
+exec wtx --dry-run config init --update
+unchanged
+exec wtx --dry-run claude init
+unchanged
+exec wtx --dry-run herdr init --no-link
+unchanged
+exec wtx --dry-run doctor --fix
+unchanged
+exec wtx --dry-run doctor --migrate-home
+unchanged
+cd $WORK/checkout
+exec wtx --dry-run init
+unchanged
+cd $WORK
+exec wtx --dry-run clone $WORK/remote cloned
+unchanged
+
+# Commands that only report.
+cd $WORK/project
+exec wtx --dry-run list
+exec wtx --dry-run status
+exec wtx --dry-run cd master
+exec wtx --dry-run root
+exec wtx --dry-run logs master
+exec wtx --dry-run completion bash
+exec wtx --dry-run shell-init zsh
+exec wtx --dry-run skill
+unchanged
+
+-- config.yml --
+version: 1
+git_dir: .bare
+worktree_dir: worktrees
+shared_dir: shared
+setup:
+  - touch setup-marker
+teardown:
+  - touch $WORK/teardown-marker
+scripts:
+  probe: bin/probe
+-- probe.sh --
+#!/bin/sh
+touch "$WTX_PROJECT_ROOT/probe-ran"
+-- editor.sh --
+#!/bin/sh
+touch "$HOME/editor-ran"
+-- copied.txt --
+copied

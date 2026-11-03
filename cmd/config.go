@@ -34,17 +34,17 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	dry := IsDryRun()
 	update, _ := cmd.Flags().GetBool("update")
 
-	projectRoot, err := findProjectRoot()
+	projectRoot, err := findProjectRoot() // raw-load: config init writes .worktree.yml, so it may not hold a valid config yet
 	if err != nil {
 		return err
 	}
 
 	configPath := filepath.Join(projectRoot, config.ConfigFileName)
 
-	if config.Exists(projectRoot) {
+	if config.Exists(projectRoot) { // raw-load: config init writes .worktree.yml, so it reads it before a Clone can resolve
 		if update {
 			// --update: load existing config, write annotated template with those values
-			existing, err := config.Load(projectRoot)
+			existing, err := config.Load(projectRoot) // raw-load: config init writes .worktree.yml, so it reads it before a Clone can resolve
 			if err != nil {
 				return fmt.Errorf("failed to load existing config: %w", err)
 			}
