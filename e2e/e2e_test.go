@@ -39,6 +39,8 @@ func TestScripts(t *testing.T) {
 		Cmds: map[string]func(ts *testscript.TestScript, neg bool, args []string){
 			"setup-repo":    cmdSetupRepo,
 			"setup-project": cmdSetupProject,
+			"snapshot":      cmdSnapshot,
+			"unchanged":     cmdUnchanged,
 		},
 	})
 }
@@ -57,6 +59,7 @@ func setupEnv(env *testscript.Env) error {
 	env.Setenv("WTX_NO_DISK_WARN", "1")
 	// testscript has no usable HOME; keep ~/.wtx state inside the test dir.
 	env.Setenv("WTX_HOME", filepath.Join(env.WorkDir, ".wtx-home"))
+	env.Values[snapshotKey{}] = &snapshotState{}
 	return nil
 }
 
