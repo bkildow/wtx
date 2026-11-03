@@ -63,10 +63,10 @@ type waitReport struct {
 // waitEntry is one worktree's final setup state, in the shape wtx status
 // --json uses. Pending is true while a new worktree waits for setup to start.
 type waitEntry struct {
-	Branch  string              `json:"branch"`
-	Path    string              `json:"path"`
-	Setup   *project.SetupState `json:"setup"`
-	Pending bool                `json:"pending,omitempty"`
+	Branch  string     `json:"branch"`
+	Path    string     `json:"path"`
+	Setup   *setupJSON `json:"setup"`
+	Pending bool       `json:"pending,omitempty"`
 }
 
 func runWait(cmd *cobra.Command, args []string) error {
@@ -122,8 +122,7 @@ func runWait(cmd *cobra.Command, args []string) error {
 	if structured {
 		report := waitReport{SchemaVersion: 1, Worktrees: make([]waitEntry, len(snaps))}
 		for i, s := range snaps {
-			reportCurrentLog(s.Path, s.State)
-			report.Worktrees[i] = waitEntry{Branch: s.Branch, Path: s.Path, Setup: s.State, Pending: s.Pending}
+			report.Worktrees[i] = waitEntry{Branch: s.Branch, Path: s.Path, Setup: newSetupJSON(s.Path, s.State), Pending: s.Pending}
 		}
 		if err := writeJSON(cmd.OutOrStdout(), report); err != nil {
 			return err
@@ -283,7 +282,7 @@ func printWaitResult(snaps []project.SetupSnapshot, code int) {
 			// Neither wtx logs nor wtx setup can help a removed worktree.
 			ui.Warning(setupReport("", s).Msg)
 		case st.Status == project.SetupFailed:
-			ui.Warning(setupFailureHint(s.Branch, s.Path, st))
+			ui.Warning(setupFailureHint(s.Branch, newSetupJSON(s.Path, st)))
 		case !st.StartedAt.IsZero() && !st.CompletedAt.IsZero():
 			ui.Success(s.Branch + ": setup completed in " + ui.FormatDuration(st.CompletedAt.Sub(st.StartedAt)))
 		default:

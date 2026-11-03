@@ -28,10 +28,10 @@ type listReport struct {
 }
 
 type listEntry struct {
-	Branch      string `json:"branch"` // "" for a detached HEAD
-	Path        string `json:"path"`
-	Head        string `json:"head"`
-	ProjectRoot bool   `json:"project_root"`
+	Branch        string `json:"branch"` // "" for a detached HEAD
+	Path          string `json:"path"`
+	Head          string `json:"head"`
+	IsProjectRoot bool   `json:"is_project_root"`
 }
 
 func runList(cmd *cobra.Command, args []string) error {
@@ -49,7 +49,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	// In a Checkout or In-repo layout the Main worktree is the Project root,
 	// not a Managed worktree, so it gets its own row.
 	if clone.Layout() != project.BareLayout && wts.HasMain {
-		entries = append(entries, listEntry{Branch: wts.Main.Branch, Path: projectRoot, Head: wts.Main.Head, ProjectRoot: true})
+		entries = append(entries, listEntry{Branch: wts.Main.Branch, Path: projectRoot, Head: wts.Main.Head, IsProjectRoot: true})
 	}
 	for _, wt := range wts.Managed {
 		entries = append(entries, listEntry{Branch: wt.Branch, Path: wt.Path, Head: wt.Head})
@@ -69,7 +69,7 @@ func runList(cmd *cobra.Command, args []string) error {
 	t := ui.NewTable().Headers("BRANCH", "PATH", "COMMIT")
 	paths := ui.NewPathDisplay(projectRoot)
 	for _, entry := range entries {
-		if !entry.ProjectRoot {
+		if !entry.IsProjectRoot {
 			t.Row(entry.Branch, paths.Path(entry.Path), shortHead(entry.Head))
 			continue
 		}

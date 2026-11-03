@@ -52,7 +52,7 @@ func TestSetupFailureHint(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := setupFailureHint("feat", dir, tt.state); got != tt.want {
+			if got := setupFailureHint("feat", newSetupJSON(dir, tt.state)); got != tt.want {
 				t.Errorf("got  %q\nwant %q", got, tt.want)
 			}
 		})
@@ -178,7 +178,7 @@ func TestStatusJSONSetup(t *testing.T) {
 	}{
 		{name: "no state"},
 		{name: "complete", state: &project.SetupState{Status: project.SetupComplete, HooksTotal: 2, HooksCompleted: 2}},
-		{name: "failed", state: &project.SetupState{Status: project.SetupFailed, HooksTotal: 2, HooksCompleted: 1, Error: "hook failed"}},
+		{name: "failed", state: &project.SetupState{Status: project.SetupFailed, PID: os.Getpid(), HooksTotal: 2, HooksCompleted: 1, Error: "hook failed"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -214,12 +214,49 @@ func TestStatusJSONSetup(t *testing.T) {
 			if entry.Setup == nil {
 				t.Fatalf("missing setup:\n%s", out)
 			}
+			if strings.Contains(out, `"pid"`) {
+				t.Errorf("setup exposes the state file's pid:\n%s", out)
+			}
 			got := *entry.Setup
 			if got.Status != tt.state.Status || got.Error != tt.state.Error || !samePath(t, got.LogFile, tt.state.LogFile) ||
 				got.HooksTotal != tt.state.HooksTotal || got.HooksCompleted != tt.state.HooksCompleted {
 				t.Errorf("setup = %+v, want %+v", got, *tt.state)
 			}
 		})
+	}
+}
+
+// A setup state file that cannot be parsed reports a failed setup, so an agent
+// never reads the worktree as ready, and the table shows the failure.
+func TestStatusCorruptSetupState(t *testing.T) {
+	worktree := newSetupProject(t)
+	t.Setenv("WTX_NO_DISK_WARN", "1")
+	if err := os.WriteFile(project.SetupStatePath(worktree), []byte("{"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out := runJSON(t, newStatusCmd)
+	var report statusReport
+	decodeJSON(t, out, &report)
+	if len(report.Worktrees) != 1 || report.Worktrees[0].Setup == nil {
+		t.Fatalf("want one entry with setup:\n%s", out)
+	}
+	setup := report.Worktrees[0].Setup
+	if setup.Status != project.SetupFailed || !strings.HasPrefix(setup.Error, "cannot read setup state: ") {
+		t.Errorf("setup = %+v, want failed: cannot read setup state", setup)
+	}
+	if strings.Contains(out, `"started_at"`) || strings.Contains(out, `"completed_at"`) {
+		t.Errorf("an unreadable state has no start or end time:\n%s", out)
+	}
+
+	table := captureUI(t)
+	command := newStatusCmd()
+	command.SetContext(context.Background())
+	if err := runStatus(command, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := table.String(); !strings.Contains(got, "Failed") || !strings.Contains(got, "Setup failed for feature: cannot read setup state: ") {
+		t.Errorf("table should show the failed setup:\n%s", got)
 	}
 }
 

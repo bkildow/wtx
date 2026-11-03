@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -95,6 +96,16 @@ func TestWatchSetupFailures(t *testing.T) {
 		})
 		if got := snaps[0].State; got == nil || got.Status != SetupFailed || got.Error != "setup state disappeared" {
 			t.Errorf("state = %+v, want failed: setup state disappeared", got)
+		}
+	})
+	t.Run("unreadable state", func(t *testing.T) {
+		dir := newWaitWorktree(t, time.Hour)
+		if err := os.WriteFile(SetupStatePath(dir), []byte("{"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		snaps := WatchSetup(context.Background(), []SetupTarget{{Path: dir}}, time.Millisecond, func([]SetupSnapshot) {})
+		if got := snaps[0].State; got == nil || got.Status != SetupFailed || !strings.HasPrefix(got.Error, "cannot read setup state: ") {
+			t.Errorf("state = %+v, want failed: cannot read setup state", got)
 		}
 	})
 	t.Run("worktree removed", func(t *testing.T) {
