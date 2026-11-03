@@ -96,7 +96,7 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	wtBinary, _ := cmd.Flags().GetString("binary")
+	binary, _ := cmd.Flags().GetString("binary")
 
 	// Write hooks to shared/symlink so all worktrees get a symlink via wtx apply.
 	sharedTarget := filepath.Join(clone.SharedDir(), "symlink")
@@ -110,13 +110,13 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 	if dryRun {
 		ui.DryRunNotice("write " + settingsPath)
 	} else {
-		if err := claude.ConfigureHooks(sharedTarget, wtBinary); err != nil {
+		if err := claude.ConfigureHooks(sharedTarget, binary); err != nil {
 			return fmt.Errorf("failed to configure hooks: %w", err)
 		}
 		ui.Success("Configured Claude Code hooks in shared/symlink/.claude/settings.local.json")
 	}
-	ui.Info("  WorktreeCreate -> " + wtBinary + " claude hook-worktree-create")
-	ui.Info("  WorktreeRemove -> " + wtBinary + " claude hook-worktree-remove")
+	ui.Info("  WorktreeCreate -> " + binary + " claude hook-worktree-create")
+	ui.Info("  WorktreeRemove -> " + binary + " claude hook-worktree-remove")
 
 	// Apply to all existing worktrees so they get the symlink immediately.
 	filtered, err := clone.ManagedWorktrees(ctx)

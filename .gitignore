@@ -12,7 +12,6 @@
 *.test
 
 # Test binary, built with `go build`
-/wt
 /wtx
 
 # GoReleaser output

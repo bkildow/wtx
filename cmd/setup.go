@@ -52,7 +52,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Resolve read-only first: a dry run must not migrate stale legacy state.
+	// Resolve read-only first: a dry run must not rewrite a dead process's state.
 	state, err := project.ResolveSetupStatus(selected.Path)
 	if err != nil {
 		return err

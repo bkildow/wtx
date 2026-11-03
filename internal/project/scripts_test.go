@@ -137,7 +137,7 @@ func TestRunScriptArgsEnvAndCwd(t *testing.T) {
 		t.Fatal(err)
 	}
 	script := filepath.Join(root, "bin", "probe")
-	writeScript(t, script, `printf '%s\n' "$(pwd)" "$WT_SCRIPT_NAME" "$WT_PROJECT_ROOT" "$WT_WORKTREE_PATH" "$WT_WORKTREE_ID" "$WT_BRANCH_NAME" "$WT_SHARED_PATH" "$WT_MAIN_BRANCH" "$WT_MAIN_WORKTREE_PATH" "$#" "$1" "$2" > out.txt
+	writeScript(t, script, `printf '%s\n' "$(pwd)" "$WTX_SCRIPT_NAME" "$WTX_PROJECT_ROOT" "$WTX_WORKTREE_PATH" "$WTX_WORKTREE_ID" "$WTX_BRANCH_NAME" "$WTX_SHARED_PATH" "$WTX_MAIN_BRANCH" "$WTX_MAIN_WORKTREE_PATH" "$#" "$1" "$2" > out.txt
 `, 0o755)
 
 	mainWT := filepath.Join(root, "worktrees", "main")
@@ -233,7 +233,7 @@ func TestRunScriptSeparatesStdoutAndStderr(t *testing.T) {
 	}
 }
 
-func TestRunScriptDualEnvironment(t *testing.T) {
+func TestRunScriptEnvironment(t *testing.T) {
 	for _, outside := range []bool{false, true} {
 		name := "in worktree"
 		if outside {
@@ -269,13 +269,11 @@ func TestRunScriptDualEnvironment(t *testing.T) {
 			var body strings.Builder
 			var want strings.Builder
 			for _, value := range values {
-				for _, prefix := range []string{"WTX_", "WT_"} {
-					key := prefix + value.suffix
-					t.Setenv(key, "stale inherited value")
-					// ${VAR?} also verifies that empty exported values are set.
-					body.WriteString("printf '%s\\n' \"${" + key + "?}\"\n")
-					want.WriteString(value.value + "\n")
-				}
+				key := "WTX_" + value.suffix
+				t.Setenv(key, "stale inherited value")
+				// ${VAR?} also verifies that empty exported values are set.
+				body.WriteString("printf '%s\\n' \"${" + key + "?}\"\n")
+				want.WriteString(value.value + "\n")
 			}
 			writeScript(t, script, body.String(), 0o755)
 			var stdout, stderr bytes.Buffer

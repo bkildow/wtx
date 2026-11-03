@@ -3,7 +3,6 @@ package project
 import (
 	"os"
 	"path/filepath"
-	"strconv"
 	"testing"
 	"time"
 )
@@ -226,51 +225,6 @@ func TestSetupLogPath(t *testing.T) {
 	}
 }
 
-func TestLegacySetupStateContinuesUpdating(t *testing.T) {
-	dir := t.TempDir()
-	legacy := filepath.Join(dir, LegacySetupStateFile)
-	for _, status := range []SetupStatus{SetupRunning, SetupComplete} {
-		data := []byte(`{"status":"` + string(status) + `","pid":` + strconv.Itoa(os.Getpid()) + `,"log_file":".wt-setup.log"}`)
-		if err := os.WriteFile(legacy, data, 0o644); err != nil {
-			t.Fatal(err)
-		}
-		got, err := ReconcileSetupState(dir)
-		if err != nil || got == nil || got.Status != status || got.LogFile != ".wt-setup.log" {
-			t.Fatalf("state = %+v, err = %v", got, err)
-		}
-		if _, err := os.Stat(SetupStatePath(dir)); !os.IsNotExist(err) {
-			t.Fatalf("legacy read created new state: %v", err)
-		}
-	}
-	if err := WriteSetupState(dir, &SetupState{Status: SetupSkipped}); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReadSetupState(dir)
-	if err != nil || got.Status != SetupSkipped {
-		t.Fatalf("new state did not win: %+v, %v", got, err)
-	}
-	if err := os.WriteFile(SetupStatePath(dir), []byte("invalid"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := ReadSetupState(dir); err == nil {
-		t.Fatal("corrupt new state must not fall back")
-	}
-}
-
-func TestReconcileStaleLegacyState(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, LegacySetupStateFile), []byte(`{"status":"running","pid":-1}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err := ReconcileSetupState(dir)
-	if err != nil || got == nil || got.Status != SetupFailed {
-		t.Fatalf("state = %+v, %v", got, err)
-	}
-	if _, err := os.Stat(SetupStatePath(dir)); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func TestSetupLog(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -280,7 +234,6 @@ func TestSetupLog(t *testing.T) {
 		want     string // expected log, relative to the worktree ("" for none)
 	}{
 		{name: "state log file exists", logFile: SetupLogFile, writeLog: SetupLogFile, want: SetupLogFile},
-		{name: "legacy log file", logFile: legacySetupLogFile, writeLog: legacySetupLogFile, want: legacySetupLogFile},
 		{name: "state log file missing", logFile: SetupLogFile},
 		{name: "worktree moved since setup", logFile: filepath.Join("..", "old-location", SetupLogFile), writeLog: SetupLogFile, want: SetupLogFile},
 		{name: "foreground state ignores stale log", writeLog: SetupLogFile},

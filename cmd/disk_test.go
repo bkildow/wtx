@@ -103,22 +103,17 @@ func TestLowDiskMessages(t *testing.T) {
 // even when the configured threshold would trigger.
 func TestWarnLowDiskEnvOverride(t *testing.T) {
 	for _, tt := range []struct {
-		name            string
-		legacy, current *string
-		wantWarning     bool
+		name        string
+		set         bool
+		wantWarning bool
 	}{
-		{name: "neither set", wantWarning: true},
-		{name: "legacy ignored", legacy: envValue("1"), wantWarning: true},
-		{name: "current suppresses", current: envValue("1")},
+		{name: "unset", wantWarning: true},
+		{name: "set suppresses", set: true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			unsetEnv(t, "WT_NO_DISK_WARN")
 			unsetEnv(t, "WTX_NO_DISK_WARN")
-			if tt.legacy != nil {
-				t.Setenv("WT_NO_DISK_WARN", *tt.legacy)
-			}
-			if tt.current != nil {
-				t.Setenv("WTX_NO_DISK_WARN", *tt.current)
+			if tt.set {
+				t.Setenv("WTX_NO_DISK_WARN", "1")
 			}
 			var buf bytes.Buffer
 			origOutput := ui.Output
@@ -140,5 +135,3 @@ func unsetEnv(t *testing.T, name string) {
 		t.Fatal(err)
 	}
 }
-
-func envValue(value string) *string { return &value }

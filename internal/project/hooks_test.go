@@ -206,7 +206,6 @@ func TestRunParallelTeardownHooksFailure(t *testing.T) {
 
 func TestHooksExportProjectEnv(t *testing.T) {
 	// Values an enclosing 'wtx run' script would have exported.
-	t.Setenv("WT_WORKTREE_ID", "outer")
 	t.Setenv("WTX_SCRIPT_NAME", "outer")
 	root := t.TempDir()
 	wt := filepath.Join(root, "worktrees", "feature", "X")
@@ -220,7 +219,7 @@ func TestHooksExportProjectEnv(t *testing.T) {
 		MainWorktreePath: root,
 	}
 	probe := func(out string) string {
-		return `printf '%s\n' "$WTX_PROJECT_ROOT" "$WTX_SHARED_PATH" "$WTX_MAIN_BRANCH" "$WTX_MAIN_WORKTREE_PATH" "$WTX_WORKTREE_PATH" "$WTX_WORKTREE_ID" "$WTX_BRANCH_NAME" "${WT_WORKTREE_ID-unset}" "${WTX_SCRIPT_NAME-unset}" > ` + out
+		return `printf '%s\n' "$WTX_PROJECT_ROOT" "$WTX_SHARED_PATH" "$WTX_MAIN_BRANCH" "$WTX_MAIN_WORKTREE_PATH" "$WTX_WORKTREE_PATH" "$WTX_WORKTREE_ID" "$WTX_BRANCH_NAME" "${WTX_SCRIPT_NAME-unset}" > ` + out
 	}
 	cfg := &config.Config{
 		Setup:            []string{probe("setup.txt")},
@@ -244,7 +243,7 @@ func TestHooksExportProjectEnv(t *testing.T) {
 	}
 
 	want := strings.Join([]string{
-		filepath.Clean(root), filepath.Join(root, "shared"), "main", root, wt, "feature-x", "feature/X", "unset", "unset",
+		filepath.Clean(root), filepath.Join(root, "shared"), "main", root, wt, "feature-x", "feature/X", "unset",
 	}, "\n") + "\n"
 	for _, out := range []string{"setup.txt", "parallel-setup.txt", "teardown.txt", "parallel-teardown.txt"} {
 		// Each hook writes relative to its working directory, the worktree.

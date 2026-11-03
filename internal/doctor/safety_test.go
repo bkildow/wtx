@@ -38,12 +38,9 @@ func TestPartialRepairWriteFailure(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("permission failure requires non-root user")
 	}
-	root, gitDir, _ := fixture(t, false)
-	bin := ui.CanonicalPath(t.TempDir())
-	write(t, filepath.Join(bin, "wtx"), "#!/bin/sh\nexit 99", 0o755)
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	path := filepath.Join(root, ".claude", "settings.local.json")
-	input := `{"hooks":{"WorktreeCreate":[{"hooks":[{"type":"command","command":"wt claude hook-worktree-create"}]}]}}`
+	root, gitDir, wt := fixture(t, true)
+	path := filepath.Join(wt, project.SetupStateFile)
+	input := `{"status":"running","pid":2147483647,"hooks_total":2,"hooks_completed":1}`
 	write(t, path, input, 0o600)
 	write(t, filepath.Join(gitDir, "info", "exclude"), "custom\n", 0o600)
 	dir := filepath.Dir(path)
@@ -63,12 +60,12 @@ func TestPartialRepairWriteFailure(t *testing.T) {
 	for _, outcome := range r.Repairs {
 		statuses[outcome.ID] = outcome.Status
 	}
-	if statuses["claude.hooks"] != "failed" || statuses["git.exclude"] != "applied" {
+	if statuses["setup.state"] != "failed" || statuses["git.exclude"] != "applied" {
 		t.Fatalf("partial repair results hidden: %+v", r)
 	}
 	data, err := os.ReadFile(path)
 	if err != nil || string(data) != input {
-		t.Fatal("failed repair changed settings")
+		t.Fatal("failed repair changed setup state")
 	}
 }
 

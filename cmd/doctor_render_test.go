@@ -79,14 +79,14 @@ func TestRenderDoctorReportHint(t *testing.T) {
 func TestRenderDoctorReportRepairs(t *testing.T) {
 	report := doctor.Report{Scope: "project", Root: "/p", Repairs: []doctor.RepairOutcome{
 		{ID: "git.exclude", Path: "/p/.git/info/exclude", Status: doctor.Applied, Backup: "/p/.git/wtx-doctor-backups/1"},
-		{ID: "claude.hooks", Path: "/p/.claude/settings.json", Status: doctor.Failed, Error: "input changed"},
+		{ID: "setup.state", Path: "/p/.wtx-setup.json", Status: doctor.Failed, Error: "input changed"},
 	}}
 	var buf bytes.Buffer
 	renderDoctorReport(&buf, report, false)
 	out := buf.String()
 	for _, want := range []string{
 		"✓ repaired Git exclude file .git/info/exclude\n      backup: .git/wtx-doctor-backups/1",
-		"✗ could not repair Claude hooks .claude/settings.json\n      input changed",
+		"✗ could not repair Setup state .wtx-setup.json\n      input changed",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("output missing %q:\n%s", want, out)

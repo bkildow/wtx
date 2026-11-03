@@ -1,6 +1,5 @@
 version: 2
 
-# Both command names ship together throughout the compatibility transition.
 project_name: wtx
 
 builds:
@@ -18,26 +17,11 @@ builds:
     goarch:
       - amd64
       - arm64
-  - id: wt
-    main: ./cmd/wt
-    binary: wt
-    ldflags:
-      - -s -w
-      - -X github.com/bkildow/wtx/cmd.version={{.Version}}
-      - -X github.com/bkildow/wtx/cmd.commit={{.ShortCommit}}
-      - -X github.com/bkildow/wtx/cmd.date={{.Date}}
-    goos:
-      - linux
-      - darwin
-    goarch:
-      - amd64
-      - arm64
 
 archives:
   - id: default
     ids:
       - wtx
-      - wt
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
@@ -46,7 +30,6 @@ homebrew_casks:
   - name: wtx
     binaries:
       - wtx
-      - wt
     repository:
       owner: bkildow
       name: homebrew-tap
@@ -65,7 +48,6 @@ homebrew_casks:
         install: |
           if OS.mac?
             system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wtx"]
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/wt"]
           end
 
 # scripts/release creates the GitHub release with GitHub's generated notes

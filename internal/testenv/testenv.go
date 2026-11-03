@@ -40,10 +40,11 @@ func GitVars() []string {
 }
 
 // Isolate points HOME, WTX_HOME and XDG_CONFIG_HOME at fresh directories
-// under a new temporary directory, which it returns. It clears every GIT_*,
-// WTX_* and WT_* variable the caller inherited (a test run from a git hook
-// or a wtx run script would otherwise see that repository or worktree), then
-// sets GitVars and an empty global git config. The Go toolchain's module
+// under a new temporary directory, which it returns. It clears every GIT_*
+// and WTX_* variable the caller inherited (a test run from a git hook or a
+// wtx run script would otherwise see that repository or worktree), and every
+// WT_* one ('wtx doctor --user' reports a set WT_THEME or WT_NO_DISK_WARN),
+// then sets GitVars and an empty global git config. The Go toolchain's module
 // and build caches stay where they were (see goVars).
 func Isolate() (string, error) {
 	dir, err := os.MkdirTemp("", "wtx-test-")

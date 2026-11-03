@@ -54,12 +54,10 @@ var doctorChecks = []doctorCheck{
 	{id: "scripts", title: "Scripts"},
 	{id: "teardown", title: "Teardown hooks"},
 	{id: "disk", title: "Disk space"},
-	{id: "claude.hooks", title: "Claude hooks"},
-	{id: "claude.hooks.manual", title: "Claude hooks needing manual edits"},
 	{
 		id: "migration.references", title: "Legacy wt references",
 		about:  "Text matches for the old name; not every match is executed.",
-		remedy: "Replace wt with wtx and WT_* with WTX_* (WT_THEME and WT_NO_DISK_WARN are no longer read; the rest before v1.0).",
+		remedy: "Replace wt with wtx and WT_* with WTX_*; there is no wt command, and wtx neither reads nor exports WT_* variables.",
 	},
 	{id: "migration.scan", title: "Reference scan", note: true},
 	{id: "user.repair", title: "User repairs"},

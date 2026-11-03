@@ -15,27 +15,9 @@
 
 ---
 
-> ### Migrating from `wt` to `wtx`
->
-> v1.0.0 removes the `wt` shim, the `wt` cask, and the legacy `WT_*` script
-> variables. Migrate now:
->
-> - `wtx` is the command. The deprecated `wt` shim still works but prints a
->   deprecation banner on every run (`WTX_NO_DEPRECATION_WARN=1` silences it).
-> - Update your [shell startup line](#shell-integration) to use `wtx shell-init`.
-> - Settings are read only from `WTX_THEME` and `WTX_NO_DISK_WARN`; `WT_THEME`
->   and `WT_NO_DISK_WARN` are ignored.
-> - Scripts receive both `WTX_*` and legacy `WT_*` variables until v1.0.0.
->   Switch script references to `WTX_*`.
-> - Run `wtx doctor --user` and `wtx doctor` to find remaining `wt` and `WT_*`
->   references.
->
-> `.worktree.yml` and `${PROJECT_ROOT}`, `${WORKTREE_ID}`, `${WORKTREE_PATH}`,
-> and `${BRANCH_NAME}` template variables stay unchanged.
-
 ## Features
 
-- **Bare-repo workflow** — no `.git` at project root; all worktrees live under `worktrees/`
+- **Bare-repo clones** — `wtx clone` keeps the git data in `.bare/` and checks out every branch, main included, as a worktree under `worktrees/`
 - **Adopt an existing checkout** — `wtx init` keeps worktrees and shared files in `~/.wtx/<name>/`, outside the repository, and teammates' clones join with the same command
 - **Shared files** — copy per-worktree configs or symlink heavy directories (node_modules, vendor) once
 - **`.worktreeinclude`** — copy gitignored files such as `.env` from the main worktree into new worktrees
@@ -49,94 +31,6 @@
 - **Editor integration** — open worktrees in your preferred editor ($EDITOR, config, or auto-detect)
 - **Shell completions** — tab-complete worktree names in bash, zsh, and fish
 - **Dry-run support** — preview every destructive operation with `--dry-run`
-
-## Project health and migration checks
-
-```bash
-wtx doctor                    # Inspect from the project root or a worktree (grouped summary)
-wtx doctor --verbose          # List every finding, including passing checks
-wtx doctor --fix --dry-run    # Preview safe repairs, without writes or backups
-wtx doctor --fix              # Apply safe repairs, then inspect again
-wtx doctor --json             # Structured report on stdout (schema_version: 1)
-wtx doctor --strict           # Warnings also produce exit code 1
-wtx doctor --user             # Inspect user settings, even outside a project
-wtx doctor --migrate-home     # Move an in-repo clone to ~/.wtx/<name>/
-```
-
-Doctor checks Git compatibility, managed exclusions, setup state, existing Claude
-hooks, missing shared copies and managed links, worktree registrations, local
-orphaned branches, executable script targets, disk thresholds, Compose
-projects without teardown hooks, the worktree directory and the owner marker of
-`~/.wtx/<name>/`, in-repo worktree layouts, and orphaned `~/.wtx` directories
-whose project is gone (reported, never deleted). It never runs project scripts or setup hooks,
-fetches remotes, invokes Docker, deletes branches, or removes worktrees.
-Shared copies are checked for existence, including rendered `.template` names;
-different worktree-local contents are expected and are not treated as drift.
-
-`--fix` repairs only Git compatibility configuration, managed exclusions, dead
-setup-process records, and recognized existing Claude hook commands. It preserves
-custom settings and hooks and adds no absent hooks. Absolute `wt` hook paths are
-changed only when their sibling `wtx` is executable; bare commands require `wtx`
-on PATH. Linked settings inside the project are deduplicated by resolved path;
-external targets require manual attention.
-
-`--migrate-home [--name <name>]` moves an in-repo clone's worktrees,
-`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the owner marker, records
-`<name>` as `wtx.name` in the local Git config, retargets shared symlinks, runs
-`git worktree repair`, and removes `worktree_dir`, `shared_dir`, and the
-`scripts` entries for files in `bin/` from `.worktree.yml`, so the paths resolve
-per clone and `wtx run` finds the scripts in `bin/` by name (the previous file
-is backed up under the Git directory). `<name>` defaults to `wtx.name`, then to
-the repository directory name. Run
-it from the project root and preview it with `wtx --dry-run doctor
---migrate-home`. Locked worktrees, worktrees with submodules or running setup,
-and Git-tracked shared files stay in place and are reported; re-running resumes
-a partial migration. In-repo clones are those set up with `wtx init --in-repo`
-(`.worktrees/`) and older projects whose `worktree_dir` and `shared_dir` are
-both in the repository (`worktrees/` and `shared/`). A `bin/` outside
-`worktree_dir`, such as the repository-root `bin/` next to `shared/`, may belong
-to the project, so it stays and is reported; scripts that `wtx run` found
-there by name need a `scripts` entry afterwards. It cannot be combined with
-`--fix`, and bare/clone projects are skipped. Afterwards the old worktree
-directory can be dropped from `.gitignore`.
-
-Modified files receive unique `*.wtx-backup-*` backups under the Git directory's
-`wtx-doctor-backups/` (outside worktrees and `shared/`) without replacing previous
-backups. Repairs preserve permissions, stage replacements atomically,
-and refuse inputs that changed after inspection. A second successful run makes
-no further changes. A reconciled dead setup process remains a failed setup:
-review its preserved log before rerunning `wtx setup`. Partial repair failures
-remain visible. `wtx repair` keeps its existing narrow Git compatibility purpose.
-
-Shared copies/links, worktree pruning, branches, arbitrary scripts, and user
-dotfiles receive findings and manual remedies only. Review the suggested
-`wtx apply` or Git pruning commands before running them yourself. Compose findings
-ask you to review external resource cleanup and configure suitable teardown hooks.
-`--user --fix` is rejected because dotfile changes are manual.
-
-The rename scan covers `.worktree.yml`, configured scripts, project `bin/`, shared
-text configuration, root `AGENTS.md`/`CLAUDE.md`, and Git-tracked text files in
-existing worktrees. It skips Git internals, dependency/build directories, symlinks,
-binary/non-UTF-8 files, backups, and files larger than 1 MiB, and reports the skipped
-count. In tracked application files, bare `wt` is only reported in shell-like files
-(shebang, shell, Makefile, YAML, Markdown); `WT_*` names are reported everywhere
-except `${WTX_X:-${WT_X}}`-style compatibility fallbacks. This is a bounded
-candidate scan, not a shell parser or a complete audit.
-Matches include paths, line numbers, and identifiers, never full source lines.
-The user scan honors `ZDOTDIR` and `XDG_CONFIG_HOME`, checks standard Bash, Zsh, and
-Fish startup files, and never sources them or follows arbitrary shell includes.
-
-Legacy input settings `WT_THEME` and `WT_NO_DISK_WARN` are no longer read;
-replace them with their `WTX_` names. Replace `wt` command calls, shell startup
-invocations, and legacy `WT_*` script-variable references **before v1.0**. Installation alone
-does not migrate binaries, shell initialization, or projects.
-
-Exit code is 0 when no failures remain, or 1 for failures, inspection errors, or
-unsuccessful repairs. `--strict` also returns 1 for remaining warnings. Actual
-repairs evaluate the resulting state; previews evaluate the current state. Human
-reports use stderr; JSON uses stdout and includes scope, sorted findings,
-`planned`/`applied`/`failed` repair outcomes, backup paths, and severity counts.
-The deprecated `wt doctor` shim supports the same command and retains its warning.
 
 ## Requirements
 
@@ -428,9 +322,6 @@ variables are exported:
 | `WTX_WORKTREE_ID` | Branch lowercased, `/` → `-` (empty outside a worktree) |
 | `WTX_BRANCH_NAME` | Branch of the current worktree (empty outside a worktree) |
 
-Each variable is also exported under its legacy `WT_*` name with the same value
-until v1.0.0 removes them. Use `WTX_*` in scripts.
-
 A non-zero exit from the script is reported as an error.
 
 **Starter refresh script.** `wtx clone` and `wtx init` create `bin/refresh`
@@ -662,6 +553,88 @@ before `wtx wait` exits, or `idle` when it stops waiting while setup still runs.
 Foreground setup from `wtx add` and `wtx setup` reports progress the same way.
 Set `WTX_TERMINAL_STATUS` to control it (see [Environment variables](#environment-variables)).
 
+### wtx doctor
+
+```bash
+wtx doctor                    # Inspect from the project root or a worktree (grouped summary)
+wtx doctor --verbose          # List every finding, including passing checks
+wtx doctor --fix --dry-run    # Preview safe repairs, without writes or backups
+wtx doctor --fix              # Apply safe repairs, then inspect again
+wtx doctor --json             # Structured report on stdout (schema_version: 1)
+wtx doctor --strict           # Warnings also produce exit code 1
+wtx doctor --user             # Inspect user settings, even outside a project
+wtx doctor --migrate-home     # Move an in-repo clone to ~/.wtx/<name>/
+```
+
+Doctor checks Git compatibility, managed exclusions, setup state, missing
+shared copies and managed links, worktree registrations, local orphaned branches, executable script targets, disk thresholds, Compose
+projects without teardown hooks, the worktree directory and the owner marker of
+`~/.wtx/<name>/`, in-repo worktree layouts, and orphaned `~/.wtx` directories
+whose project is gone (reported, never deleted). It never runs project scripts or setup hooks,
+fetches remotes, invokes Docker, deletes branches, or removes worktrees.
+Shared copies are checked for existence, including rendered `.template` names;
+different worktree-local contents are expected and are not treated as drift.
+
+`--fix` repairs only Git compatibility configuration, managed exclusions, and dead
+setup-process records.
+
+`--migrate-home [--name <name>]` moves an in-repo clone's worktrees,
+`shared/`, and `bin/` to `~/.wtx/<name>/`, writes the owner marker, records
+`<name>` as `wtx.name` in the local Git config, retargets shared symlinks, runs
+`git worktree repair`, and removes `worktree_dir`, `shared_dir`, and the
+`scripts` entries for files in `bin/` from `.worktree.yml`, so the paths resolve
+per clone and `wtx run` finds the scripts in `bin/` by name (the previous file
+is backed up under the Git directory). `<name>` defaults to `wtx.name`, then to
+the repository directory name. Run
+it from the project root and preview it with `wtx --dry-run doctor
+--migrate-home`. Locked worktrees, worktrees with submodules or running setup,
+and Git-tracked shared files stay in place and are reported; re-running resumes
+a partial migration. In-repo clones are those set up with `wtx init --in-repo`
+(`.worktrees/`) and older projects whose `worktree_dir` and `shared_dir` are
+both in the repository (`worktrees/` and `shared/`). A `bin/` outside
+`worktree_dir`, such as the repository-root `bin/` next to `shared/`, may belong
+to the project, so it stays and is reported; scripts that `wtx run` found
+there by name need a `scripts` entry afterwards. It cannot be combined with
+`--fix`, and bare/clone projects are skipped. Afterwards the old worktree
+directory can be dropped from `.gitignore`.
+
+Modified files receive unique `*.wtx-backup-*` backups under the Git directory's
+`wtx-doctor-backups/` (outside worktrees and `shared/`) without replacing previous
+backups. Repairs preserve permissions, stage replacements atomically,
+and refuse inputs that changed after inspection. A second successful run makes
+no further changes. A reconciled dead setup process remains a failed setup:
+review its preserved log before rerunning `wtx setup`. Partial repair failures
+remain visible. `wtx repair` keeps its existing narrow Git compatibility purpose.
+
+Shared copies/links, worktree pruning, branches, arbitrary scripts, and user
+dotfiles receive findings and manual remedies only. Review the suggested
+`wtx apply` or Git pruning commands before running them yourself. Compose findings
+ask you to review external resource cleanup and configure suitable teardown hooks.
+`--user --fix` is rejected because dotfile changes are manual.
+
+The legacy-reference scan looks for the `wt` command and `WT_*` variables,
+which `wtx` does not run, read, or export. It covers `.worktree.yml`, configured
+scripts, project `bin/`, shared text configuration, root `AGENTS.md`/`CLAUDE.md`,
+`.claude/settings.json` and `.claude/settings.local.json` in the root and each
+worktree, and Git-tracked text files in existing worktrees. It skips Git internals, dependency/build directories, symlinks,
+binary/non-UTF-8 files, backups, and files larger than 1 MiB, and reports the skipped
+count. In tracked application files, bare `wt` is only reported in shell-like files
+(shebang, shell, Makefile, YAML, Markdown); `WT_*` names are reported everywhere
+except `${WTX_X:-${WT_X}}`-style fallbacks, which already read the `WTX_` name.
+This is a bounded candidate scan, not a shell parser or a complete audit.
+Matches include paths, line numbers, and identifiers, never full source lines.
+The user scan honors `ZDOTDIR` and `XDG_CONFIG_HOME`, checks standard Bash, Zsh, and
+Fish startup files, and never sources them or follows arbitrary shell includes.
+
+Replace `wt` command calls and shell startup lines with `wtx`, and `WT_*`
+variables (including `WT_THEME` and `WT_NO_DISK_WARN`) with their `WTX_` names.
+
+Exit code is 0 when no failures remain, or 1 for failures, inspection errors, or
+unsuccessful repairs. `--strict` also returns 1 for remaining warnings. Actual
+repairs evaluate the resulting state; previews evaluate the current state. Human
+reports use stderr; JSON uses stdout and includes scope, sorted findings,
+`planned`/`applied`/`failed` repair outcomes, backup paths, and severity counts.
+
 <a id="wt-sync"></a>
 
 ### wtx sync
@@ -720,7 +693,7 @@ wtx herdr init --binary /path/to/wtx  # Use a specific wtx binary path
 wtx herdr init --no-link              # Write the manifest only
 ```
 
-Installs a [herdr](https://herdr.dev) plugin, written to `~/.wtx/herdr-plugin/`, so worktrees created and removed from herdr behave like ones from `wtx add` and `wtx remove`. The plugin is global to herdr: run it once per machine. It ignores repositories without a `.worktree.yml` and replaces the plugin installed by the deprecated `wt herdr init`.
+Installs a [herdr](https://herdr.dev) plugin, written to `~/.wtx/herdr-plugin/`, so worktrees created and removed from herdr behave like ones from `wtx add` and `wtx remove`. The plugin is global to herdr: run it once per machine. It ignores repositories without a `.worktree.yml`.
 
 herdr keeps ownership of its checkouts, which live in its own directory (`~/.herdr/worktrees/<repo>/<branch>` by default):
 
@@ -775,7 +748,7 @@ project/
 
 This is the layout `wtx clone` creates. `wtx init` adopts an existing checkout instead and keeps the same `bin/`, `shared/`, and `worktrees/` structure in `~/.wtx/<name>/`; see [wtx init](#wt-init).
 
-**Why a bare repo?** Standard `git worktree` puts the primary checkout at the repo root, mixing repo files with worktree management. A bare repo at `.bare/` keeps the root clean — it only holds configuration and shared resources.
+**Bare or checkout layout?** In the Bare layout that `wtx clone` creates, the git data lives in `.bare/` and every branch, main included, is a worktree under `worktrees/`. The project root holds only configuration and shared resources, and every branch is handled the same way. In the Checkout layout that `wtx init` creates, your existing checkout stays at the project root as the main worktree: the repository gains only `.worktree.yml`, and worktrees and shared files live in `~/.wtx/<name>/`. Choose `wtx clone` for a fresh project you manage entirely through `wtx`; choose [`wtx init`](#wt-init) to keep an existing checkout and the tools already pointed at it.
 
 **Copy vs Symlink:** Files in `shared/copy/` are duplicated into each worktree (useful for `.env` files that vary per branch). Files in `shared/symlink/` are symlinked (useful for large directories like `node_modules` you only want to install once).
 
@@ -818,7 +791,7 @@ scripts:
 | `parallel_setup` | Commands to run concurrently after serial setup hooks | `[]` |
 | `teardown` | Commands to run sequentially before removing a worktree | `[]` |
 | `parallel_teardown` | Commands to run concurrently after serial teardown hooks | `[]` |
-| `background_setup` | Run setup hooks in the background (override per command with `--background` or `--foreground`) | `false` |
+| `background_setup` | Run setup hooks in a detached process so `wtx add` returns immediately; follow progress with `wtx status` or `wtx wait` and read output with `wtx logs` (override per command with `--background` or `--foreground`) | `false` |
 | `scripts` | Named executables for `wtx run <name>` (see [path rules](#path-rules)); executables in `bin/` run by name without an entry | `{}` |
 | `disk_warn` | Warn when free disk space is low (`false` disables) | `true` |
 | `disk_warn_percent` | Warn below this percentage of free space (`-1` disables this bound) | `10` |
@@ -921,7 +894,7 @@ Every hook gets the [`WTX_*` variables](#wtx-run) that `wtx run` exports, except
 `WTX_SCRIPT_NAME`, describing the worktree being set up or torn down:
 `WTX_PROJECT_ROOT`, `WTX_SHARED_PATH`, `WTX_MAIN_BRANCH`,
 `WTX_MAIN_WORKTREE_PATH`, `WTX_WORKTREE_PATH`, `WTX_WORKTREE_ID` and
-`WTX_BRANCH_NAME`. Hooks have no legacy `WT_*` names. Naming resources after
+`WTX_BRANCH_NAME`. Naming resources after
 the worktree rather than relying on the working directory keeps a hook
 unambiguous, for example `docker compose -p "$WTX_WORKTREE_ID" down -v`.
 
@@ -983,14 +956,8 @@ eval "$(wtx shell-init zsh)"
 wtx shell-init fish | source
 ```
 
-This sets up `wtx` and deprecated `wt` wrapper functions so that `cd`, `root`,
-`add`, and `remove` can change your directory, and registers tab completions
-for both command names.
-
-**Migrating an existing shell:** replace your old `wt shell-init` startup line
-with the matching `wtx shell-init` line above, then start a new shell. Remove
-any manually defined `wt` wrapper or alias so it does not override the generated
-compatibility wrapper. Existing `wt cd` calls keep working during the transition.
+This sets up a `wtx` wrapper function so that `cd`, `root`, `add`, and
+`remove` can change your directory, and registers tab completions.
 
 ### Manual Setup
 

@@ -140,12 +140,9 @@ func TestRefreshTemplateEnvironmentCompatibility(t *testing.T) {
 		want string
 		fail bool
 	}{
-		{"new prefix", []string{"WTX_MAIN_WORKTREE_PATH=/new main", "WTX_SHARED_PATH=/new shared"}, "/new main\n/new shared\n", false},
-		{"legacy prefix ignored", []string{"WT_MAIN_WORKTREE_PATH=/old main", "WT_SHARED_PATH=/old shared"}, "run: wtx add main", true},
-		{"new prefix wins", []string{"WTX_MAIN_WORKTREE_PATH=/new", "WTX_SHARED_PATH=/new/shared", "WT_MAIN_WORKTREE_PATH=/old", "WT_SHARED_PATH=/old/shared"}, "/new\n/new/shared\n", false},
+		{"exported paths", []string{"WTX_MAIN_WORKTREE_PATH=/new main", "WTX_SHARED_PATH=/new shared"}, "/new main\n/new shared\n", false},
 		{"missing main", nil, "run: wtx add main", true},
 		{"branch hint", []string{"WTX_MAIN_BRANCH=trunk"}, "run: wtx add trunk", true},
-		{"legacy branch hint ignored", []string{"WT_MAIN_BRANCH=master"}, "run: wtx add main", true},
 		{"missing shared", []string{"WTX_MAIN_WORKTREE_PATH=/main"}, "run this via: wtx run refresh", true},
 	}
 	for _, tt := range tests {
