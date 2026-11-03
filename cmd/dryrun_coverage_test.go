@@ -55,7 +55,7 @@ func TestEveryCommandInDryRunSweep(t *testing.T) {
 		}
 		run := regexp.MustCompile(`(?m)^\s*(! )?exec wtx --dry-run ` + regexp.QuoteMeta(path) + `(\s|$)`)
 		loc := run.FindIndex(script)
-		if loc == nil || !checked.Match(script[loc[1]:]) {
+		if len(loc) < 2 || !checked.Match(script[loc[1]:]) {
 			t.Errorf("'wtx %s' is not run in %s before an `unchanged` check: add `exec wtx --dry-run %s ...` followed by `unchanged`, or exempt it in dryRunExempt with a reason", path, dryRunSweep, path)
 		}
 	}

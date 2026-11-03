@@ -17,7 +17,7 @@ func newRootCmd() *cobra.Command {
 }
 
 func runRoot(cmd *cobra.Command, args []string) error {
-	projectRoot, err := findProjectRoot()
+	projectRoot, err := findProjectRoot() // raw-load: wtx root prints only the root, so a broken config must not stop it
 	if err != nil {
 		return err
 	}

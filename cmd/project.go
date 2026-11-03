@@ -23,7 +23,7 @@ func findProjectRoot() (string, error) {
 		return "", err
 	}
 
-	root, err := project.FindRoot(cwd) // raw-load: wtx root and config init need only the root, which may hold an invalid config
+	root, err := project.FindRoot(cwd) // raw-load: callers mark their own use
 	if errors.Is(err, config.ErrConfigNotFound) {
 		printNotAProject()
 	}

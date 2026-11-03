@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bkildow/wtx/cmd"
@@ -61,11 +62,10 @@ func TestScripts(t *testing.T) {
 func setupEnv(env *testscript.Env) error {
 	env.Setenv("NO_COLOR", "1")
 	env.Setenv("TERM", "dumb")
-	env.Setenv("GIT_AUTHOR_NAME", "Test")
-	env.Setenv("GIT_AUTHOR_EMAIL", "test@test.com")
-	env.Setenv("GIT_COMMITTER_NAME", "Test")
-	env.Setenv("GIT_COMMITTER_EMAIL", "test@test.com")
-	env.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	for _, kv := range testenv.GitVars() {
+		name, value, _ := strings.Cut(kv, "=")
+		env.Setenv(name, value)
+	}
 	env.Setenv("GIT_PAGER", "cat")
 	// A low-disk CI runner would otherwise inject a warning into command output.
 	env.Setenv("WTX_NO_DISK_WARN", "1")
@@ -73,21 +73,6 @@ func setupEnv(env *testscript.Env) error {
 	env.Setenv("WTX_HOME", filepath.Join(env.WorkDir, ".wtx-home"))
 	env.Values[snapshotKey{}] = &snapshotState{}
 	return nil
-}
-
-// gitEnv returns the environment for git commands run from the setup helpers.
-// These run outside the testscript environment, so they do not inherit the
-// identity set in setupEnv and would otherwise depend on the caller's global
-// git config -- which is absent on CI runners, where commit fails outright.
-func gitEnv() []string {
-	return append(
-		os.Environ(),
-		"GIT_AUTHOR_NAME=Test",
-		"GIT_AUTHOR_EMAIL=test@test.com",
-		"GIT_COMMITTER_NAME=Test",
-		"GIT_COMMITTER_EMAIL=test@test.com",
-		"GIT_CONFIG_NOSYSTEM=1",
-	)
 }
 
 // cmdSetupRepo creates a git repository at $WORK/remote with an initial
@@ -101,7 +86,6 @@ func cmdSetupRepo(ts *testscript.TestScript, neg bool, args []string) {
 	gitRun := func(gitArgs ...string) {
 		c := exec.Command("git", gitArgs...)
 		c.Dir = repoDir
-		c.Env = gitEnv()
 		out, err := c.CombinedOutput()
 		if err != nil {
 			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)
@@ -143,7 +127,6 @@ func cmdSetupProject(ts *testscript.TestScript, neg bool, args []string) { //nol
 	bareDir := filepath.Join(projectDir, config.DefaultGitDir)
 
 	c := exec.Command("git", "clone", "--bare", remoteDir, bareDir)
-	c.Env = gitEnv()
 	out, err := c.CombinedOutput()
 	if err != nil {
 		ts.Fatalf("git clone --bare: %v\n%s", err, out)
@@ -151,7 +134,6 @@ func cmdSetupProject(ts *testscript.TestScript, neg bool, args []string) { //nol
 
 	gitRun := func(gitArgs ...string) {
 		c := exec.Command("git", append([]string{"--git-dir", bareDir}, gitArgs...)...)
-		c.Env = gitEnv()
 		out, err := c.CombinedOutput()
 		if err != nil {
 			ts.Fatalf("git %v: %v\n%s", gitArgs, err, out)

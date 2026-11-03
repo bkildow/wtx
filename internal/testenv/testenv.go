@@ -6,18 +6,43 @@ package testenv
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
+// homes are the per-user directories Isolate redirects, by variable, to the
+// subdirectory of its temp dir named here.
+var homes = map[string]string{"HOME": "home", "WTX_HOME": "wtx-home", "XDG_CONFIG_HOME": "xdg"}
+
+// GitVars is the git environment every test runs with: no system config, a
+// fixed identity, no background maintenance (its lock files race file
+// snapshots) and no optional locks, so read-only commands such as git status
+// leave the index alone. e2e scripts start from an empty environment and set
+// these themselves.
+func GitVars() []string {
+	return []string{
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_OPTIONAL_LOCKS=0",
+		"GIT_AUTHOR_NAME=Test",
+		"GIT_AUTHOR_EMAIL=test@test.com",
+		"GIT_COMMITTER_NAME=Test",
+		"GIT_COMMITTER_EMAIL=test@test.com",
+		"GIT_CONFIG_COUNT=2",
+		"GIT_CONFIG_KEY_0=maintenance.auto",
+		"GIT_CONFIG_VALUE_0=false",
+		"GIT_CONFIG_KEY_1=gc.auto",
+		"GIT_CONFIG_VALUE_1=0",
+	}
+}
+
 // Isolate points HOME, WTX_HOME and XDG_CONFIG_HOME at fresh directories
 // under a new temporary directory, which it returns. It clears every GIT_*,
 // WTX_* and WT_* variable the caller inherited (a test run from a git hook
 // or a wtx run script would otherwise see that repository or worktree), then
-// gives git an empty global config, no system config, a fixed identity and no
-// background maintenance, whose lock files race file snapshots.
+// sets GitVars and an empty global git config.
 func Isolate() (string, error) {
 	dir, err := os.MkdirTemp("", "wtx-test-")
 	if err != nil {
@@ -33,28 +58,17 @@ func Isolate() (string, error) {
 	if err := os.WriteFile(gitconfig, nil, 0o644); err != nil {
 		return "", err
 	}
-	env := map[string]string{
-		"HOME":                dir + "/home",
-		"WTX_HOME":            dir + "/wtx-home",
-		"XDG_CONFIG_HOME":     dir + "/xdg",
-		"GIT_CONFIG_GLOBAL":   gitconfig,
-		"GIT_CONFIG_NOSYSTEM": "1",
-		"GIT_AUTHOR_NAME":     "Test",
-		"GIT_AUTHOR_EMAIL":    "test@test.com",
-		"GIT_COMMITTER_NAME":  "Test",
-		"GIT_COMMITTER_EMAIL": "test@test.com",
-		"GIT_CONFIG_COUNT":    "2",
-		"GIT_CONFIG_KEY_0":    "maintenance.auto",
-		"GIT_CONFIG_VALUE_0":  "false",
-		"GIT_CONFIG_KEY_1":    "gc.auto",
-		"GIT_CONFIG_VALUE_1":  "0",
+	vars := append(GitVars(), "GIT_CONFIG_GLOBAL="+gitconfig)
+	for name, sub := range homes {
+		vars = append(vars, name+"="+filepath.Join(dir, sub))
 	}
-	for name, value := range env {
+	for _, kv := range vars {
+		name, value, _ := strings.Cut(kv, "=")
 		if err := os.Setenv(name, value); err != nil {
 			return "", err
 		}
 	}
-	if err := os.MkdirAll(env["HOME"], 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, homes["HOME"]), 0o755); err != nil {
 		return "", err
 	}
 	return dir, nil
@@ -84,9 +98,9 @@ func Main(m *testing.M) {
 // HOME that Isolate creates.
 func written(dir string) []string {
 	var leaked []string
-	for _, sub := range []string{"home", "wtx-home", "xdg"} {
+	for _, sub := range homes {
 		root := filepath.Join(dir, sub)
-		_ = filepath.WalkDir(root, func(path string, _ os.DirEntry, err error) error {
+		_ = filepath.WalkDir(root, func(path string, _ fs.DirEntry, err error) error {
 			if err == nil && path != root {
 				rel, _ := filepath.Rel(dir, path)
 				leaked = append(leaked, rel)
@@ -95,4 +109,50 @@ func written(dir string) []string {
 		})
 	}
 	return leaked
+}
+
+// GoFiles calls fn with the module-relative path and contents of every .go
+// file in the module, test files included, skipping dot directories and
+// testdata. Source-scanning tests share it so they agree on what the module
+// holds.
+func GoFiles(t testing.TB, fn func(rel string, data []byte)) {
+	t.Helper()
+	root, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(root, "go.mod")); err == nil {
+			break
+		}
+		parent := filepath.Dir(root)
+		if parent == root {
+			t.Fatal("testenv: no go.mod above the test's directory")
+		}
+		root = parent
+	}
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			if path != root && (strings.HasPrefix(d.Name(), ".") || d.Name() == "testdata") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, ".go") {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, path)
+		fn(filepath.ToSlash(rel), data)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }

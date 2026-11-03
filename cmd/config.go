@@ -34,7 +34,7 @@ func runConfigInit(cmd *cobra.Command, args []string) error {
 	dry := IsDryRun()
 	update, _ := cmd.Flags().GetBool("update")
 
-	projectRoot, err := findProjectRoot()
+	projectRoot, err := findProjectRoot() // raw-load: config init writes .worktree.yml, so it may not hold a valid config yet
 	if err != nil {
 		return err
 	}

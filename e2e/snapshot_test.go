@@ -60,7 +60,7 @@ func manifest(root string) (map[string]string, error) {
 			return err
 		}
 		rel = filepath.ToSlash(rel)
-		if ignoredBySnapshot(rel, d) {
+		if ignoredBySnapshot(rel) {
 			if d.IsDir() {
 				return filepath.SkipDir
 			}
@@ -92,15 +92,12 @@ func manifest(root string) (map[string]string, error) {
 	return m, err
 }
 
-// ignoredBySnapshot skips what a read-only command may legitimately touch:
-// testscript's own scratch dir, git's index (git status refreshes its stat
-// cache) and lock files (background maintenance can take one at any time).
-func ignoredBySnapshot(rel string, d fs.DirEntry) bool {
-	if rel == ".tmp" {
-		return true
-	}
-	base := d.Name()
-	return base == "index" || strings.HasSuffix(base, ".lock")
+// ignoredBySnapshot skips testscript's own scratch directory. Nothing else
+// is ignored: testenv.GitVars turns off the index refresh and background
+// maintenance that would otherwise change git's files under a read-only
+// command.
+func ignoredBySnapshot(rel string) bool {
+	return rel == ".tmp"
 }
 
 func diffManifests(before, after map[string]string) []string {
