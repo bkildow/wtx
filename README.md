@@ -229,6 +229,7 @@ wtx prune
 | `wtx open [name]` | Open a worktree in an IDE |
 | `wtx status` | Show status of all worktrees (`--json` for scripts) |
 | `wtx logs [name]` | Print a worktree's background setup log |
+| `wtx wait [name...]` | Wait for background setup to finish |
 | `wtx doctor` | Check project health and migration readiness |
 | `wtx sync` | Fetch and pull all worktrees |
 | `wtx prune` | Remove worktrees with fully merged branches |
@@ -388,7 +389,7 @@ Re-runs the `setup:` and `parallel_setup:` hooks from `.worktree.yml` against an
 existing worktree. The primary use case is bootstrapping a worktree that was
 created with `wtx add --skip-setup`, but it can also be used to re-run hooks
 after editing `.worktree.yml`. Refuses to run when a setup is already in
-progress for the target worktree (check with `wtx status`, or read its output so far
+progress for the target worktree (wait for it with `wtx wait`, or read its output so far
 with `wtx logs`).
 
 <a id="wt-run"></a>
@@ -623,6 +624,44 @@ wtx logs                      # Interactive picker
 Prints the log of a worktree's background setup to stdout, including the output of
 any failing hook. Foreground setup prints to the terminal and keeps no log, so for
 those worktrees `wtx logs` says there is no log and exits successfully.
+
+### wtx wait
+
+```bash
+wtx wait                      # Wait for the current worktree's setup
+wtx wait feature/a feature/b  # Wait for several worktrees
+wtx wait --all                # Wait for every worktree
+wtx wait feature/a --timeout 0  # Check once without waiting
+wtx wait feature/a --json     # Final setup state as JSON on stdout
+```
+
+Waits until setup finishes in each named worktree (default: the one containing
+`$PWD`, or a picker in a terminal), polling its `.wtx-setup.json`. It sees
+background and foreground setup alike, and gives up after `--timeout`
+(default `10m`). A worktree created in the last minute with setup hooks but no
+setup record yet counts as waiting for setup to start, which covers herdr
+checkouts whose setup starts just after they appear.
+
+The exit status is the answer, the worst across all worktrees:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Ready: setup complete, skipped, or none recorded |
+| `2` | Setup failed, or its process died; run `wtx logs <name>` |
+| `75` | Still running when `--timeout` ran out; run `wtx wait` again |
+| `130` | Interrupted; setup keeps running |
+| `1` | wtx itself failed, such as an unknown worktree |
+
+A failure beats still running. `--json` writes `{"schema_version": 1, "worktrees": [...]}`,
+each entry holding `branch`, `path`, `setup` (the same record as in `wtx status --json`)
+and `"pending": true` while waiting for setup to start, and prints no progress or result lines to stderr.
+
+When stderr is a terminal that supports the
+[OSC 7501 program status protocol](https://www.superlogical.com/rex/docs/build/program-status)
+(Rex, Ghostty, Claude Code), the tab shows setup progress, then `done` or `error`
+before `wtx wait` exits, or `idle` when it stops waiting while setup still runs.
+Foreground setup from `wtx add` and `wtx setup` reports progress the same way.
+Set `WTX_TERMINAL_STATUS` to control it (see [Environment variables](#environment-variables)).
 
 <a id="wt-sync"></a>
 
@@ -865,6 +904,7 @@ secrets/
 | `WTX_HOME` | Directory for `wtx init` project directories and `~/.wtx/...` paths (default `~/.wtx`) |
 | `WTX_NO_DISK_WARN` | Any non-empty value disables [low disk space warnings](#low-disk-space-warnings) |
 | `WTX_THEME` | Color theme for terminal output |
+| `WTX_TERMINAL_STATUS` | `off` stops [`wtx wait`](#wtx-wait) and foreground setup from reporting progress to the terminal with OSC 7501; `all` also sends OSC 9;4 progress |
 
 Scripts run by `wtx run` also receive the [`WTX_*` variables](#wtx-run) listed
 under `wtx run`, and hooks receive them as described under

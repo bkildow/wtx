@@ -42,6 +42,26 @@ type SetupState struct {
 	LogFile        string      `json:"log_file"`
 }
 
+// Settled reports whether waiting on this setup can end: only running is
+// unsettled. A nil state means no setup was recorded, which is settled.
+func (s *SetupState) Settled() bool {
+	return s == nil || s.Status != SetupRunning
+}
+
+// Percent is the share of hooks completed. It is capped at 99 while setup is
+// running, because parallel hooks run as one batch after the serial ones.
+// ok is false when the hook count is unknown.
+func (s *SetupState) Percent() (pct int, ok bool) {
+	if s == nil || s.HooksTotal <= 0 {
+		return 0, false
+	}
+	pct = 100 * s.HooksCompleted / s.HooksTotal
+	if s.Status == SetupRunning {
+		pct = min(pct, 99)
+	}
+	return pct, true
+}
+
 // SetupStatePath returns the path to the setup state file for a worktree.
 func SetupStatePath(worktreePath string) string {
 	return filepath.Join(worktreePath, SetupStateFile)

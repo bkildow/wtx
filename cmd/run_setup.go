@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -59,13 +58,11 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 	ui.Output = cpw
 	lipgloss.Writer = cpw
 
-	hooksTotal := len(cfg.Setup) + len(cfg.ParallelSetup)
-
 	state := &project.SetupState{
 		Status:     project.SetupRunning,
 		PID:        os.Getpid(),
 		StartedAt:  time.Now(),
-		HooksTotal: hooksTotal,
+		HooksTotal: len(cfg.Setup) + len(cfg.ParallelSetup),
 		LogFile:    project.SetupLogPath(worktreePath),
 	}
 	if err := project.WriteSetupState(worktreePath, state); err != nil {
@@ -90,28 +87,11 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 
 	env := clone.ProjectEnv(project.NewTemplateVars(projectRoot, worktreePath, branch), wts)
 
-	var setupErr error
-
-	// Run serial hooks with progress tracking.
-	onProgress := func(index int, cmdStr string, hookErr error) {
-		state.HooksCompleted = index + 1
-		_ = project.WriteSetupState(worktreePath, state)
-	}
-	setupErr = project.RunSetupHooks(ctx, cfg, env, false, onProgress)
-
-	// Run parallel hooks as a batch.
-	if pErr := project.RunParallelSetupHooks(ctx, cfg, env, false); pErr != nil {
-		setupErr = errors.Join(setupErr, pErr)
-	}
-	state.HooksCompleted = hooksTotal
-
-	if setupErr != nil {
-		state.Status = project.SetupFailed
-		state.Error = setupErr.Error()
-	} else {
-		state.Status = project.SetupComplete
-	}
-	state.CompletedAt = time.Now()
+	// Progress writes are best-effort; the final write's error is returned.
+	var writeErr error
+	setupErr := project.RunRecordedSetup(ctx, cfg, env, false, state, func() {
+		writeErr = project.WriteSetupState(worktreePath, state)
+	})
 
 	elapsed := ui.FormatDuration(state.CompletedAt.Sub(state.StartedAt))
 	if setupErr != nil {
@@ -119,6 +99,5 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 	} else {
 		ui.Success("Worktree setup completed in " + elapsed)
 	}
-
-	return project.WriteSetupState(worktreePath, state)
+	return writeErr
 }

@@ -27,6 +27,6 @@ func main() {
 		if !errors.Is(err, cmd.ErrReported) {
 			ui.Error(err.Error())
 		}
-		os.Exit(1)
+		os.Exit(cmd.ExitCode(err))
 	}
 }

@@ -79,6 +79,7 @@ exec wtx --dry-run status
 exec wtx --dry-run cd master
 exec wtx --dry-run root
 exec wtx --dry-run logs master
+exec wtx --dry-run wait --all --timeout 0
 exec wtx --dry-run completion bash
 exec wtx --dry-run shell-init zsh
 exec wtx --dry-run skill

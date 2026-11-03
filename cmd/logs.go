@@ -52,6 +52,8 @@ func runLogs(cmd *cobra.Command, args []string) error {
 	path := project.SetupLog(selected.Path, state)
 	if path == "" {
 		switch {
+		case state != nil && state.Status == project.SetupRunning && state.LogFile == "":
+			ui.Info("Setup for " + selected.Branch + " is running in the foreground in another terminal, which keeps no log")
 		case state != nil && state.Status == project.SetupRunning:
 			// The background process creates its log shortly after launch.
 			ui.Info("Setup for " + selected.Branch + " has not written any output yet")
