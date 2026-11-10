@@ -38,8 +38,8 @@ cmp $WTX_HOME/myrepo/worktrees/feature/.env.local $WORK/override
 cmp $WTX_HOME/myrepo/worktrees/feature/.env.example $WORK/envexample
 cmp $WTX_HOME/myrepo/worktrees/feature/secrets/tracked.txt $WORK/envexample
 
-# Re-running wtx apply leaves a worktree's edited .env alone; shared/copy
-# still applies after and wins.
+# Re-running wtx apply leaves a worktree's edited .env alone, and keeps the
+# .env.local shared/copy gave it on add.
 cp $WORK/edited $WTX_HOME/myrepo/worktrees/feature/.env
 exec wtx --dry-run apply feature
 ! stderr 'myrepo/\.env -> '

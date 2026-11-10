@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -133,8 +134,13 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		previewLink = os.IsNotExist(err)
 	}
 	for _, wt := range filtered {
+		if wt.Prunable {
+			// Applying would recreate the deleted directory.
+			ui.Warning(fmt.Sprintf("Skipping worktree %s: its directory is missing", cmp.Or(wt.Branch, wt.Path)))
+			continue
+		}
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
-		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil); err != nil {
+		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil, project.KeepExisting); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))
 			continue
 		}
@@ -220,7 +226,7 @@ func runClaudeHookWorktreeCreate(cmd *cobra.Command, _ []string) error {
 
 	vars := project.NewTemplateVars(projectRoot, worktreePath, branch)
 	include := resolveIncludeSource(ctx, clone)
-	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars, include)
+	result, err := project.Apply(projectRoot, worktreePath, cfg, false, &vars, include, project.ReplaceExisting)
 	if err != nil {
 		return fmt.Errorf("apply shared files failed: %w", err)
 	}

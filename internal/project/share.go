@@ -180,12 +180,12 @@ func SeedInto(sourceDir, rel string, wts []git.WorktreeInfo, dryRun bool) ([]Sha
 	}
 	outcomes := make([]ShareOutcome, 0, len(wts))
 	for _, wt := range wts {
-		n, err := seedFiles(sourceDir, files, wt.Path, dryRun)
+		seeded, err := seedFiles(sourceDir, files, wt.Path, dryRun)
 		if err != nil {
 			return outcomes, err
 		}
 		out := ShareOutcome{Worktree: wt}
-		if n == 0 {
+		if len(seeded) == 0 {
 			out.State = ShareSkipped
 		}
 		outcomes = append(outcomes, out)

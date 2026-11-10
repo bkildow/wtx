@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/bkildow/wtx/internal/git"
@@ -38,5 +40,52 @@ func TestRootApplyError(t *testing.T) {
 				t.Errorf("rootApplyError = %v, wantErr %v", err, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestApplyCopyMode(t *testing.T) {
+	copyDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(copyDir, ".aws"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name    string
+		flags   map[string][]string
+		want    project.CopyMode
+		wantErr bool
+	}{
+		{"default seeds", nil, project.KeepExisting, false},
+		{"--force replaces", map[string][]string{"force": {"true"}}, project.ReplaceExisting, false},
+		{"--overwrite names a path", map[string][]string{"overwrite": {"./.aws"}}, project.CopyMode{Seed: true, Replace: []string{".aws"}}, false},
+		{"--overwrite outside shared/copy", map[string][]string{"overwrite": {"vendor"}}, project.CopyMode{}, true},
+		{"--overwrite escaping the worktree", map[string][]string{"overwrite": {"../.aws"}}, project.CopyMode{}, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := newApplyCmd()
+			for name, values := range tt.flags {
+				for _, v := range values {
+					if err := cmd.Flags().Set(name, v); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
+			got, err := applyCopyMode(cmd, copyDir)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("applyCopyMode err = %v, wantErr %v", err, tt.wantErr)
+			}
+			if !tt.wantErr && !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("applyCopyMode = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestApplyForceAndOverwriteExclusive(t *testing.T) {
+	cmd := newApplyCmd()
+	_ = cmd.Flags().Set("force", "true")
+	_ = cmd.Flags().Set("overwrite", ".aws")
+	if err := cmd.ValidateFlagGroups(); err == nil {
+		t.Error("--force with --overwrite was accepted")
 	}
 }

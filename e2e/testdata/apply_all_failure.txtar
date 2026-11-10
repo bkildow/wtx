@@ -1,0 +1,45 @@
+[!exec:git] skip 'git not available'
+
+setup-repo
+setup-project
+
+cd $WORK/project
+exec wtx add --skip-setup one
+exec wtx add --skip-setup two
+
+# A worktree file where shared/copy has a directory is the worktree's own:
+# apply keeps it and finishes that worktree.
+mkdir shared/copy/conf
+cp $WORK/shared shared/copy/conf/app.yml
+cp $WORK/own worktrees/one/conf
+exec wtx --dry-run apply one
+stderr 'kept conf: the worktree has a file there'
+exec wtx apply one
+stderr 'kept conf: the worktree has a file there'
+stderr '0 copied, 1 kept'
+cmp worktrees/one/conf $WORK/own
+
+# shared/symlink holds a file where worktree "one" has a non-empty directory,
+# so linking it fails; --all still applies to "two", then exits unsuccessfully.
+cp $WORK/shared shared/symlink/tool
+mkdir worktrees/one/tool
+cp $WORK/own worktrees/one/tool/own.txt
+! exec wtx apply --all
+stderr 'Could not apply to one'
+stderr 'Applied shared files to 1 of 2 worktree\(s\)'
+! stderr 'already reported'
+cmp worktrees/two/conf/app.yml $WORK/shared
+exists worktrees/two/tool
+cmp worktrees/one/tool/own.txt $WORK/own
+
+# A worktree whose directory was deleted is skipped, not recreated.
+rm worktrees/two
+! exec wtx apply --all
+stderr 'Skipping two: its directory'
+stderr 'Applied shared files to 0 of 2 worktree\(s\)'
+! exists worktrees/two
+
+-- shared --
+key: value
+-- own --
+mine

@@ -36,7 +36,8 @@ func TestApplyInclude(t *testing.T) {
 	writeTestFile(t, filepath.Join(wt, ".env"), "edited-in-worktree")
 
 	include := &IncludeSource{Dir: src, Files: []string{".env", "secrets/key.txt", "gone.txt"}}
-	n, err := applyInclude(include, wt, false)
+	seeded, err := applyInclude(include, wt, false)
+	n := len(seeded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +60,8 @@ func TestApplyIncludeDryRun(t *testing.T) {
 	wt := t.TempDir()
 	writeTestFile(t, filepath.Join(src, ".env"), "SECRET=1")
 
-	n, err := applyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	seeded, err := applyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	n := len(seeded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +74,8 @@ func TestApplyIncludeDryRun(t *testing.T) {
 
 	// An existing destination file is not reported as a would-copy.
 	writeTestFile(t, filepath.Join(wt, ".env"), "edited")
-	n, err = applyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	seeded, err = applyInclude(&IncludeSource{Dir: src, Files: []string{".env"}}, wt, true)
+	n = len(seeded)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +99,8 @@ func TestApplyIncludeSkips(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			n, err := applyInclude(tt.include, tt.dest, false)
+			seeded, err := applyInclude(tt.include, tt.dest, false)
+			n := len(seeded)
 			if err != nil || n != 0 {
 				t.Errorf("ApplyInclude = (%d, %v), want (0, nil)", n, err)
 			}
@@ -114,7 +118,7 @@ func TestApplyIncludeThenSharedCopyWins(t *testing.T) {
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
 	include := &IncludeSource{Dir: src, Files: []string{".env", "only-main"}}
-	result, err := Apply(root, wt, cfg, false, nil, include)
+	result, err := Apply(root, wt, cfg, false, nil, include, CopyMode{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -126,5 +130,38 @@ func TestApplyIncludeThenSharedCopyWins(t *testing.T) {
 	}
 	if got := readTestFile(t, filepath.Join(wt, "only-main")); got != "main" {
 		t.Errorf("only-main = %q", got)
+	}
+}
+
+// On an existing worktree, a file it lacks that both .worktreeinclude and
+// shared/copy provide still ends up with shared/copy's content, and a dry
+// run reports the same counts as the real one.
+func TestApplySeedSharedCopyWinsOverInclude(t *testing.T) {
+	root := t.TempDir()
+	src := t.TempDir()
+	writeTestFile(t, filepath.Join(src, ".env"), "from-main")
+	writeTestFile(t, filepath.Join(root, "shared", "copy", ".env"), "from-shared")
+	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
+	include := &IncludeSource{Dir: src, Files: []string{".env"}}
+
+	var results []ApplyResult
+	for _, dry := range []bool{true, false} {
+		wt := t.TempDir()
+		result, err := Apply(root, wt, cfg, dry, nil, include, KeepExisting)
+		if err != nil {
+			t.Fatal(err)
+		}
+		results = append(results, result)
+		if !dry {
+			if got := readTestFile(t, filepath.Join(wt, ".env")); got != "from-shared" {
+				t.Errorf(".env = %q, want shared/copy to win", got)
+			}
+		}
+	}
+	if results[0] != results[1] {
+		t.Errorf("dry run %+v, real run %+v; want them equal", results[0], results[1])
+	}
+	if results[1].Kept != 0 || results[1].Copied != 1 {
+		t.Errorf("real run %+v, want Copied=1 Kept=0", results[1])
 	}
 }

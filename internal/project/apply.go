@@ -16,7 +16,78 @@ import (
 type ApplyResult struct {
 	Included  int // files copied from the main worktree via .worktreeinclude
 	Copied    int
+	Kept      int // shared/copy files left alone because the worktree already had them
 	Symlinked int
+}
+
+// CopyMode says what ApplyCopy does with a shared/copy file the worktree
+// already has. The zero value replaces it, as a fresh worktree wants:
+// shared/copy wins over the .worktreeinclude files copied before it.
+type CopyMode struct {
+	// Seed keeps the worktree's existing files, so re-applying never resets
+	// a populated directory such as vendor/ to an older shared snapshot.
+	Seed bool
+	// Replace lists shared/copy paths (cleaned, as ReplacePaths returns
+	// them) that Seed still replaces. A directory covers everything
+	// below it; a template matches by its own name or its output's.
+	Replace []string
+	// seeded holds the worktree paths (cleaned) the .worktreeinclude layer
+	// copied in this same Apply. They are not the worktree's own, so Seed
+	// still replaces them and shared/copy wins as on a new worktree.
+	seeded map[string]bool
+}
+
+var (
+	// ReplaceExisting is the CopyMode for a new worktree: shared/copy
+	// replaces what .worktreeinclude copied before it.
+	ReplaceExisting = CopyMode{}
+	// KeepExisting is the CopyMode for an existing worktree: only files it
+	// is missing are copied.
+	KeepExisting = CopyMode{Seed: true}
+)
+
+// keeps reports whether m leaves the existing destination of rel (the
+// shared/copy path) alone; out is the worktree path rel renders to.
+func (m CopyMode) keeps(rel, out string) bool {
+	if !m.Seed || m.seeded[out] {
+		return false
+	}
+	for _, p := range m.Replace {
+		if ui.Within(p, rel) || ui.Within(p, out) {
+			return false
+		}
+	}
+	return true
+}
+
+// ReplacePaths checks the --overwrite paths a user named against copyDir
+// (shared/copy) and returns them cleaned for CopyMode.Replace. Each must be
+// relative, stay inside the worktree, and name an entry of copyDir (or the
+// output of a template there), so a typo fails before anything is written.
+func ReplacePaths(copyDir string, paths []string) ([]string, error) {
+	var out []string
+	for _, p := range paths {
+		if !filepath.IsLocal(p) {
+			return nil, fmt.Errorf("%s: give a path inside the worktree, relative to its root", p)
+		}
+		clean := filepath.Clean(p)
+		if clean == "." {
+			return nil, fmt.Errorf("%s: use --force to replace every shared file", p)
+		}
+		if !inCopyDir(filepath.Join(copyDir, clean)) && !inCopyDir(filepath.Join(copyDir, clean+".template")) {
+			return nil, fmt.Errorf("%s is not in %s", p, copyDir)
+		}
+		out = append(out, clean)
+	}
+	return out, nil
+}
+
+// inCopyDir reports whether path is an entry of shared/copy. Unlike exists,
+// any Lstat error counts as missing, so a path below a file (ENOTDIR) is
+// refused rather than accepted and then matching nothing.
+func inCopyDir(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // IncludeSource is the main worktree and the files its .worktreeinclude
@@ -27,23 +98,24 @@ type IncludeSource struct {
 }
 
 // applyInclude copies the .worktreeinclude-selected files from the main
-// worktree into worktreePath. Files that already exist in the destination are
-// left alone (not counted), matching Claude Code and Conductor, which only
-// seed at creation. It is a no-op when include is nil, empty, or the destination is the main
-// worktree itself.
-func applyInclude(include *IncludeSource, worktreePath string, dryRun bool) (int, error) {
+// worktree into worktreePath and returns the ones it copied (or would copy
+// under dryRun). Files that already exist in the destination are left alone,
+// matching Claude Code and Conductor, which only seed at creation. It is a
+// no-op when include is nil, empty, or the destination is the main worktree
+// itself.
+func applyInclude(include *IncludeSource, worktreePath string, dryRun bool) ([]string, error) {
 	if include == nil || len(include.Files) == 0 || SamePath(include.Dir, worktreePath) {
-		return 0, nil
+		return nil, nil
 	}
 	ui.Step("Copying .worktreeinclude files from " + include.Dir)
 	return seedFiles(include.Dir, include.Files, worktreePath, dryRun)
 }
 
 // seedFiles copies files (relative to srcDir) into worktreePath, skipping
-// any the worktree already has, and returns how many it copied (or would
+// any the worktree already has, and returns the ones it copied (or would
 // copy under dryRun).
-func seedFiles(srcDir string, files []string, worktreePath string, dryRun bool) (int, error) {
-	var count int
+func seedFiles(srcDir string, files []string, worktreePath string, dryRun bool) ([]string, error) {
+	var seeded []string
 	for _, rel := range files {
 		src := filepath.Join(srcDir, rel)
 		dest := filepath.Join(worktreePath, rel)
@@ -61,7 +133,7 @@ func seedFiles(srcDir string, files []string, worktreePath string, dryRun bool) 
 
 		if dryRun {
 			ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", src, dest))
-			count++
+			seeded = append(seeded, rel)
 			continue
 		}
 
@@ -70,7 +142,7 @@ func seedFiles(srcDir string, files []string, worktreePath string, dryRun bool) 
 			if os.IsNotExist(err) {
 				continue // removed since git listed it
 			}
-			return count, err
+			return seeded, err
 		}
 		// Sockets, FIFOs and devices cannot be copied; skip rather than
 		// failing the whole apply after the worktree already exists.
@@ -79,19 +151,19 @@ func seedFiles(srcDir string, files []string, worktreePath string, dryRun bool) 
 			continue
 		}
 		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
-			return count, err
+			return seeded, err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
 			if err := fscopy.CopySymlink(src, dest); err != nil {
-				return count, err
+				return seeded, err
 			}
 		} else if err := fscopy.CopyFile(src, dest); err != nil {
-			return count, err
+			return seeded, err
 		}
 		ui.Info("  copied " + rel)
-		count++
+		seeded = append(seeded, rel)
 	}
-	return count, nil
+	return seeded, nil
 }
 
 // hasSymlinkParent reports whether any existing directory component of rel
@@ -115,24 +187,38 @@ func hasSymlinkParent(root, rel string) bool {
 	return false
 }
 
-func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars) (int, error) {
+// ApplyCopy copies shared/copy into worktreePath, rendering .template files
+// when vars is set. mode decides what happens to files the worktree already
+// has; a file or directory of the worktree's own that is in the way of a
+// shared one is always kept. It returns how many files it copied (or would
+// copy under dryRun) and how many it kept.
+func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, mode CopyMode) (copied, kept int, err error) {
 	copyDir := filepath.Join(SharedPath(projectRoot, cfg), "copy")
 
 	if _, err := os.Stat(copyDir); os.IsNotExist(err) {
-		return 0, nil
+		return 0, 0, nil
 	}
 
 	ui.Step("Copying shared files")
 
-	var count int
 	logged := make(map[string]bool)
 
 	// Fast path: reflink whole template-free subtrees in one syscall instead of walking file-by-file.
-	skipTrees, treeCount, err := fastPathCopyTrees(copyDir, worktreePath, vars, dryRun, logged)
+	skipTrees, copied, err := fastPathCopyTrees(copyDir, worktreePath, vars, dryRun, logged)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
-	count += treeCount
+
+	// Kept files below a top-level directory are logged as one line once the
+	// walk leaves that directory; WalkDir visits each one's files together.
+	var keptDir string
+	var keptInDir int
+	flushKept := func() {
+		if keptInDir > 0 {
+			ui.Info(fmt.Sprintf("  kept %s/ (%d already in the worktree)", keptDir, keptInDir))
+		}
+		keptInDir = 0
+	}
 
 	sep := string(filepath.Separator)
 	err = filepath.WalkDir(copyDir, func(path string, d fs.DirEntry, err error) error {
@@ -147,24 +233,56 @@ func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool
 			return err
 		}
 		topLevel, _, isNested := strings.Cut(rel, sep)
+		if topLevel != keptDir {
+			flushKept()
+			keptDir = topLevel
+		}
 		if d.IsDir() {
 			if skipTrees[topLevel] {
 				return filepath.SkipDir
 			}
+			// A worktree file (or dangling symlink) where shared/copy has a
+			// directory is the worktree's own: keep it in every mode rather
+			// than fail the worktree half-applied.
+			wtPath := filepath.Join(worktreePath, rel)
+			if _, err := os.Lstat(wtPath); err == nil && !IsDirOrLinkToDir(wtPath) {
+				ui.Warning(fmt.Sprintf("  kept %s: the worktree has a file there", rel))
+				kept++
+				return filepath.SkipDir
+			}
 			return nil
 		}
-		dest := filepath.Join(worktreePath, rel)
+		isTemplate := vars != nil && IsTemplateFile(rel)
+		out := rel
+		if isTemplate {
+			out = StripTemplateExt(rel)
+		}
+		dest := filepath.Join(worktreePath, out)
+
+		info, statErr := os.Lstat(dest)
+		// Likewise a worktree directory where shared/copy has a file.
+		if statErr == nil && info.IsDir() {
+			ui.Warning(fmt.Sprintf("  kept %s: the worktree has a directory there", out))
+			kept++
+			return nil
+		}
+		if statErr == nil && mode.keeps(rel, out) {
+			if isNested {
+				keptInDir++
+			} else {
+				ui.Info(fmt.Sprintf("  kept %s (already in the worktree)", out))
+			}
+			kept++
+			return nil
+		}
 
 		if dryRun {
 			if isNested {
 				logCopyDir(topLevel, logged, true)
 			} else {
-				dryDest := dest
-				if vars != nil && IsTemplateFile(rel) {
-					dryDest = filepath.Join(worktreePath, StripTemplateExt(rel))
-				}
-				ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", path, dryDest))
+				ui.DryRunNotice(fmt.Sprintf("copy %s -> %s", path, dest))
 			}
+			copied++
 			return nil
 		}
 
@@ -172,7 +290,7 @@ func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool
 			return err
 		}
 
-		if vars != nil && IsTemplateFile(rel) {
+		if isTemplate {
 			content, err := os.ReadFile(path)
 			if err != nil {
 				return err
@@ -181,10 +299,9 @@ func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool
 			if err != nil {
 				return err
 			}
-			dest = filepath.Join(worktreePath, StripTemplateExt(rel))
 			processed := ProcessTemplate(string(content), *vars)
-			ui.Info(fmt.Sprintf("  substituted template variables in %s", StripTemplateExt(rel)))
-			count++
+			ui.Info(fmt.Sprintf("  substituted template variables in %s", out))
+			copied++
 			return os.WriteFile(dest, []byte(processed), srcInfo.Mode())
 		}
 
@@ -196,10 +313,11 @@ func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool
 		} else {
 			ui.Info(fmt.Sprintf("  copied %s", rel))
 		}
-		count++
+		copied++
 		return nil
 	})
-	return count, err
+	flushKept()
+	return copied, kept, err
 }
 
 // fastPathCopyTrees reflinks each template-free top-level subtree and returns the
@@ -222,6 +340,12 @@ func fastPathCopyTrees(copyDir, worktreePath string, vars *TemplateVars, dryRun 
 		subSrc := filepath.Join(copyDir, entry.Name())
 		subDst := filepath.Join(worktreePath, entry.Name())
 
+		// CopyTree requires a fresh dst; if one already exists, the per-file
+		// walk decides file by file what to copy.
+		if _, lstatErr := os.Lstat(subDst); lstatErr == nil {
+			continue
+		}
+
 		hasTemplate, fileCount, scanErr := scanTreeForTemplates(subSrc, wantTemplateScan)
 		if scanErr != nil {
 			return skip, totalFiles, scanErr
@@ -234,11 +358,6 @@ func fastPathCopyTrees(copyDir, worktreePath string, vars *TemplateVars, dryRun 
 			logCopyDir(entry.Name(), logged, true)
 			skip[entry.Name()] = true
 			totalFiles += fileCount
-			continue
-		}
-
-		// CopyTree requires a fresh dst; if one already exists, let the per-file walk overwrite it.
-		if _, lstatErr := os.Lstat(subDst); lstatErr == nil {
 			continue
 		}
 
@@ -415,15 +534,24 @@ func symlinkDirContents(srcDir, destDir, worktreePath string, dryRun bool) (int,
 }
 
 // Apply layers files into a worktree in order: .worktreeinclude files from
-// the main worktree, then shared/copy, then shared/symlink. Later layers win,
-// so machine-local shared files override what the main worktree provides.
-// include may be nil to skip the .worktreeinclude layer.
-func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, include *IncludeSource) (ApplyResult, error) {
+// the main worktree, then shared/copy, then shared/symlink. With
+// ReplaceExisting later layers win, so machine-local shared files override
+// what the main worktree provides; KeepExisting leaves files the worktree
+// already has alone.
+// include may be nil to skip the .worktreeinclude layer; mode is how
+// shared/copy treats files the worktree already has.
+func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, include *IncludeSource, mode CopyMode) (ApplyResult, error) {
 	included, err := applyInclude(include, worktreePath, dryRun)
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	copied, err := ApplyCopy(projectRoot, worktreePath, cfg, dryRun, vars)
+	if mode.Seed && len(included) > 0 {
+		mode.seeded = make(map[string]bool, len(included))
+		for _, rel := range included {
+			mode.seeded[filepath.Clean(filepath.FromSlash(rel))] = true
+		}
+	}
+	copied, kept, err := ApplyCopy(projectRoot, worktreePath, cfg, dryRun, vars, mode)
 	if err != nil {
 		return ApplyResult{}, err
 	}
@@ -431,7 +559,7 @@ func Apply(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, va
 	if err != nil {
 		return ApplyResult{}, err
 	}
-	return ApplyResult{Included: included, Copied: copied, Symlinked: symlinked}, nil
+	return ApplyResult{Included: len(included), Copied: copied, Kept: kept, Symlinked: symlinked}, nil
 }
 
 // logCopyDir logs a top-level directory copy once, collapsing nested files.
