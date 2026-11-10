@@ -189,8 +189,9 @@ func hasSymlinkParent(root, rel string) bool {
 
 // ApplyCopy copies shared/copy into worktreePath, rendering .template files
 // when vars is set. mode decides what happens to files the worktree already
-// has. It returns how many files it copied (or would copy under dryRun) and
-// how many it kept.
+// has; a file or directory of the worktree's own that is in the way of a
+// shared one is always kept. It returns how many files it copied (or would
+// copy under dryRun) and how many it kept.
 func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool, vars *TemplateVars, mode CopyMode) (copied, kept int, err error) {
 	copyDir := filepath.Join(SharedPath(projectRoot, cfg), "copy")
 
@@ -232,15 +233,24 @@ func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool
 			return err
 		}
 		topLevel, _, isNested := strings.Cut(rel, sep)
+		if topLevel != keptDir {
+			flushKept()
+			keptDir = topLevel
+		}
 		if d.IsDir() {
 			if skipTrees[topLevel] {
 				return filepath.SkipDir
 			}
+			// A worktree file (or dangling symlink) where shared/copy has a
+			// directory is the worktree's own: keep it in every mode rather
+			// than fail the worktree half-applied.
+			wtPath := filepath.Join(worktreePath, rel)
+			if _, err := os.Lstat(wtPath); err == nil && !IsDirOrLinkToDir(wtPath) {
+				ui.Warning(fmt.Sprintf("  kept %s: the worktree has a file there", rel))
+				kept++
+				return filepath.SkipDir
+			}
 			return nil
-		}
-		if topLevel != keptDir {
-			flushKept()
-			keptDir = topLevel
 		}
 		isTemplate := vars != nil && IsTemplateFile(rel)
 		out := rel
@@ -249,16 +259,21 @@ func ApplyCopy(projectRoot, worktreePath string, cfg *config.Config, dryRun bool
 		}
 		dest := filepath.Join(worktreePath, out)
 
-		if mode.keeps(rel, out) {
-			if _, statErr := os.Lstat(dest); statErr == nil {
-				if isNested {
-					keptInDir++
-				} else {
-					ui.Info(fmt.Sprintf("  kept %s (already in the worktree)", out))
-				}
-				kept++
-				return nil
+		info, statErr := os.Lstat(dest)
+		// Likewise a worktree directory where shared/copy has a file.
+		if statErr == nil && info.IsDir() {
+			ui.Warning(fmt.Sprintf("  kept %s: the worktree has a directory there", out))
+			kept++
+			return nil
+		}
+		if statErr == nil && mode.keeps(rel, out) {
+			if isNested {
+				keptInDir++
+			} else {
+				ui.Info(fmt.Sprintf("  kept %s (already in the worktree)", out))
 			}
+			kept++
+			return nil
 		}
 
 		if dryRun {

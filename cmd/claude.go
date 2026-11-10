@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -133,6 +134,11 @@ func runClaudeInit(cmd *cobra.Command, _ []string) error {
 		previewLink = os.IsNotExist(err)
 	}
 	for _, wt := range filtered {
+		if wt.Prunable {
+			// Applying would recreate the deleted directory.
+			ui.Warning(fmt.Sprintf("Skipping worktree %s: its directory is missing", cmp.Or(wt.Branch, wt.Path)))
+			continue
+		}
 		vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 		if _, err := project.Apply(projectRoot, wt.Path, cfg, dryRun, &vars, nil, project.KeepExisting); err != nil {
 			ui.Warning(fmt.Sprintf("Could not apply to worktree %s: %s", wt.Branch, err.Error()))

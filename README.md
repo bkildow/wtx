@@ -404,7 +404,7 @@ wtx apply feature/auth --force                        # Replace every shared/cop
 
 Copies [`.worktreeinclude`](#worktreeinclude) files the worktree is missing, then copies files from `shared/copy/` (with template substitution) and creates symlinks from `shared/symlink/`. Shows each file copied and symlink created, with a summary count.
 
-Files the worktree already has are kept and counted as `kept`, including the output of a `.template`. A `vendor/` or `node_modules/` the worktree has installed since is never reset to an older `shared/copy/` snapshot, while files missing from it are still filled in. To push a changed shared file, name it with `--overwrite <path>` (relative to the worktree root, repeatable; a directory covers everything below it). `--force` replaces every `shared/copy/` file. `wtx apply` runs no setup hooks.
+Files the worktree already has are kept and counted as `kept`, including the output of a `.template`. A `vendor/` or `node_modules/` the worktree has installed since is never reset to an older `shared/copy/` snapshot, while files missing from it are still filled in. To push a changed shared file, name it with `--overwrite <path>` (relative to the worktree root, repeatable; a directory covers everything below it). `--force` replaces every `shared/copy/` file. A file or directory of the worktree's own that is in the way of a shared one (a file where `shared/copy/` has a directory, or the reverse) is always kept, with a warning. `wtx apply` runs no setup hooks.
 
 `wtx apply` only targets worktrees wtx manages. In a checkout, the project root is the `.worktreeinclude` source, so `wtx apply main` refuses it.
 

@@ -91,7 +91,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 			totalResult.Kept += result.Kept
 			totalResult.Symlinked += result.Symlinked
 		}
-		reportApply(fmt.Sprintf("Applied shared files to %d of %d worktree(s)", applied, len(wts.Managed)), totalResult)
+		reportApply(fmt.Sprintf("Applied shared files to %d of %d worktree(s)", applied, len(wts.Managed)), totalResult, mode)
 		if failed > 0 {
 			return fmt.Errorf("apply failed for %d worktree(s): %w", failed, ErrReported)
 		}
@@ -116,7 +116,7 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	reportApply("Applied shared files to: "+name, result)
+	reportApply("Applied shared files to: "+name, result, mode)
 	return nil
 }
 
@@ -135,14 +135,14 @@ func applyCopyMode(cmd *cobra.Command, copyDir string) (project.CopyMode, error)
 }
 
 // reportApply prints the summary line, and how to replace the files apply
-// kept.
-func reportApply(prefix string, r project.ApplyResult) {
+// kept unless mode already replaced every one it could.
+func reportApply(prefix string, r project.ApplyResult, mode project.CopyMode) {
 	kept := ""
 	if r.Kept > 0 {
 		kept = fmt.Sprintf(", %d kept", r.Kept)
 	}
 	ui.Success(fmt.Sprintf("%s (%d included, %d copied%s, %d symlinked)", prefix, r.Included, r.Copied, kept, r.Symlinked))
-	if r.Kept > 0 {
+	if r.Kept > 0 && mode.Seed {
 		ui.Info("Shared files the worktree already had were kept; replace them with --overwrite <path> or --force")
 	}
 }

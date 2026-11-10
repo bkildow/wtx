@@ -567,3 +567,43 @@ func TestReplacePaths(t *testing.T) {
 		}
 	}
 }
+
+// A worktree file where shared/copy has a directory, or a worktree directory
+// where it has a file, is kept in every mode, and a dry run says so too.
+func TestApplyCopyKeepsFileDirClash(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		mode   CopyMode
+		dryRun bool
+	}{
+		{"replace", ReplaceExisting, false},
+		{"seed", KeepExisting, false},
+		{"seed dry run", KeepExisting, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			root, wt := t.TempDir(), t.TempDir()
+			copyDir := filepath.Join(root, "shared", "copy")
+			mustWrite(t, filepath.Join(copyDir, "conf", "app.yml"), "shared")
+			mustWrite(t, filepath.Join(copyDir, "data"), "shared")
+			mustWrite(t, filepath.Join(copyDir, "other.txt"), "shared")
+			mustWrite(t, filepath.Join(wt, "conf"), "own file")
+			mustWrite(t, filepath.Join(wt, "data", "x"), "own dir")
+			// A dangling link where shared/copy has a directory is kept too.
+			mustWrite(t, filepath.Join(copyDir, "gone", "f"), "shared")
+			if err := os.Symlink(filepath.Join(wt, "missing"), filepath.Join(wt, "gone")); err != nil {
+				t.Fatal(err)
+			}
+
+			cfg := &config.Config{SharedDir: config.DefaultSharedDir}
+			copied, kept, err := ApplyCopy(root, wt, cfg, tt.dryRun, nil, tt.mode)
+			if err != nil {
+				t.Fatalf("ApplyCopy error: %v", err)
+			}
+			if copied != 1 || kept != 3 {
+				t.Errorf("copied, kept = %d, %d; want 1, 3", copied, kept)
+			}
+			assertContent(t, filepath.Join(wt, "conf"), "own file")
+			assertContent(t, filepath.Join(wt, "data", "x"), "own dir")
+		})
+	}
+}
