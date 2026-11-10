@@ -3,6 +3,7 @@ package project
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/bkildow/wtx/internal/config"
@@ -25,7 +26,7 @@ func TestApplyCopy(t *testing.T) {
 	}
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	if _, err := ApplyCopy(root, wt, cfg, false, nil); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, false, nil, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy error: %v", err)
 	}
 
@@ -60,7 +61,7 @@ func TestApplyCopyDryRun(t *testing.T) {
 	}
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	if _, err := ApplyCopy(root, wt, cfg, true, nil); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, true, nil, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy dry-run error: %v", err)
 	}
 
@@ -90,7 +91,7 @@ func TestApplyCopyFastPathForDirectories(t *testing.T) {
 	}
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	count, err := ApplyCopy(root, wt, cfg, false, nil)
+	count, _, err := ApplyCopy(root, wt, cfg, false, nil, CopyMode{})
 	if err != nil {
 		t.Fatalf("ApplyCopy error: %v", err)
 	}
@@ -129,7 +130,7 @@ func TestApplyCopyFallsBackWhenTreeContainsTemplate(t *testing.T) {
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
 	vars := &TemplateVars{BranchName: "feat/x"}
-	if _, err := ApplyCopy(root, wt, cfg, false, vars); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, false, vars, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy error: %v", err)
 	}
 
@@ -169,7 +170,7 @@ func TestApplyCopyFastPathPreservedWhenVarsNil(t *testing.T) {
 	}
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	if _, err := ApplyCopy(root, wt, cfg, false, nil); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, false, nil, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy error: %v", err)
 	}
 
@@ -186,7 +187,7 @@ func TestApplyCopyMissingSharedDir(t *testing.T) {
 	wt := t.TempDir()
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	if _, err := ApplyCopy(root, wt, cfg, false, nil); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, false, nil, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy with missing dir should not error: %v", err)
 	}
 }
@@ -286,7 +287,7 @@ func TestApply(t *testing.T) {
 	}
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
-	if _, err := Apply(root, wt, cfg, false, nil, nil); err != nil {
+	if _, err := Apply(root, wt, cfg, false, nil, nil, CopyMode{}); err != nil {
 		t.Fatalf("Apply error: %v", err)
 	}
 
@@ -316,7 +317,7 @@ func TestApplyCopyWithTemplateVars(t *testing.T) {
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
 	vars := NewTemplateVars(root, wt, "feature/login")
-	if _, err := ApplyCopy(root, wt, cfg, false, &vars); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, false, &vars, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy with vars error: %v", err)
 	}
 
@@ -399,7 +400,7 @@ func TestApplyCopyNonTemplateFilesCopiedAsIs(t *testing.T) {
 
 	cfg := &config.Config{SharedDir: config.DefaultSharedDir}
 	vars := NewTemplateVars(root, wt, "feature/login")
-	if _, err := ApplyCopy(root, wt, cfg, false, &vars); err != nil {
+	if _, _, err := ApplyCopy(root, wt, cfg, false, &vars, CopyMode{}); err != nil {
 		t.Fatalf("ApplyCopy error: %v", err)
 	}
 
@@ -444,5 +445,125 @@ func TestPlannedSymlink(t *testing.T) {
 				t.Errorf("target = %q, want %q", target, want)
 			}
 		})
+	}
+}
+
+// seedFixture lays out shared/copy with a vendor-like tree, a top-level
+// file and a template, plus a worktree that already has a newer
+// vendor/pkg/b.txt, its own .aws and a rendered .env.
+func seedFixture(t *testing.T) (root, wt string, cfg *config.Config, vars *TemplateVars) {
+	t.Helper()
+	root, wt = t.TempDir(), t.TempDir()
+	copyDir := filepath.Join(root, "shared", "copy")
+	mustWrite(t, filepath.Join(copyDir, "vendor", "a.txt"), "shared a")
+	mustWrite(t, filepath.Join(copyDir, "vendor", "pkg", "b.txt"), "stale b")
+	mustWrite(t, filepath.Join(copyDir, ".aws"), "shared aws")
+	mustWrite(t, filepath.Join(copyDir, ".env.template"), "branch=${BRANCH_NAME}")
+	mustWrite(t, filepath.Join(wt, "vendor", "pkg", "b.txt"), "current b")
+	mustWrite(t, filepath.Join(wt, ".aws"), "own aws")
+	mustWrite(t, filepath.Join(wt, ".env"), "own env")
+	return root, wt, &config.Config{SharedDir: config.DefaultSharedDir}, &TemplateVars{BranchName: "feat"}
+}
+
+func assertContent(t *testing.T, path, want string) {
+	t.Helper()
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != want {
+		t.Errorf("%s = %q (err %v), want %q", path, got, err, want)
+	}
+}
+
+// Re-applying to an existing worktree fills in missing files but never
+// resets ones it already has, such as a vendor/ updated since the snapshot.
+func TestApplyCopySeedKeepsExistingFiles(t *testing.T) {
+	root, wt, cfg, vars := seedFixture(t)
+
+	copied, kept, err := ApplyCopy(root, wt, cfg, false, vars, CopyMode{Seed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 1 || kept != 3 {
+		t.Errorf("copied, kept = %d, %d; want 1, 3", copied, kept)
+	}
+	assertContent(t, filepath.Join(wt, "vendor", "a.txt"), "shared a")
+	assertContent(t, filepath.Join(wt, "vendor", "pkg", "b.txt"), "current b")
+	assertContent(t, filepath.Join(wt, ".aws"), "own aws")
+	assertContent(t, filepath.Join(wt, ".env"), "own env")
+}
+
+func TestApplyCopySeedReplacesNamedPaths(t *testing.T) {
+	tests := []struct {
+		name    string
+		replace []string
+		want    map[string]string // worktree path -> content
+	}{
+		{"a file", []string{".aws"}, map[string]string{".aws": "shared aws", "vendor/pkg/b.txt": "current b", ".env": "own env"}},
+		{"a directory", []string{"vendor"}, map[string]string{".aws": "own aws", "vendor/pkg/b.txt": "stale b"}},
+		{"a template's output", []string{".env"}, map[string]string{".env": "branch=feat", ".aws": "own aws"}},
+		{"a template by its own name", []string{".env.template"}, map[string]string{".env": "branch=feat"}},
+		{"a prefix that is not a parent", []string{"vend"}, map[string]string{"vendor/pkg/b.txt": "current b"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			root, wt, cfg, vars := seedFixture(t)
+			if _, _, err := ApplyCopy(root, wt, cfg, false, vars, CopyMode{Seed: true, Replace: tt.replace}); err != nil {
+				t.Fatal(err)
+			}
+			for rel, want := range tt.want {
+				assertContent(t, filepath.Join(wt, filepath.FromSlash(rel)), want)
+			}
+		})
+	}
+}
+
+// The zero value is what a fresh worktree gets: shared/copy replaces files
+// earlier layers (.worktreeinclude) put there.
+func TestApplyCopyZeroModeReplaces(t *testing.T) {
+	root, wt, cfg, vars := seedFixture(t)
+	copied, kept, err := ApplyCopy(root, wt, cfg, false, vars, CopyMode{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 4 || kept != 0 {
+		t.Errorf("copied, kept = %d, %d; want 4, 0", copied, kept)
+	}
+	assertContent(t, filepath.Join(wt, "vendor", "pkg", "b.txt"), "stale b")
+	assertContent(t, filepath.Join(wt, ".aws"), "shared aws")
+	assertContent(t, filepath.Join(wt, ".env"), "branch=feat")
+}
+
+func TestApplyCopySeedDryRun(t *testing.T) {
+	root, wt, cfg, vars := seedFixture(t)
+	copied, kept, err := ApplyCopy(root, wt, cfg, true, vars, CopyMode{Seed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 1 || kept != 3 {
+		t.Errorf("copied, kept = %d, %d; want 1, 3", copied, kept)
+	}
+	if _, err := os.Stat(filepath.Join(wt, "vendor", "a.txt")); err == nil {
+		t.Error("dry run copied vendor/a.txt")
+	}
+	assertContent(t, filepath.Join(wt, "vendor", "pkg", "b.txt"), "current b")
+}
+
+func TestReplacePaths(t *testing.T) {
+	copyDir := t.TempDir()
+	mustWrite(t, filepath.Join(copyDir, "vendor", "a.txt"), "a")
+	mustWrite(t, filepath.Join(copyDir, ".env.template"), "x")
+
+	got, err := ReplacePaths(copyDir, []string{"vendor/", "./vendor/a.txt", ".env", ".env.template"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"vendor", filepath.Join("vendor", "a.txt"), ".env", ".env.template"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("ReplacePaths = %v, want %v", got, want)
+	}
+
+	for _, bad := range []string{"missing", "/abs/vendor", "..", "../x", ".", "vendor/../..", "vendor/a.txt/typo"} {
+		if _, err := ReplacePaths(copyDir, []string{bad}); err == nil {
+			t.Errorf("ReplacePaths(%q) succeeded, want an error", bad)
+		}
 	}
 }

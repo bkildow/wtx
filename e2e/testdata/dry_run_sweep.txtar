@@ -36,6 +36,10 @@ exec wtx --dry-run add feature-new
 unchanged
 exec wtx --dry-run apply master
 unchanged
+exec wtx --dry-run apply master --force
+unchanged
+exec wtx --dry-run apply master --overwrite copied.txt
+unchanged
 exec wtx --dry-run setup master
 unchanged
 exec wtx --dry-run run probe

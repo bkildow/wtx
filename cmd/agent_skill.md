@@ -80,7 +80,7 @@ When `background_setup: true`, `wtx add` returns before setup finishes. Pass `--
 
 ## Shared files and templates
 
-Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. After changing them, run `wtx apply --all` (or `wtx apply <name>`) to update existing worktrees.
+Files under `shared/copy/` are copied into each new worktree, and entries under `shared/symlink/` are linked in. `wtx apply --all` (or `wtx apply <name>`) brings existing worktrees up to date: it links `shared/symlink/` entries but only copies `shared/copy/` files a worktree is missing, so a worktree's installed `vendor/` or edited `.env` is kept. After changing a `shared/copy/` file, push it with `wtx apply --all --overwrite <path>`; `--force` replaces every `shared/copy/` file, which can reset dependency directories to an older snapshot. `wtx apply` runs no setup hooks.
 
 To share an untracked local file with every worktree, run `wtx share <path> --symlink` (one file everyone reads and writes) or `wtx share <path> --copy` (a copy per worktree); always pass the path and one of the flags. In a checkout the file stays in the project root: `--symlink` links `shared/symlink/<path>` back to the root's file, and `--copy` appends `/<path>` to `.worktreeinclude`, which the user should commit. In a bare layout run it from inside the worktree that has the file; it moves (`--symlink`) or copies (`--copy`) the file into `shared/`. Worktrees that already have their own file at the path are left alone and listed in the output.
 

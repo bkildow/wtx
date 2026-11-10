@@ -148,8 +148,8 @@ func runShare(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// wtx apply replaces a worktree's own file, except for .worktreeinclude
-	// copies, which only seed.
+	// wtx apply links over a worktree's own file, and replaces a shared/copy
+	// one when named with --overwrite; .worktreeinclude copies only seed.
 	reportShare(rel, mode, outcomes, mode == shareSymlink || bare)
 	return nil
 }
@@ -319,7 +319,8 @@ func sharedElsewhere(sharedDir, rel, mode string) error {
 }
 
 // reportShare lists the worktrees that already had rel and prints a
-// summary. applyHint suggests wtx apply for a worktree that kept its own.
+// summary. applyHint suggests the wtx apply that gives a worktree that kept
+// its own file the shared one.
 func reportShare(rel, mode string, outcomes []project.ShareOutcome, applyHint bool) {
 	verb := "linked"
 	if mode == shareCopy {
@@ -337,7 +338,11 @@ func reportShare(rel, mode string, outcomes []project.ShareOutcome, applyHint bo
 		case project.ShareSkipped:
 			msg := fmt.Sprintf("  %s has its own %s; left it alone", name, rel)
 			if applyHint && o.Worktree.Branch != "" {
-				msg += fmt.Sprintf(" (remove it, then run 'wtx apply %s')", o.Worktree.Branch)
+				hint := fmt.Sprintf("remove it, then run 'wtx apply %s'", o.Worktree.Branch)
+				if mode == shareCopy {
+					hint = fmt.Sprintf("to replace it, run 'wtx apply %s --overwrite %s'", o.Worktree.Branch, ui.ShellQuote(rel))
+				}
+				msg += " (" + hint + ")"
 			}
 			ui.Warning(msg)
 		}

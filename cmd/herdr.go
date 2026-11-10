@@ -363,7 +363,7 @@ func runHerdrWorktreeCreated(cmd *cobra.Command, _ []string) error {
 	}
 
 	vars := project.NewTemplateVars(root, worktreePath, branch)
-	result, err := project.Apply(root, worktreePath, cfg, false, &vars, resolveIncludeSource(ctx, clone))
+	result, err := project.Apply(root, worktreePath, cfg, false, &vars, resolveIncludeSource(ctx, clone), project.ReplaceExisting)
 	if err != nil {
 		return err
 	}

@@ -398,9 +398,13 @@ Prints the absolute path to the project root (the directory containing `.worktre
 ```bash
 wtx apply feature/auth        # Apply shared files to one worktree
 wtx apply --all               # Apply to all worktrees
+wtx apply --all --overwrite .ddev/config.local.yaml   # Push one changed shared file
+wtx apply feature/auth --force                        # Replace every shared/copy file
 ```
 
 Copies [`.worktreeinclude`](#worktreeinclude) files the worktree is missing, then copies files from `shared/copy/` (with template substitution) and creates symlinks from `shared/symlink/`. Shows each file copied and symlink created, with a summary count.
+
+Files the worktree already has are kept and counted as `kept`, including the output of a `.template`. A `vendor/` or `node_modules/` the worktree has installed since is never reset to an older `shared/copy/` snapshot, while files missing from it are still filled in. To push a changed shared file, name it with `--overwrite <path>` (relative to the worktree root, repeatable; a directory covers everything below it). `--force` replaces every `shared/copy/` file. `wtx apply` runs no setup hooks.
 
 `wtx apply` only targets worktrees wtx manages. In a checkout, the project root is the `.worktreeinclude` source, so `wtx apply main` refuses it.
 
@@ -750,7 +754,7 @@ This is the layout `wtx clone` creates. `wtx init` adopts an existing checkout i
 
 **Bare or checkout layout?** In the Bare layout that `wtx clone` creates, the git data lives in `.bare/` and every branch, main included, is a worktree under `worktrees/`. The project root holds only configuration and shared resources, and every branch is handled the same way. In the Checkout layout that `wtx init` creates, your existing checkout stays at the project root as the main worktree: the repository gains only `.worktree.yml`, and worktrees and shared files live in `~/.wtx/<name>/`. Choose `wtx clone` for a fresh project you manage entirely through `wtx`; choose [`wtx init`](#wt-init) to keep an existing checkout and the tools already pointed at it.
 
-**Copy vs Symlink:** Files in `shared/copy/` are duplicated into each worktree (useful for `.env` files that vary per branch). Files in `shared/symlink/` are symlinked (useful for large directories like `node_modules` you only want to install once).
+**Copy vs Symlink:** Files in `shared/copy/` are duplicated into each new worktree (useful for `.env` files that vary per branch); `wtx apply` later fills in only what an existing worktree is missing. Files in `shared/symlink/` are symlinked (useful for large directories like `node_modules` you only want to install once).
 
 **Reflink copies:** On filesystems that support copy-on-write cloning — APFS on macOS, btrfs on Linux, and XFS formatted with `reflink=1` — `wtx` clones files in `shared/copy/` instead of reading and rewriting every byte. Clones share on-disk blocks with the source until one side is modified, so a 1 GB `vendor/` directory creates a new worktree in milliseconds and occupies no extra disk space. On other filesystems (ext4, NFS, tmpfs, cross-volume copies), `wtx` falls back to a normal byte-for-byte copy automatically — no configuration required. Docker bind mounts work fine with reflinked files.
 
@@ -862,8 +866,9 @@ secrets/
   missing.
 - **Apply order.** `wtx add`, `wtx apply`, and the `wtx claude init`
   WorktreeCreate hook apply `.worktreeinclude` first, then `shared/copy/`, then
-  `shared/symlink/`. Later layers win, so a file in `shared/copy/` replaces the
-  one copied from the main worktree.
+  `shared/symlink/`. On a new worktree later layers win, so a file in
+  `shared/copy/` replaces the one copied from the main worktree. On an existing
+  worktree, `wtx apply` keeps files it already has (see [`wtx apply`](#wt-apply)).
 - Files inside wtx's own directories (worktrees, `shared/`, `bin/`) are skipped.
   A missing `.worktreeinclude` is a no-op, and a failure to read it is a
   warning that does not block creating the worktree.

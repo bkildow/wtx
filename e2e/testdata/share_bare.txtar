@@ -43,5 +43,16 @@ stderr 'already exists'
 ! exec wtx share local.yml --symlink
 stderr 'already shared with --copy'
 
+# A worktree with its own copy is left alone, and the hint replaces it
+cp $WORK/own $WORK/project/worktrees/develop/other.yml
+cp $WORK/env other.yml
+exec wtx share other.yml --copy
+stderr 'develop has its own other\.yml; left it alone \(to replace it, run ''wtx apply develop --overwrite other\.yml''\)'
+cmp $WORK/project/worktrees/develop/other.yml $WORK/own
+exec wtx apply develop --overwrite other.yml
+cmp $WORK/project/worktrees/develop/other.yml other.yml
+
 -- env --
 SECRET=1
+-- own --
+mine

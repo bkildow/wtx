@@ -10,13 +10,49 @@ exec wtx add --skip-setup main
 
 # Create shared copy files
 cp $WORK/copiedfile.txt shared/copy/config.json
+mkdir shared/copy/vendor/pkg
+cp $WORK/stale shared/copy/vendor/pkg/lib.txt
+cp $WORK/stale shared/copy/vendor/new.txt
 
-# Apply to the worktree
+# Apply copies what the worktree is missing
 exec wtx apply main
-
-# Verify copy
-exists worktrees/main/config.json
 cmp worktrees/main/config.json shared/copy/config.json
+cmp worktrees/main/vendor/pkg/lib.txt $WORK/stale
+
+# Re-applying keeps files the worktree changed since, and fills in new ones
+cp $WORK/current worktrees/main/vendor/pkg/lib.txt
+cp $WORK/current worktrees/main/config.json
+rm worktrees/main/vendor/new.txt
+exec wtx --dry-run apply main
+stderr 'kept vendor/ \(1 already in the worktree\)'
+! exists worktrees/main/vendor/new.txt
+exec wtx apply main
+stderr '1 copied, 2 kept'
+stderr 'kept config\.json'
+stderr '--overwrite <path> or --force'
+cmp worktrees/main/vendor/pkg/lib.txt $WORK/current
+cmp worktrees/main/config.json $WORK/current
+exists worktrees/main/vendor/new.txt
+
+# --overwrite replaces only the named path
+exec wtx apply main --overwrite config.json
+cmp worktrees/main/config.json shared/copy/config.json
+cmp worktrees/main/vendor/pkg/lib.txt $WORK/current
+
+# A path shared/copy does not hold is refused before anything is written
+! exec wtx apply main --overwrite missing.txt
+stderr 'missing\.txt is not in'
+
+# --force replaces everything
+exec wtx apply main --force
+cmp worktrees/main/vendor/pkg/lib.txt $WORK/stale
+
+! exec wtx apply main --force --overwrite config.json
+stderr 'none of the others can be'
 
 -- copiedfile.txt --
 {"key": "value"}
+-- stale --
+old snapshot
+-- current --
+installed since

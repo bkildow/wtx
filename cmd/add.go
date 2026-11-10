@@ -134,7 +134,7 @@ func runAdd(cmd *cobra.Command, args []string) error {
 		ui.Warning("Could not list worktrees: " + err.Error())
 	}
 	include := includeSource(ctx, clone, wts)
-	result, err := project.Apply(projectRoot, worktreePath, cfg, dry, &vars, include)
+	result, err := project.Apply(projectRoot, worktreePath, cfg, dry, &vars, include, project.ReplaceExisting)
 	if err != nil {
 		return err
 	}

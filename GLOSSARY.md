@@ -85,7 +85,7 @@ The committed `.worktreeinclude` listing which ignored files from the Main workt
 _Avoid_: include list, worktree include
 
 **Seeding**:
-Copying a file into a worktree only when the worktree does not already have it.
+Copying a file into a worktree only when the worktree does not already have it. `.worktreeinclude` files are always seeded; `wtx apply` also seeds `shared/copy/` into existing worktrees.
 _Avoid_: syncing, applying (when no overwrite is meant)
 
 **Sharing**:
