@@ -1,0 +1,30 @@
+[!exec:git] skip 'git not available'
+
+setup-repo
+setup-project
+
+cd $WORK/project
+exec wtx add --skip-setup one
+exec wtx add --skip-setup two
+
+# shared/copy holds a directory where worktree "one" has a file, so applying
+# to it fails; --all still applies to "two", then exits unsuccessfully.
+mkdir shared/copy/conf
+cp $WORK/shared shared/copy/conf/app.yml
+cp $WORK/shared worktrees/one/conf
+
+! exec wtx apply --all
+stderr 'Could not apply to one'
+stderr 'Applied shared files to 1 of 2 worktree\(s\)'
+! stderr 'already reported'
+cmp worktrees/two/conf/app.yml $WORK/shared
+
+# A worktree whose directory was deleted is skipped, not recreated.
+rm worktrees/two
+! exec wtx apply --all
+stderr 'Skipping two: its directory'
+stderr 'Applied shared files to 0 of 2 worktree\(s\)'
+! exists worktrees/two
+
+-- shared --
+key: value

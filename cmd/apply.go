@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"cmp"
 	"fmt"
 	"path/filepath"
 
@@ -63,19 +64,37 @@ func runApply(cmd *cobra.Command, args []string) error {
 	if all {
 		include := includeSource(ctx, clone, wts)
 		var totalResult project.ApplyResult
+		paths := ui.NewPathDisplay(projectRoot)
+		applied, failed := 0, 0
 		for _, wt := range wts.Managed {
-			ui.Step("Applying to: " + wt.Branch)
+			// A detached worktree has no branch to name it by.
+			name := cmp.Or(wt.Branch, paths.Path(wt.Path))
+			if wt.Prunable {
+				// Applying would recreate the deleted directory as a plain
+				// folder of shared files.
+				ui.Warning(fmt.Sprintf("Skipping %s: its directory %s is missing", name, paths.Path(wt.Path)))
+				continue
+			}
+			ui.Step("Applying to: " + name)
 			vars := project.NewTemplateVars(projectRoot, wt.Path, wt.Branch)
 			result, err := project.Apply(projectRoot, wt.Path, cfg, dry, &vars, include, mode)
 			if err != nil {
-				return err
+				// Carry on, so one bad worktree never leaves the rest without
+				// their shared files.
+				ui.Error(fmt.Sprintf("Could not apply to %s: %v", name, err))
+				failed++
+				continue
 			}
+			applied++
 			totalResult.Included += result.Included
 			totalResult.Copied += result.Copied
 			totalResult.Kept += result.Kept
 			totalResult.Symlinked += result.Symlinked
 		}
-		reportApply(fmt.Sprintf("Applied shared files to %d worktree(s)", len(wts.Managed)), totalResult)
+		reportApply(fmt.Sprintf("Applied shared files to %d of %d worktree(s)", applied, len(wts.Managed)), totalResult)
+		if failed > 0 {
+			return fmt.Errorf("apply failed for %d worktree(s): %w", failed, ErrReported)
+		}
 		return nil
 	}
 
@@ -87,13 +106,17 @@ func runApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
+	name := cmp.Or(selected.Branch, ui.DisplayPath(projectRoot, selected.Path))
+	if selected.Prunable {
+		return fmt.Errorf("%s: its directory %s is missing", name, ui.DisplayPath(projectRoot, selected.Path))
+	}
 	vars := project.NewTemplateVars(projectRoot, selected.Path, selected.Branch)
 	result, err := project.Apply(projectRoot, selected.Path, cfg, dry, &vars, includeSource(ctx, clone, wts), mode)
 	if err != nil {
 		return err
 	}
 
-	reportApply("Applied shared files to: "+selected.Branch, result)
+	reportApply("Applied shared files to: "+name, result)
 	return nil
 }
 
