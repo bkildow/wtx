@@ -2,6 +2,8 @@ module github.com/bkildow/wtx
 
 go 1.26.0
 
+toolchain go1.26.11
+
 require (
 	charm.land/bubbles/v2 v2.2.1
 	charm.land/huh/v2 v2.0.3
