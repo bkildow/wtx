@@ -31,7 +31,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	}
 	projectRoot, cfg := clone.Root(), clone.Config()
 
-	if len(cfg.Setup) == 0 && len(cfg.ParallelSetup) == 0 {
+	if cfg.SetupHooks() == 0 {
 		ui.Info("No setup hooks configured in .worktree.yml")
 		return nil
 	}
@@ -57,7 +57,7 @@ func runSetup(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if state != nil && state.Status == project.SetupRunning {
+	if !state.Settled() {
 		return fmt.Errorf("setup already running for %s (PID %d) — check 'wtx status' or 'wtx logs %s'",
 			selected.Branch, state.PID, selected.Branch)
 	}

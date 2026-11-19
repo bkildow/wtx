@@ -203,14 +203,8 @@ func (s *inspection) states(root string) {
 		s.problem("setup.state", path, err)
 		return
 	}
-	switch state.Status {
-	case project.SetupRunning, project.SetupComplete, project.SetupFailed, project.SetupSkipped:
-	default:
-		s.problem("setup.state", path, fmt.Errorf("invalid setup status"))
-		return
-	}
-	if state.HooksCompleted < 0 || state.HooksTotal < 0 || state.HooksCompleted > state.HooksTotal || (state.Status == project.SetupRunning && state.PID <= 0) {
-		s.problem("setup.state", path, fmt.Errorf("invalid setup counters or process ID"))
+	if err := state.Validate(); err != nil {
+		s.problem("setup.state", path, err)
 		return
 	}
 	pid := state.PID
@@ -228,7 +222,7 @@ func (s *inspection) states(root string) {
 			}
 			return nil
 		})
-	case state.Status == project.SetupFailed:
+	case state.Failed():
 		s.add("setup.state", "fail", path, "Setup failed; logs have been retained.", "Review the setup log and rerun wtx setup when ready.")
 	default:
 		s.add("setup.state", "ok", path, "Setup status: "+string(state.Status)+".", "")

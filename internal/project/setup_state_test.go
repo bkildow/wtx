@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -263,5 +264,108 @@ func TestSetupLog(t *testing.T) {
 				t.Errorf("SetupLog() = %q, want %q", got, abs(tt.want))
 			}
 		})
+	}
+}
+
+// TestSetupLifecycle checks every edge of the setup lifecycle: running moves
+// to running, complete or failed, and settled records never change.
+func TestSetupLifecycle(t *testing.T) {
+	ops := map[string]func(*SetupState){
+		"progress":   func(s *SetupState) { s.Progress(1) },
+		"finish ok":  func(s *SetupState) { s.Finish(nil) },
+		"finish err": func(s *SetupState) { s.Finish(errors.New("hook failed")) },
+		"fail":       func(s *SetupState) { s.Fail("stopped") },
+	}
+	want := map[SetupStatus]map[string]SetupStatus{
+		SetupRunning:  {"progress": SetupRunning, "finish ok": SetupComplete, "finish err": SetupFailed, "fail": SetupFailed},
+		SetupComplete: {},
+		SetupFailed:   {},
+		SetupSkipped:  {},
+	}
+	for from, edges := range want {
+		for name, op := range ops {
+			t.Run(string(from)+"/"+name, func(t *testing.T) {
+				s := &SetupState{Status: from, PID: 1, HooksTotal: 2, Error: "before"}
+				before := *s
+				to, legal := edges[name]
+				op(s)
+				if !legal {
+					if *s != before {
+						t.Fatalf("illegal %s changed the record: %+v", name, *s)
+					}
+					return
+				}
+				if s.Status != to {
+					t.Fatalf("status = %s, want %s", s.Status, to)
+				}
+			})
+		}
+	}
+}
+
+func TestSetupFinishCompletesEveryHook(t *testing.T) {
+	for _, err := range []error{nil, errors.New("1 setup hook(s) failed")} {
+		s := StartForegroundSetup(1, 3)
+		s.Progress(1)
+		s.Finish(err)
+		if s.HooksCompleted != 3 || s.CompletedAt.IsZero() {
+			t.Errorf("Finish(%v) = %+v, want every hook completed and a completion time", err, s)
+		}
+		if err != nil && s.Error != err.Error() {
+			t.Errorf("Error = %q, want %q", s.Error, err)
+		}
+		if err := s.Validate(); err != nil {
+			t.Errorf("Validate after Finish: %v", err)
+		}
+	}
+}
+
+func TestSetupStartsAndSettles(t *testing.T) {
+	dir := t.TempDir()
+	tests := []struct {
+		name                string
+		state               *SetupState
+		settled, background bool
+	}{
+		{"no record", nil, true, false},
+		{"foreground", StartForegroundSetup(1, 2), false, false},
+		{"background", StartBackgroundSetup(dir, 1, 2), false, true},
+		{"skipped", SkipSetup(), true, false},
+	}
+	for _, tt := range tests {
+		if got := tt.state.Settled(); got != tt.settled {
+			t.Errorf("%s: Settled = %v, want %v", tt.name, got, tt.settled)
+		}
+		if tt.state != nil && tt.state.Background() != tt.background {
+			t.Errorf("%s: Background = %v, want %v", tt.name, tt.state.Background(), tt.background)
+		}
+	}
+}
+
+func TestSetupValidate(t *testing.T) {
+	tests := []struct {
+		name  string
+		state SetupState
+		ok    bool
+	}{
+		{"running", SetupState{Status: SetupRunning, PID: 1, HooksTotal: 2, HooksCompleted: 1}, true},
+		{"unknown status", SetupState{Status: "paused"}, false},
+		{"running without process", SetupState{Status: SetupRunning}, false},
+		{"more completed than total", SetupState{Status: SetupComplete, HooksTotal: 1, HooksCompleted: 2}, false},
+		{"negative total", SetupState{Status: SetupFailed, HooksTotal: -1}, false},
+	}
+	for _, tt := range tests {
+		if err := tt.state.Validate(); (err == nil) != tt.ok {
+			t.Errorf("%s: Validate = %v, want ok %v", tt.name, err, tt.ok)
+		}
+	}
+}
+
+func TestSetupFailReportsWhetherRunning(t *testing.T) {
+	if !StartForegroundSetup(1, 1).Fail("stopped") {
+		t.Error("Fail on a running setup = false, want true")
+	}
+	if SkipSetup().Fail("stopped") {
+		t.Error("Fail on a skipped setup = true, want false")
 	}
 }

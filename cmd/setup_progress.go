@@ -22,14 +22,14 @@ func setupReport(id string, snap project.SetupSnapshot) termstatus.Report {
 		r.State, r.Msg = termstatus.Working, snap.Branch+": waiting for setup to start"
 	case s == nil:
 		r.State, r.Msg = termstatus.Done, snap.Branch+": no setup recorded"
-	case s.Status == project.SetupRunning && s.HooksTotal <= 0:
+	case !s.Settled() && s.HooksTotal <= 0:
 		r.State, r.Msg = termstatus.Working, snap.Branch+": setup running"
-	case s.Status == project.SetupRunning:
+	case !s.Settled():
 		r.State, r.Msg = termstatus.Working, fmt.Sprintf("%s: hook %d/%d", snap.Branch, min(s.HooksCompleted+1, s.HooksTotal), s.HooksTotal)
 		if pct, ok := s.Percent(); ok {
 			r.Progress = termstatus.Percent(pct)
 		}
-	case s.Status == project.SetupFailed:
+	case s.Failed():
 		reason, _, _ := strings.Cut(s.Error, "\n")
 		r.State, r.Msg = termstatus.Error, snap.Branch+": setup failed: "+reason
 	case s.Status == project.SetupSkipped:
@@ -49,7 +49,7 @@ func rollupReport(snaps []project.SetupSnapshot) termstatus.Report {
 	for _, s := range snaps {
 		pending = pending || s.Pending
 		switch {
-		case s.State != nil && s.State.Status == project.SetupFailed:
+		case s.State.Failed():
 			failed = append(failed, s.Branch)
 		case s.Settled():
 			ready++

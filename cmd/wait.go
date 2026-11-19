@@ -102,7 +102,7 @@ func runWait(cmd *cobra.Command, args []string) error {
 	}
 
 	cfg := clone.Config()
-	expectSetup := len(cfg.Setup)+len(cfg.ParallelSetup) > 0
+	expectSetup := cfg.SetupHooks() > 0
 	targets := make([]project.SetupTarget, len(selected))
 	for i, wt := range selected {
 		targets[i] = project.SetupTarget{Branch: wt.Branch, Path: wt.Path, ExpectSetup: expectSetup}
@@ -178,7 +178,7 @@ func waitTargets(args []string, all bool, managed []git.WorktreeInfo) ([]git.Wor
 func waitExitCode(snaps []project.SetupSnapshot, timedOut bool) int {
 	unsettled := false
 	for _, s := range snaps {
-		if s.State != nil && s.State.Status == project.SetupFailed {
+		if s.State.Failed() {
 			return exitSetupFailed
 		}
 		if !s.Settled() {
@@ -278,10 +278,10 @@ func printWaitResult(snaps []project.SetupSnapshot, code int) {
 			ui.Warning(setupReport("", s).Msg + " (still running)")
 		case st == nil, st.Status == project.SetupSkipped:
 			ui.Info(setupReport("", s).Msg)
-		case st.Status == project.SetupFailed && !project.IsDirOrLinkToDir(s.Path):
+		case st.Failed() && !project.IsDirOrLinkToDir(s.Path):
 			// Neither wtx logs nor wtx setup can help a removed worktree.
 			ui.Warning(setupReport("", s).Msg)
-		case st.Status == project.SetupFailed:
+		case st.Failed():
 			ui.Warning(setupFailureHint(s.Branch, newSetupJSON(s.Path, st)))
 		case !st.StartedAt.IsZero() && !st.CompletedAt.IsZero():
 			ui.Success(s.Branch + ": setup completed in " + ui.FormatDuration(st.CompletedAt.Sub(st.StartedAt)))

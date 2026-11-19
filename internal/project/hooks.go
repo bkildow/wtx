@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/bkildow/wtx/internal/config"
 	"github.com/bkildow/wtx/internal/ui"
@@ -120,19 +119,13 @@ func RunSetupHooks(ctx context.Context, cfg *config.Config, env ProjectEnv, dryR
 // It calls record after every change. The caller records the starting state.
 func RunRecordedSetup(ctx context.Context, cfg *config.Config, env ProjectEnv, dryRun bool, state *SetupState, record func()) error {
 	err := RunSetupHooks(ctx, cfg, env, dryRun, func(index int, _ string, _ error) {
-		state.HooksCompleted = index + 1
+		state.Progress(index + 1)
 		record()
 	})
 	if pErr := RunParallelSetupHooks(ctx, cfg, env, dryRun); pErr != nil {
 		err = errors.Join(err, pErr)
 	}
-	state.HooksCompleted = state.HooksTotal
-	state.CompletedAt = time.Now()
-	state.Status = SetupComplete
-	if err != nil {
-		state.Status = SetupFailed
-		state.Error = err.Error()
-	}
+	state.Finish(err)
 	record()
 	return err
 }

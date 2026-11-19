@@ -134,7 +134,7 @@ func terminateBackgroundSetup(worktreePath, branch string, dryRun bool) {
 	if err != nil || state == nil {
 		return
 	}
-	if state.Status != project.SetupRunning || state.LogFile == "" {
+	if state.Settled() || !state.Background() {
 		return
 	}
 

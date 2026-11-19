@@ -2,10 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	lipgloss "charm.land/lipgloss/v2"
 	"github.com/bkildow/wtx/internal/project"
@@ -58,23 +58,21 @@ func runRunSetup(cmd *cobra.Command, _ []string) error {
 	ui.Output = cpw
 	lipgloss.Writer = cpw
 
-	state := &project.SetupState{
-		Status:     project.SetupRunning,
-		PID:        os.Getpid(),
-		StartedAt:  time.Now(),
-		HooksTotal: len(cfg.Setup) + len(cfg.ParallelSetup),
-		LogFile:    project.SetupLogPath(worktreePath),
+	// Wait until the launching wtx has recorded the run's start (it closes
+	// our stdin), so that record never lands on top of this one. A terminal
+	// stdin (a hand-run _run-setup) has no launcher to wait for.
+	if info, err := os.Stdin.Stat(); err == nil && info.Mode()&os.ModeCharDevice == 0 {
+		_, _ = io.Copy(io.Discard, os.Stdin)
 	}
+
+	state := project.StartBackgroundSetup(worktreePath, os.Getpid(), cfg.SetupHooks())
 	if err := project.WriteSetupState(worktreePath, state); err != nil {
 		return err
 	}
 
-	// Mark setup as failed if we exit while still "running" (e.g., signal, panic).
+	// Mark setup as failed if we exit while still running (e.g., signal, panic).
 	defer func() {
-		if state.Status == project.SetupRunning {
-			state.Status = project.SetupFailed
-			state.Error = "setup process terminated unexpectedly"
-			state.CompletedAt = time.Now()
+		if state.Fail("setup process terminated unexpectedly") {
 			_ = project.WriteSetupState(worktreePath, state)
 		}
 	}()
