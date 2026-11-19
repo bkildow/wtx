@@ -370,7 +370,7 @@ func runHerdrWorktreeCreated(cmd *cobra.Command, _ []string) error {
 	msg := fmt.Sprintf("Prepared herdr worktree %s (%d included, %d copied, %d symlinked)",
 		branch, result.Included, result.Copied, result.Symlinked)
 
-	if len(cfg.Setup) == 0 && len(cfg.ParallelSetup) == 0 {
+	if cfg.SetupHooks() == 0 {
 		ui.Success(msg)
 		return nil
 	}

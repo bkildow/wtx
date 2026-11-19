@@ -142,17 +142,12 @@ func runAdd(cmd *cobra.Command, args []string) error {
 	msg := fmt.Sprintf("Worktree created: %s (%d included, %d copied, %d symlinked)",
 		ui.DisplayPath(projectRoot, worktreePath), result.Included, result.Copied, result.Symlinked)
 
-	hasHooks := len(cfg.Setup) > 0 || len(cfg.ParallelSetup) > 0
+	hasHooks := cfg.SetupHooks() > 0
 	skipSetup, _ := cmd.Flags().GetBool("skip-setup")
 
 	if skipSetup && hasHooks {
 		if !dry {
-			state := &project.SetupState{
-				Status:      project.SetupSkipped,
-				StartedAt:   time.Now(),
-				CompletedAt: time.Now(),
-			}
-			if err := project.WriteSetupState(worktreePath, state); err != nil {
+			if err := project.WriteSetupState(worktreePath, project.SkipSetup()); err != nil {
 				ui.Warning("Failed to write setup state: " + err.Error())
 			}
 		}
@@ -226,18 +221,12 @@ func resolveBackgroundMode(cmd *cobra.Command, cfg *config.Config) (bool, error)
 func runSetupForeground(cmd *cobra.Command, cfg *config.Config, env project.ProjectEnv, dry bool, msg string) error {
 	ctx := cmd.Context()
 	worktreePath := env.Vars.WorktreePath
-	startedAt := time.Now()
 
 	// Record progress as background setup does, so wtx wait and wtx status
-	// see a foreground run too, and report it to this terminal. An empty
-	// LogFile marks the run as foreground: wtx remove leaves it alone.
+	// see a foreground run too, and report it to this terminal. wtx remove
+	// leaves a foreground run alone.
 	var term *termstatus.Terminal
-	state := &project.SetupState{
-		Status:     project.SetupRunning,
-		PID:        os.Getpid(),
-		StartedAt:  startedAt,
-		HooksTotal: len(cfg.Setup) + len(cfg.ParallelSetup),
-	}
+	state := project.StartForegroundSetup(os.Getpid(), cfg.SetupHooks())
 	snap := project.SetupSnapshot{SetupTarget: project.SetupTarget{Branch: env.Vars.BranchName, Path: worktreePath}, State: state}
 	record := func() {
 		term.Report(setupReport("", snap))
@@ -255,7 +244,7 @@ func runSetupForeground(cmd *cobra.Command, cfg *config.Config, env project.Proj
 
 	setupErr := project.RunRecordedSetup(ctx, cfg, env, dry, state, record)
 
-	elapsed := ui.FormatDuration(time.Since(startedAt))
+	elapsed := ui.FormatDuration(time.Since(state.StartedAt))
 	if setupErr != nil {
 		ui.Warning(msg + " — setup hooks failed after " + elapsed)
 	} else {
@@ -266,8 +255,6 @@ func runSetupForeground(cmd *cobra.Command, cfg *config.Config, env project.Proj
 }
 
 func runSetupBackground(projectRoot, worktreePath, branch string, cfg *config.Config, dry bool, msg string) error {
-	hooksTotal := len(cfg.Setup) + len(cfg.ParallelSetup)
-
 	if dry {
 		ui.DryRunNotice("would launch background setup process")
 		ui.Success(msg)
@@ -296,25 +283,32 @@ func runSetupBackground(projectRoot, worktreePath, branch string, cfg *config.Co
 		return fmt.Errorf("failed to open %s: %w", os.DevNull, err)
 	}
 	defer func() { _ = devNull.Close() }()
-	child.Stdin = devNull
 	child.Stdout = devNull
 	child.Stderr = devNull
 
-	if err := child.Start(); err != nil {
+	// The child reads stdin to EOF before it writes its own record, so the
+	// run's start record below always lands first and can never overwrite
+	// the child's progress or outcome. Closing gate releases the child, and
+	// so does this process dying.
+	release, gate, err := os.Pipe()
+	if err != nil {
+		return fmt.Errorf("failed to start background setup: %w", err)
+	}
+	child.Stdin = release
+
+	err = child.Start()
+	_ = release.Close()
+	if err != nil {
+		_ = gate.Close()
 		return fmt.Errorf("failed to start background setup: %w", err)
 	}
 
-	// Write initial state with the real PID (child will overwrite with progress).
-	state := &project.SetupState{
-		Status:     project.SetupRunning,
-		PID:        child.Process.Pid,
-		StartedAt:  time.Now(),
-		HooksTotal: hooksTotal,
-		LogFile:    project.SetupLogPath(worktreePath),
-	}
-	if err := project.WriteSetupState(worktreePath, state); err != nil {
+	// Record the start with the child's PID, so wtx wait sees the run before
+	// the child gets going.
+	if err := project.WriteSetupState(worktreePath, project.StartBackgroundSetup(worktreePath, child.Process.Pid, cfg.SetupHooks())); err != nil {
 		ui.Warning("Failed to write setup state: " + err.Error())
 	}
+	_ = gate.Close()
 
 	ui.Success(msg)
 	ui.Step("Setup is running in the background. Run 'wtx wait " + branch + "' to wait for it or 'wtx logs " + branch + "' to see its output.")

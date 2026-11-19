@@ -132,6 +132,11 @@ func (c *Config) IsCheckoutLayout() bool {
 	return filepath.Base(c.GitDir) == ".git"
 }
 
+// SetupHooks is the number of setup hooks, serial and parallel, configured.
+func (c *Config) SetupHooks() int {
+	return len(c.Setup) + len(c.ParallelSetup)
+}
+
 // HasTeardown reports whether any teardown hooks, serial or parallel, are
 // configured.
 func (c *Config) HasTeardown() bool {

@@ -92,9 +92,9 @@ func readSetupSnapshot(t SetupTarget, prev *SetupState) SetupSnapshot {
 	state := ObserveSetupState(t.Path)
 	switch {
 	case state == nil && !exists(t.Path):
-		snap.State = failedSetupState("worktree was removed")
-	case state == nil && prev != nil && prev.Status == SetupRunning:
-		snap.State = failedSetupState("setup state disappeared")
+		snap.State = failedObservation("worktree was removed", time.Now())
+	case state == nil && !prev.Settled():
+		snap.State = failedObservation("setup state disappeared", time.Now())
 	case state == nil:
 		snap.Pending = t.ExpectSetup && worktreeAge(t.Path) < SetupStartGrace
 	default:
@@ -116,10 +116,6 @@ func worktreeAge(path string) time.Duration {
 func exists(path string) bool {
 	_, err := os.Stat(path)
 	return !errors.Is(err, os.ErrNotExist)
-}
-
-func failedSetupState(reason string) *SetupState {
-	return &SetupState{Status: SetupFailed, Error: reason, CompletedAt: time.Now()}
 }
 
 func snapshotChanged(a, b SetupSnapshot) bool {

@@ -688,6 +688,6 @@ func hasSubmodules(worktree string) bool {
 }
 
 func setupRunning(worktree string) bool {
-	state, err := project.ReadSetupState(worktree)
-	return err == nil && state != nil && state.Status == project.SetupRunning && project.IsProcessAlive(state.PID)
+	state, err := project.ResolveSetupStatus(worktree)
+	return err == nil && !state.Settled()
 }
