@@ -1,0 +1,17 @@
+[!exec:git] skip 'git not available'
+
+setup-repo develop
+setup-project
+
+cd $WORK/project
+
+# The branch argument completes remote branches, without the "origin/" prefix
+exec wtx __complete add ''
+stdout '^develop$'
+stdout '^master$'
+stdout '^:4$'
+
+# Nothing after the first argument
+exec wtx __complete add develop ''
+! stdout 'master'
+stdout '^:4$'
